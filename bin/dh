@@ -16,7 +16,8 @@ show_help() {
   printf '  tunnel list      Lista túneles configurados\n'
   printf '  update           Actualiza el harness desde Git\n'
   printf '  project init     Asistente para nuevo proyecto\n'
-  printf '  session scaffold <issue>  Crea plantilla de brief (sin Linear aún)\n'
+  printf '  session scaffold <issue>  Crea plantilla de brief\n'
+  printf '  session read <issue>      Lee issue desde Linear API\n'
   printf '  engram-service   Instala/systemd user service para Engram\n'
   printf '  preflight        Contexto completo del proyecto (JSON)\n'
   printf '  context          Detecta el contexto del proyecto actual\n'
@@ -338,25 +339,92 @@ with open(tmp_path, 'w') as f:
 }
 
 session_start() {
-  local subcmd=${1:-scaffold}
+  local subcmd=${1:-help}
   local issue_id=${2:-}
 
-  if [[ "$subcmd" != "scaffold" ]]; then
-    # Accept bare issue ID as positional arg (backward compat)
-    issue_id=$subcmd
-    subcmd=scaffold
+  if [[ "$subcmd" == "scaffold" || "$subcmd" == "read" ]] && [[ -z "$issue_id" ]]; then
+    printf 'Uso: dh session %s <issue-id>\n' "$subcmd"
+    printf '  Ej: dh session %s ENG-123\n' "$subcmd"
+    exit 1
   fi
 
-  if [[ -z "$issue_id" ]]; then
-    printf 'Uso: dh session scaffold <issue-id>\n'
-    printf '  Ej: dh session scaffold ENG-123\n'
-    printf '  (scaffold crea una plantilla; la integración Linear está pendiente)\n'
-    exit 1
+  if [[ "$subcmd" == "help" || "$subcmd" == "--help" || "$subcmd" == "-h" ]]; then
+    printf 'Uso: dh session <subcomando> <issue-id>\n\n'
+    printf 'Subcomandos:\n'
+    printf '  scaffold <issue-id>  Crea plantilla de brief (sin API)\n'
+    printf '  read <issue-id>      Lee issue desde Linear API (si hay token)\n\n'
+    printf 'Para read: configura LINEAR_API_KEY como variable de entorno\n'
+    printf '  o crea ~/.config/daniel-harness/secrets/tokens/linear.token\n'
+    return
   fi
 
   local session_file="$HARNESS_DIR/sessions/$issue_id.md"
   mkdir -p "$HARNESS_DIR/sessions"
 
+  if [[ "$subcmd" == "read" ]]; then
+    local token=""
+    local token_file="$HARNESS_DIR/secrets/tokens/linear.token"
+    if [[ -n "${LINEAR_API_KEY:-}" ]]; then
+      token="$LINEAR_API_KEY"
+    elif [[ -f "$token_file" ]]; then
+      token=$(cat "$token_file" | tr -d '[:space:]')
+    fi
+
+    if [[ -z "$token" ]]; then
+      printf '[aviso] No hay token Linear. Usa LINEAR_API_KEY o %s\n' "$token_file" >&2
+      printf 'Fallback a scaffold...\n\n' >&2
+      subcmd=scaffold
+    else
+      local graphql
+      graphql='{"query":"query($id: String!) { issue(id: $id) { title description identifier priority orderBy state { name type } assignee { name email } labels { nodes { name } } parent { id title identifier } children { nodes { id title identifier state { name } } } comments { nodes { body createdAt user { name } } } } }","variables":{"id":"'"$issue_id"'"}}'
+      local response
+      response=$(curl -s -X POST "https://api.linear.app/graphql" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: $token" \
+        -d "$graphql" 2>/dev/null || echo '{"data":null}')
+
+      local error_msg
+      error_msg=$(echo "$response" | jq -r '.errors[0].message // ""')
+      if [[ -n "$error_msg" ]]; then
+        printf '[error] Linear API: %s\n' "$error_msg" >&2
+        printf 'Fallback a scaffold...\n\n' >&2
+        subcmd=scaffold
+      else
+        local title description identifier state assignee
+        title=$(echo "$response" | jq -r '.data.issue.title // "Sin título"')
+        identifier=$(echo "$response" | jq -r '.data.issue.identifier // "'"$issue_id"'"')
+        description=$(echo "$response" | jq -r '.data.issue.description // "Sin descripción"')
+        state=$(echo "$response" | jq -r '.data.issue.state.name // "Unknown"')
+        assignee=$(echo "$response" | jq -r '.data.issue.assignee.name // "Sin asignar"')
+
+        {
+          printf '# Sesión: %s — %s\n\n' "$identifier" "$title"
+          printf 'Iniciada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+          printf '## Tarea\n\n'
+          printf 'ID: %s | Estado: %s | Asignado: %s\n\n' "$identifier" "$state" "$assignee"
+          printf '### Descripción\n\n%s\n\n' "$description"
+          printf '## Contexto\n\n'
+          detect_context
+          printf '\n## Objetivo\n\n- \n'
+          printf '\n## Criterios de aceptación\n\n- \n'
+          printf '\n## Archivos afectados\n\n- \n'
+        } > "$session_file"
+
+        # Extract children info
+        local children_count
+        children_count=$(echo "$response" | jq '.data.issue.children.nodes | length // 0')
+        if (( children_count > 0 )); then
+          printf '\n## Subtareas\n\n' >> "$session_file"
+          echo "$response" | jq -r '.data.issue.children.nodes[] | "- \(.identifier): \(.title) [\(.state.name)]"' >> "$session_file"
+        fi
+
+        printf '[ok] Brief leído de Linear: %s\n' "$session_file"
+        return
+      fi
+    fi
+  fi
+
+  # Scaffold (template) — también usado como fallback
   {
     printf '# Sesión: %s\n\n' "$issue_id"
     printf 'Iniciada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
