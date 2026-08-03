@@ -67,8 +67,8 @@ if ! DANIEL_HARNESS_CONFIG_DIR="$CONFIG_DIR" \
   exit 1
 fi
 
-grep -F '[mcp] nombre=synthetic-local habilitado=true tipo=local estado=disponible' "$OUTPUT" >/dev/null
-grep -F '[mcp] nombre=synthetic-remote habilitado=false tipo=remote estado=no-probado' "$OUTPUT" >/dev/null
+grep -F '[mcp] nombre=synthetic-local habilitado=true tipo=local' "$OUTPUT" >/dev/null
+grep -F '[mcp] nombre=synthetic-remote habilitado=false tipo=remote estado=deshabilitado' "$OUTPUT" >/dev/null
 grep -F 'No se detectaron patrones soportados de secretos hardcodeados' "$OUTPUT" >/dev/null
 grep -F 'Falta el túnel synthetic-tunnel (127.0.0.1:65534)' "$OUTPUT" >/dev/null
 grep -F "Ejecuta: bash $CONFIG_DIR/secrets/tunnels/synthetic.command" "$OUTPUT" >/dev/null

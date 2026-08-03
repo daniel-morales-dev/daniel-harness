@@ -8,13 +8,27 @@ OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-"$OPENCODE_CONFIG_DIR/opencode.json"}
 REPOSITORY_DIR=${DANIEL_HARNESS_REPO:-"$ROOT_DIR"}
 STRICT=false
+PROFILE=
 WARNINGS=0
 CRITICAL=0
+
+# ponytail: hardcoded matrix, source of truth is bootstrap/manifest.yaml
+PROFILE_TOOLS_required="core:opencode gentle-ai engram codegraph rtk dh
+alegra:opencode gentle-ai engram codegraph rtk dh gh aws
+migration:opencode gentle-ai engram codegraph rtk dh gh aws docker
+full:opencode gentle-ai engram codegraph rtk dh gh aws docker"
+
+PROFILE_MCPS_required="core:codegraph engram
+alegra:codegraph engram linear context7 wiki-alegra github
+migration:codegraph engram linear context7 wiki-alegra github mcp-raia-lib
+full:codegraph engram linear context7 wiki-alegra github mcp-raia-lib sentry"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --strict) STRICT=true; shift ;;
-    --help|-h) printf 'Uso: doctor.sh [--strict]\n'; exit 0 ;;
+    --profile) PROFILE=$2; shift 2 ;;
+    --profile=*) PROFILE=${1#*=}; shift ;;
+    --help|-h) printf 'Uso: doctor.sh [--strict] [--profile core|alegra|migration|full]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -23,14 +37,29 @@ ok() { printf '[ok] %s\n' "$*"; }
 warn() { printf '[aviso] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
 critical() { printf '[crítico] %s\n' "$*"; CRITICAL=$((CRITICAL + 1)); }
 
+get_profile_tools() {
+  local p=$1
+  echo "$PROFILE_TOOLS_required" | awk -F: -v p="$p" '$1 == p { print $2 }'
+}
+
+get_profile_mcps() {
+  local p=$1
+  echo "$PROFILE_MCPS_required" | awk -F: -v p="$p" '$1 == p { print $2 }'
+}
+
 tool_status() {
   local label=$1
   local command_name=$2
+  local severity=${3:-warn}
 
   if command -v "$command_name" >/dev/null 2>&1; then
     ok "$label disponible"
   else
-    warn "$label no encontrado"
+    if [[ $severity == critical ]]; then
+      critical "$label no encontrado (requerido por perfil $PROFILE)"
+    else
+      warn "$label no encontrado"
+    fi
   fi
 }
 
@@ -212,21 +241,45 @@ has_restricted_models() {
   [[ -f "$harness_config" ]] && grep -Eiq '^[[:space:]]*trust:[[:space:]]*restricted[[:space:]]*$' "$harness_config"
 }
 
+check_mcp_live() {
+  local name=$1
+  if ! command -v opencode >/dev/null 2>&1; then
+    echo "opencode-no-instalado"
+    return
+  fi
+  local debug_out
+  debug_out=$(opencode mcp debug "$name" 2>&1 || true)
+  if echo "$debug_out" | grep -qiE '(connected|healthy|ok|running)'; then
+    echo "connected"
+  elif echo "$debug_out" | grep -qi 'auth'; then
+    echo "auth-required"
+  elif [[ -z "$debug_out" || "$debug_out" == *"not found"* ]]; then
+    echo "desconocido"
+  else
+    echo "inaccesible"
+  fi
+}
+
 print_mcp_status() {
-  local row name enabled kind executable status
+  local row name enabled kind executable status live
 
   while IFS= read -r row; do
     IFS=$'\t' read -r name enabled kind executable <<<"$row"
     status=configurado
+    live=
 
-    if [[ $kind == local && -n $executable ]]; then
+    if [[ $enabled == false ]]; then
+      status=deshabilitado
+    elif [[ $kind == local && -n $executable ]]; then
       if command -v "$executable" >/dev/null 2>&1; then
-        status=disponible
+        live=$(check_mcp_live "$name")
+        status=$live
       else
         status=comando-no-encontrado
       fi
     elif [[ $kind == remote ]]; then
-      status=no-probado
+      live=$(check_mcp_live "$name")
+      status=$live
     fi
 
     printf '[mcp] nombre=%s habilitado=%s tipo=%s estado=%s\n' "$name" "$enabled" "$kind" "$status"
@@ -274,7 +327,45 @@ check_gentle_ai() {
   fi
 }
 
-printf 'Diagnóstico de Daniel Harness\n\n'
+validate_profile_agents() {
+  local agent_dir="$OPENCODE_CONFIG_DIR/agents"
+  local required=("alegra-microservice-engineer" "code-reviewer" "alegra-microservice-test-engineer" "php-engineer" "migration-parity-reviewer")
+  local missing=0
+
+  for agent in "${required[@]}"; do
+    if [[ -f "$agent_dir/$agent.md" || -L "$agent_dir/$agent.md" ]]; then
+      ok "Agente $agent presente"
+    else
+      critical "Agente $agent no encontrado (requerido)"
+      missing=$((missing + 1))
+    fi
+  done
+
+  if [[ -L "$agent_dir/senior-engineer.md" ]]; then
+    warn "Agente legacy senior-engineer todavía presente; ejecuta install.sh para limpiar"
+  fi
+  if [[ -L "$agent_dir/test-engineer.md" ]]; then
+    warn "Agente legacy test-engineer todavía presente; ejecuta install.sh para limpiar"
+  fi
+}
+
+validate_profile_skills() {
+  local skill_dir="$OPENCODE_CONFIG_DIR/skills"
+  local required=("monolith-to-micro-migration" "task-lifecycle")
+
+  for skill in "${required[@]}"; do
+    if [[ -d "$skill_dir/$skill" || -L "$skill_dir/$skill" ]]; then
+      ok "Skill $skill presente"
+    else
+      critical "Skill $skill no encontrada (requerida)"
+    fi
+  done
+}
+
+printf 'Diagnóstico de Daniel Harness\n'
+if [[ -n "$PROFILE" ]]; then
+  printf 'Perfil: %s\n\n' "$PROFILE"
+fi
 
 printf 'Herramientas\n'
 tool_status Git git
@@ -294,12 +385,27 @@ else
   warn 'Cliente MariaDB/MySQL no encontrado'
 fi
 
+if [[ -n "$PROFILE" ]]; then
+  printf '\nValidación de perfil %s\n' "$PROFILE"
+  profile_tools=$(get_profile_tools "$PROFILE")
+  if [[ -n "$profile_tools" ]]; then
+    for tool in $profile_tools; do
+      tool_status "$tool" "$tool" critical
+    done
+  fi
+fi
+
 printf '\nConfiguración\n'
 check_permissions "$HARNESS_CONFIG_DIR" directorio
 check_permissions "$HARNESS_CONFIG_DIR/secrets" directorio
 check_permissions "$HARNESS_CONFIG_DIR/config.yaml" archivo
 check_permissions "$HARNESS_CONFIG_DIR/connections.yaml" archivo
 check_permissions "$HARNESS_CONFIG_DIR/project-registry.yaml" archivo
+
+if [[ -n "$PROFILE" ]]; then
+  validate_profile_agents
+  validate_profile_skills
+fi
 
 printf '\nMCPs de OpenCode\n'
 if [[ ! -f "$OPENCODE_CONFIG_FILE" ]]; then
@@ -314,7 +420,6 @@ else
   if has_hardcoded_sensitive_values; then
     critical 'OpenCode contiene valores sensibles hardcodeados; no se mostraron los valores'
   else
-    # jq -e retorna 1 para "sin hallazgos" y 2+ ante errores de evaluación.
     jq_status=$?
     if (( jq_status == 1 )); then
       ok 'No se detectaron patrones soportados de secretos hardcodeados en OpenCode'
@@ -333,13 +438,24 @@ else
       fi
     fi
 
-    # Audit agent markdowns for bash:allow under restricted trust
     agent_dir="$OPENCODE_CONFIG_DIR/agents"
     if [[ -d "$agent_dir" ]]; then
       for agent_file in "$agent_dir/"*.md; do
         [[ -f "$agent_file" ]] || continue
         if grep -Eq '^\s+bash:\s+(allow|ask)$' "$agent_file" 2>/dev/null; then
           critical "Agente $(basename "$agent_file" .md) tiene bash sin wildcard deny con modelos restricted"
+        fi
+      done
+    fi
+  fi
+
+  if [[ -n "$PROFILE" ]]; then
+    profile_mcps=$(get_profile_mcps "$PROFILE")
+    if [[ -n "$profile_mcps" ]]; then
+      for mcp in $profile_mcps; do
+        configured=$(jq --arg n "$mcp" '.mcp // {} | has($n)' "$OPENCODE_CONFIG_FILE" 2>/dev/null || false)
+        if [[ $configured == false ]]; then
+          critical "MCP $mcp no configurado (requerido por perfil $PROFILE)"
         fi
       done
     fi
