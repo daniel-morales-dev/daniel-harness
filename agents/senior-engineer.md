@@ -18,7 +18,6 @@ description: >
 mode: subagent
 permission:
   read: allow
-  write: allow
   edit: allow
   bash: allow
   glob: allow

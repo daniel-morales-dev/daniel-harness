@@ -41,16 +41,20 @@ mcp_status() {
 
   if [[ -f "$OC_FILE" ]]; then
     local total remote local_count
-    local mcp_root
+    local mcp_root=""
     if jq -e '.mcp | type == "object"' "$OC_FILE" >/dev/null 2>&1; then
       mcp_root='.mcp'
     elif jq -e '.mcp.servers | type == "object"' "$OC_FILE" >/dev/null 2>&1; then
       mcp_root='.mcp.servers'
     fi
-    total=$(jq "$mcp_root | length" "$OC_FILE" 2>/dev/null || echo 0)
-    remote=$(jq "[$mcp_root[] | select(.type==\"remote\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
-    local_count=$(jq "[$mcp_root[] | select(.type==\"local\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
-    printf '\nResumen: %s servidores (%s local, %s remoto)\n' "$total" "$local_count" "$remote"
+    if [[ -z "$mcp_root" ]]; then
+      printf '\nResumen: 0 servidores\n'
+    else
+      total=$(jq "$mcp_root | length" "$OC_FILE" 2>/dev/null || echo 0)
+      remote=$(jq "[$mcp_root[] | select(.type==\"remote\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
+      local_count=$(jq "[$mcp_root[] | select(.type==\"local\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
+      printf '\nResumen: %s servidores (%s local, %s remoto)\n' "$total" "$local_count" "$remote"
+    fi
   fi
 }
 
@@ -186,48 +190,57 @@ project_init() {
   printf '=== Nuevo proyecto ===\n'
   read -r -p 'Nombre del proyecto: ' name
   read -r -p 'Ruta absoluta: ' path
-  read -r -p 'Contexto (monolith/microservice/freelance): ' context
-  read -r -p 'Repositorio Git (opcional): ' repo
+  read -r -p 'Contexto (alegra-monolith/alegra-microservice/freelance): ' context
+  read -r -p 'Repositorio Git (opcional, Enter para omitir): ' repo
+  read -r -p 'Familia existente o nueva (Enter para crear automática): ' fam_input
 
   if [[ ! -d "$path" ]]; then
     printf '[error] La ruta no existe: %s\n' "$path" >&2
     exit 1
   fi
 
-  local ctx_map
   case "$context" in
-    monolith) ctx_map=alegra-monolith ;;
-    microservice) ctx_map=alegra-microservice ;;
-    freelance) ctx_map=freelance ;;
-    *) printf '[error] Contexto inválido: %s (usar monolith, microservice o freelance)\n' "$context" >&2; exit 1 ;;
+    alegra-monolith|alegra-microservice|freelance) ;;
+    *) printf '[error] Contexto inválido: %s (usar alegra-monolith, alegra-microservice o freelance)\n' "$context" >&2; exit 1 ;;
   esac
 
   local registry="$HARNESS_DIR/project-registry.yaml"
   if [[ ! -f "$registry" ]]; then
     mkdir -p "$HARNESS_DIR"
-    printf 'version: "1"\nfamilies: []\n' > "$registry"
+    printf 'version: "1"\nfamilies: []\nrelationships: []\n' > "$registry"
     chmod 600 "$registry"
   fi
 
   TMP=$(mktemp)
   python3 -c "
-import yaml, sys
+import json, jsonschema, yaml, sys
 
 registry_path = sys.argv[1]
 tmp_path = sys.argv[2]
 name = sys.argv[3]
 path = sys.argv[4]
 context = sys.argv[5]
-repo = sys.argv[6] if len(sys.argv) > 6 else ''
+fam_input = sys.argv[6]
+schema_path = sys.argv[7]
+
+with open(schema_path) as f:
+    schema = json.load(f)
 
 with open(registry_path) as f:
-    data = yaml.safe_load(f) or {'version': '1', 'families': []}
+    data = yaml.safe_load(f) or {'version': '1', 'families': [], 'relationships': []}
 
-fam_id = 'alegra-bills' if context.startswith('alegra-') else context
+if fam_input:
+    fam_id = fam_input
+else:
+    # Infer family from context prefix
+    fam_id = 'alegra-bills' if context.startswith('alegra-') else context
+
 family = next((f for f in data.get('families', []) if f.get('id') == fam_id), None)
 if not family:
     family = {'id': fam_id, 'contexts': [context], 'projects': []}
     data.setdefault('families', []).append(family)
+elif context not in family.get('contexts', []):
+    family.setdefault('contexts', []).append(context)
 
 for p in family['projects']:
     if p.get('id') == name:
@@ -236,14 +249,22 @@ for p in family['projects']:
 
 entry = {'id': name, 'path': path, 'context': context, 'rules': [],
     'git': {'askBeforeBranch': True, 'commit': 'ask', 'push': 'ask', 'deploy': 'ask'}}
-if repo:
-    entry['repository'] = repo
+# ponytail: repository omitted from project entry — not in schema, add if schema evolves
 family['projects'].append(entry)
+
+if 'relationships' not in data:
+    data['relationships'] = []
+
+try:
+    jsonschema.validate(data, schema)
+except jsonschema.ValidationError as e:
+    print(f'error: el resultado no pasa validación: {e.message}', file=sys.stderr)
+    sys.exit(1)
 
 with open(tmp_path, 'w') as f:
     yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
-" "$registry" "$TMP" "$name" "$path" "$ctx_map" "$repo" 2>/dev/null || {
-    printf '[error] No se pudo actualizar el registry (python3-yaml requerido)\n' >&2
+" "$registry" "$TMP" "$name" "$path" "$context" "$fam_input" "$ROOT_DIR/schemas/project-registry.schema.json" 2>/dev/null || {
+    printf '[error] No se pudo actualizar el registry (python3-yaml + jsonschema requeridos)\n' >&2
     rm -f "$TMP"
     exit 1
   }

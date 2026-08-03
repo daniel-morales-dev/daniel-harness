@@ -16,11 +16,13 @@ description: >
 mode: subagent
 permission:
   read: allow
-  write: allow
-  edit: allow
-  bash: allow
+  edit: deny
   glob: allow
   grep: allow
+  bash:
+    "git diff *": allow
+    "git show *": allow
+    "git status *": allow
 ---
 
 # Code Reviewer Agent

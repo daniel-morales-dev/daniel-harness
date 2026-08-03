@@ -160,9 +160,7 @@ if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   ok "NVM ya instalado ($(source "$NVM_DIR/nvm.sh" && nvm --version 2>/dev/null))"
 else
   info 'Instalando NVM...'
-  run bash -c "$(parse_value "user_tools" "nvm" | sed -n '2p')" || {
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
-  }
+  run bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash'
 fi
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
@@ -215,6 +213,7 @@ if command -v aws >/dev/null 2>&1; then
   ok "AWS CLI ya instalado"
 else
   info 'Instalando AWS CLI...'
+  # ponytail: inline curl-pipe, add checksum verification if installation becomes frequent
   run bash -c 'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip'
 fi
 
@@ -242,7 +241,7 @@ phase "Plugins de OpenCode"
 
 OC_CONFIG="${OPENCODE_CONFIG:-$HOME/.config/opencode/opencode.json}"
 if [[ -f "$OC_CONFIG" ]]; then
-  PLUGIN_LIST=$(jq -r '(.plugins // [])[]' "$OC_CONFIG" 2>/dev/null || true)
+  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_CONFIG" 2>/dev/null || true)
   if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
     ok "Ponytail ya registrado"
   else
@@ -251,7 +250,7 @@ if [[ -f "$OC_CONFIG" ]]; then
       info "[simulado] Agregar ponytail como plugin"
     else
       TMP=$(mktemp)
-      jq '.plugins += ["@dietrichgebert/ponytail@latest"]' "$OC_CONFIG" > "$TMP" && mv "$TMP" "$OC_CONFIG"
+      jq '.plugin = ((.plugin // []) + ["@dietrichgebert/ponytail@latest"] | unique)' "$OC_CONFIG" > "$TMP" && mv "$TMP" "$OC_CONFIG"
       chmod 600 "$OC_CONFIG"
       ok "Ponytail registrado en opencode.json"
     fi
@@ -307,19 +306,18 @@ else
       if [[ $type == local && -n "$cmd" ]]; then
         cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
         jq --arg n "$name" --argjson cmd "$cmd_array" \
-          '.mcp[$n] = {command: $cmd, enabled: true}' \
+          '.mcp[$n] = {type: "local", command: $cmd, enabled: true}' \
           "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
       else
-        jq --arg n "$name" \
-          '.mcp[$n] = {enabled: true}' \
-          "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+        skip "MCP remoto $name: bootstrap no configura servidores remotos. Configúralo manualmente en opencode.json"
+        continue
       fi
       chmod 600 "$OC_FILE"
       ok "MCP $name registrado"
     fi
   done < <(parse_mcp_names)
 
-  info "MCP excluido del bootstrap: alegra-test (incompatible con OpenCode)"
+  info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin URL (configurar manualmente)"
 fi
 
 # ---------------------------------------------------------------------------

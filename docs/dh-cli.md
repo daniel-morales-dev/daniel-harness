@@ -60,8 +60,8 @@ dh context /ruta/al/proyecto        # directorio específico
 Salida: pares `clave=valor` con `proyecto`, `contexto`, `path` y `detectado_por`.
 
 Contextos detectables:
-- `monolith`: `composer.json` presente (PHP/ZF1)
-- `microservice`: `package.json` con TypeScript en devDependencies
+- `alegra-monolith`: `composer.json` presente (PHP/ZF1)
+- `alegra-microservice`: `package.json` con TypeScript en devDependencies
 - `generic-node`: `package.json` sin TypeScript
 - `freelance`: `go.mod` presente
 - `generic`: ningún marcador conocido
