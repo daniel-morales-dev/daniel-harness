@@ -53,6 +53,8 @@ install_config_if_missing "$ROOT_DIR/examples/project-registry.example.yaml" "$H
 
 install -d -m 700 "$OPENCODE_CONFIG_DIR/agents" "$OPENCODE_CONFIG_DIR/skills" "$OPENCODE_CONFIG_DIR/commands"
 
+link_if_missing "$ROOT_DIR/AGENTS.md" "$OPENCODE_CONFIG_DIR/AGENTS.md"
+
 link_if_missing "$ROOT_DIR/agents/senior-engineer.md" "$OPENCODE_CONFIG_DIR/agents/senior-engineer.md"
 link_if_missing "$ROOT_DIR/agents/code-reviewer.md" "$OPENCODE_CONFIG_DIR/agents/code-reviewer.md"
 link_if_missing "$ROOT_DIR/agents/test-engineer.md" "$OPENCODE_CONFIG_DIR/agents/test-engineer.md"

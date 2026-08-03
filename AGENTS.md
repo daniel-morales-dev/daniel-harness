@@ -1,6 +1,8 @@
-# Instrucciones para agentes
+# Instrucciones globales para agentes — Daniel Harness
 
-Este repositorio define la base estable de Daniel Harness.
+Este archivo es la regla global. Aplica a TODAS las sesiones de OpenCode,
+independientemente del proyecto activo. Ver `AGENTS.md` del proyecto activo
+para reglas específicas que complementan o preceden a estas.
 
 ## Inicio
 
