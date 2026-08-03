@@ -4,7 +4,7 @@
   "title": "Daniel Harness Configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "defaultScope", "workflows", "models", "mcpRouting", "confirmations"],
+  "required": ["version", "defaultScope", "workflowAuthority", "tooling", "workTracking", "models", "mcpRouting", "confirmations"],
   "properties": {
     "version": {
       "const": "1"
@@ -12,16 +12,42 @@
     "defaultScope": {
       "$ref": "#/$defs/taskScope"
     },
-    "workflows": {
+    "workflowAuthority": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["trivial", "small", "medium", "large", "critical"],
+      "required": ["provider", "implementationRouting", "sddActivation", "review", "capabilityNegotiation"],
       "properties": {
-        "trivial": { "const": "direct" },
-        "small": { "const": "plan-build" },
-        "medium": { "const": "plan-build-agents" },
-        "large": { "const": "gentle-ai-sdd" },
-        "critical": { "const": "gentle-ai-sdd-reviewed" }
+        "provider": { "const": "gentle-ai" },
+        "implementationRouting": { "const": "provider-policy" },
+        "sddActivation": { "const": "explicit-or-accepted-proposal" },
+        "review": { "const": "receipt-driven-development" },
+        "capabilityNegotiation": { "const": true }
+      }
+    },
+    "tooling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codeExploration", "memory", "codeSimplicity", "communication", "communicationMode"],
+      "properties": {
+        "codeExploration": { "const": "codegraph" },
+        "memory": { "const": "engram" },
+        "codeSimplicity": { "const": "ponytail" },
+        "communication": { "const": "caveman" },
+        "communicationMode": { "enum": ["adaptive", "lite", "full", "ultra"] }
+      }
+    },
+    "workTracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "whenIssueLinked", "readHierarchy", "readRelated", "progressComments", "commentLanguage", "closeWhenVerified"],
+      "properties": {
+        "provider": { "const": "linear" },
+        "whenIssueLinked": { "const": true },
+        "readHierarchy": { "const": true },
+        "readRelated": { "const": true },
+        "progressComments": { "const": "meaningful-transitions" },
+        "commentLanguage": { "const": "es" },
+        "closeWhenVerified": { "const": true }
       }
     },
     "models": {

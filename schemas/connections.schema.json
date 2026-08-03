@@ -31,6 +31,18 @@
           "pattern": "^(secrets/|aws-profile://|env://|keychain://)",
           "description": "Reference only; never an inline credential."
         },
+        "tunnel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "commandRef"],
+          "properties": {
+            "required": { "const": true },
+            "commandRef": {
+              "type": "string",
+              "pattern": "^secrets/tunnels/[a-z0-9][a-z0-9._-]*\\.command$"
+            }
+          }
+        },
         "writeConfirmation": {
           "type": "object",
           "additionalProperties": false,

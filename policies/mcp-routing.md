@@ -1,17 +1,17 @@
-# MCP Routing
+# Routing de MCPs
 
-Discover configured servers and their available tools at runtime. Never infer capabilities solely from a server name and never print headers, environment values, tokens, or full private URLs.
+Descubre servidores y tools en runtime. No deduzcas capacidades solo por nombre ni muestres headers, env, tokens o URLs privadas completas.
 
-| Capability | Preferred server | Rule |
+| Capacidad | Servidor preferido | Regla |
 |---|---|---|
-| Code structure and impact | `codegraph` | First choice for symbols, call flow, dependencies, and blast radius. |
-| Public library docs | `context7` | Resolve library identity, then query current documentation. |
-| Persistent decisions | `engram` | Save decisions, discoveries, fixes, conventions, and session summaries. |
-| Git hosting | `github` | Use only when project identity and authorization allow it. |
-| Work tracking | `linear` | Read issue and comments before work; update in Spanish after verified completion. |
-| Internal Alegra docs | `wiki-alegra` | Activate for Wiki links and internal concepts. |
-| Error diagnosis | `sentry` | Use only after authentication is available. |
-| Test capabilities | `alegra-test` | Discover tools before assigning responsibility. |
-| Expenses shared libraries | `mcp-raia-lib` | Search Spanish docs for common/shared utilities; never fabricate when offline. |
+| Estructura e impacto | `codegraph` | Primera opción para símbolos, call flow y blast radius. |
+| Docs públicas | `context7` | Resuelve librería y consulta documentación actual. |
+| Memoria | `engram` | Guarda decisiones, fixes, descubrimientos y resúmenes. |
+| Tareas | `linear` | Aplica `task-lifecycle`; comentarios en español. |
+| Git hosting | `github` | Solo con identidad y autorización correctas. |
+| Wiki interna | `wiki-alegra` | Activa para enlaces y conceptos internos. |
+| Errores | `sentry` | Úsalo cuando esté autenticado. |
+| Plataforma de pruebas | `alegra-test` | Descubre tools antes de asignar responsabilidades. |
+| Librerías Expenses | `mcp-raia-lib` | Busca en español y no inventa si está offline. |
 
-Raia is initially disabled. Enabling it requires prior GHCR authentication outside prompts, an available image, explicit approval, and an OpenCode restart.
+Raia inicia disabled. Habilitarlo requiere autenticación GHCR fuera de prompts, imagen disponible, aprobación y reinicio de OpenCode.

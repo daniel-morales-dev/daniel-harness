@@ -1,16 +1,16 @@
-# Model Trust
+# Confianza de modelos
 
 ## Trusted
 
-Trusted models may use tools approved by the active project policy. Trust does not bypass production confirmations, data-write rules, or repository scope.
+Puede usar herramientas aprobadas por la política del proyecto. La confianza no omite confirmaciones productivas, reglas de escritura o scope.
 
 ## Restricted
 
-Restricted models, including free models by default:
+Los modelos restricted, incluidos modelos gratuitos por defecto:
 
-- cannot read secret files or raw credential configuration;
-- cannot use arbitrary Bash, interpreters, or equivalent escape hatches;
-- access protected systems only through closed, policy-enforcing tools;
-- receive sanitized, minimum-necessary results.
+- no leen secretos ni configuración cruda de credenciales;
+- no usan Bash arbitrario, intérpretes o escape hatches equivalentes;
+- acceden a sistemas protegidos mediante tools cerradas;
+- reciben solo resultados mínimos y sanitizados.
 
-The initial phase documents and audits this boundary. It does not rewrite production OpenCode permissions automatically.
+La política exacta para código propietario sigue abierta. Hasta resolverla, no envíes source propietario a modelos restricted.

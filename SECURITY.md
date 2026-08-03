@@ -1,37 +1,39 @@
-# Security Policy
+# Política de seguridad
 
-## Report an Exposure
+## Reportar una exposición
 
-Stop the current operation and report the affected credential class and location without quoting its value. Do not copy the secret into an issue, chat, commit, log, or screenshot.
+Detén la operación e informa la clase de credencial y su ubicación sin citar el valor. No copies secretos en issues, chats, commits, logs o capturas.
 
-## Response
+## Respuesta
 
-1. Treat a hardcoded or shared secret as compromised.
-2. Revoke or rotate it in the owning system.
-3. Remove it from active configuration and use an external secret reference.
-4. Inspect Git history and logs for propagation.
-5. Apply the minimum required privilege to the replacement credential.
+1. Considera comprometido todo secreto hardcodeado o compartido en texto plano.
+2. Revócalo o rótalo en el sistema propietario.
+3. Elimínalo de la configuración activa y usa una referencia externa.
+4. Revisa historial Git y logs para medir propagación.
+5. Aplica privilegio mínimo a la credencial nueva.
 
-History rewriting is a separate, explicitly authorized operation. Rotation comes first because deleting text does not invalidate a credential.
+Reescribir historial requiere autorización separada. Rotar tiene prioridad porque borrar texto no invalida una credencial.
 
-## Storage Boundary
+## Frontera de almacenamiento
 
-Versioned code belongs in this repository. Local config belongs in `~/.config/daniel-harness/`; secret files belong under `~/.config/daniel-harness/secrets/` with directories mode `700` and files mode `600`.
+El repositorio contiene código, políticas, schemas y ejemplos sintéticos. La configuración local vive en `~/.config/daniel-harness/`; los secretos viven bajo `secrets/` con directorios `700` y archivos `600`.
 
-Never commit:
+Nunca versiones tokens, passwords, API keys, claves privadas, URLs con credenciales, `.cnf`, comandos SSH reales, hosts internos, dumps, resultados de consultas o logs productivos.
 
-- tokens, passwords, API keys, private keys, or credential-bearing URLs;
-- raw `opencode.json` files containing headers or environment values;
-- MySQL option files, SSH material, database dumps, query results, or production logs;
-- remote SSH hosts or real tunnel commands.
+Los comandos reales de túneles se guardan localmente en `secrets/tunnels/*.command`. El doctor solo muestra la ruta del archivo, nunca su contenido.
 
-## Model Boundary
+## Frontera de modelos
 
-A `read: deny` rule does not isolate secrets while arbitrary Bash or another interpreter remains available. Restricted models must use closed tools that accept non-secret parameters, read credentials internally, enforce policy, and return sanitized results.
+`read: deny` no aísla secretos si Bash u otro intérprete siguen disponibles. Los modelos restricted usan tools cerradas que reciben parámetros no secretos, aplican políticas internamente y devuelven resultados sanitizados.
 
-## Minimum Privilege
+## Mínimo privilegio
 
-- MySQL/MariaDB is always read-only.
-- DynamoDB writes require exact confirmation of operation, profile, region, table, keys, fields, and condition.
-- Grants are proposed for review but never executed by the harness.
-- Production mutation requires explicit confirmation even for trusted models.
+- MySQL/MariaDB operativo es siempre read-only.
+- DynamoDB exige confirmación exacta de operación, profile, región, tabla, keys, campos y condición.
+- El harness puede proponer un `GRANT`, pero nunca ejecutarlo.
+- Mutaciones productivas requieren confirmación incluso con modelos trusted.
+- El harness detecta túneles, pero nunca los abre o repara.
+
+## Gentle AI y OpenCode
+
+No edites archivos administrados por Gentle AI. Usa su installer, `gentle-ai sync`, capability negotiation y skill registry. La configuración OpenCode con headers o env debe redactarse antes de compartirla.

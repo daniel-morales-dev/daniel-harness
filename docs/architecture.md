@@ -1,45 +1,46 @@
-# Architecture
+# Arquitectura
 
-Daniel Harness is a global policy and orchestration overlay. It keeps runtime-specific adapters at the edge and a portable decision core at the center.
+Daniel Harness es un overlay global de contexto, políticas y seguridad. Gentle AI conserva la autoridad sobre implementación y review; el harness aporta la información necesaria para que esa autoridad opere correctamente en cada proyecto.
 
-## Preflight Contract
+## Preflight
 
-Input: user request, current directory, discovered project metadata, available capabilities, and model identity.
+Entrada: solicitud, directorio actual, tarea relacionada, registro de proyectos, capacidades disponibles y confianza del modelo.
 
-Output:
+Salida:
 
-- detected context and project family;
-- task scope and repositories marked read/write;
-- size and risk classification;
-- resolved rule precedence and model trust;
-- selected tools/MCP capabilities;
-- selected workflow and verification gates.
+- contexto y familia detectados;
+- repositorios en lectura/escritura;
+- reglas resueltas por precedencia;
+- restricciones de modelo y datos;
+- capacidades MCP disponibles;
+- contexto Linear completo;
+- handoff a Gentle AI para routing y RDD.
 
-## Layers
+## Autoridad por capa
 
-| Layer | Responsibility |
+| Capa | Responsabilidad |
 |---|---|
-| Context detector | Recognize project, family, environment, and related repositories. |
-| Project registry | Store public metadata, rules, and relationships without credentials. |
-| Policy engine | Resolve precedence, confirmations, trust, data, and Git boundaries. |
-| Capability router | Discover tools dynamically and select by capability. |
-| Data adapters | Enforce read/write policy and sanitize results. |
-| Delegation | Keep the main window coordinating; assign isolated work to subagents. |
-| Gentle AI adapter | Invoke SDD through an external stable contract. |
-| Install/doctor | Install assets safely and report configuration health. |
+| Context detector | Proyecto, familia, ambiente y repos relacionados. |
+| Project registry | Paths, reglas, relaciones y política Git sin secretos. |
+| Policy engine | Precedencia, permisos, confianza, datos y confirmaciones. |
+| Task lifecycle | Jerarquía Linear, comentarios, avances y cierre. |
+| Capability router | Descubrimiento dinámico y selección por capacidad. |
+| Gentle AI adapter | Capabilities, routing orgánico, SDD opcional, RDD y receipts. |
+| Data adapters | Operaciones cerradas, confirmaciones y sanitización. |
+| Install/doctor | Instalación segura y diagnóstico read-only. |
 
-## Workflow Selection
+## Routing
 
-| Classification | Workflow |
+Daniel Harness no usa una tabla propia `pequeño/mediano/grande → SDD`. Entrega contexto y restricciones a Gentle AI, que selecciona una sola ruta según su contrato público:
+
+| Ruta | Uso actual |
 |---|---|
-| Trivial | Direct execution. |
-| Small | OpenCode Plan/Build. |
-| Medium | Plan/Build with selective subagents. |
-| Large | Gentle AI SDD. |
-| Critical | SDD plus independent reviews. |
+| Direct inline | Acción acotada ya entendida. |
+| Delegated direct | Exploración amplia o writer con contexto fresco. |
+| Optional SDD | Solicitud explícita o propuesta aceptada cuando artefactos durables reducen ambigüedad. |
 
-A Linear issue alone does not determine classification.
+Todas las rutas convergen en RDD cuando está activo. El harness no reconstruye receipts, hashes, budgets o recovery desde narración.
 
-## Portability
+## Portabilidad
 
-Phase 1 uses portable files and POSIX-oriented shell scripts. The final executable core format remains open until the context-router phase provides concrete requirements.
+Las políticas y schemas son neutrales al runtime. Los adapters de OpenCode, Codex, Claude Code o Cursor traducen el mismo contrato sin modificar el núcleo.

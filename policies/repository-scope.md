@@ -1,13 +1,13 @@
-# Repository Scope
+# Alcance de repositorios
 
-Repository access is selected per task, not from the initial working directory.
+El alcance se decide por tarea, no por la carpeta inicial.
 
-| Scope | Meaning |
+| Scope | Significado |
 |---|---|
-| `single-repo` | One monolith, microservice, or freelance repository. |
-| `related-repos` | Repositories participating in one domain flow or migration. |
-| `multi-project` | Exceptional work spanning unrelated project families; requires explicit intent. |
+| `single-repo` | Un monolito, microservicio o proyecto freelance. |
+| `related-repos` | Repositorios del mismo dominio, contrato o migración. |
+| `multi-project` | Proyectos no relacionados; requiere intención explícita. |
 
-Before editing, report repositories with read and write access. This is informational for related repositories, not an additional approval gate.
+Antes de editar, informa repositorios en lectura y escritura. Para repos relacionados es información, no una autorización adicional.
 
-Use one writer for a shared surface. Parallelize only independent reads or changes with disjoint ownership.
+Usa un solo writer por superficie compartida. Paraleliza únicamente lecturas o cambios independientes.

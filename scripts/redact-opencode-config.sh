@@ -3,24 +3,24 @@ set -euo pipefail
 umask 077
 
 if [[ $# -ne 1 ]]; then
-  printf 'Usage: %s /explicit/path/to/opencode.json\n' "$0" >&2
+  printf 'Uso: %s /ruta/explicita/opencode.json\n' "$0" >&2
   exit 64
 fi
 
 INPUT=$1
 
 if [[ ! -f "$INPUT" ]]; then
-  printf 'Error: input is not a regular file\n' >&2
+  printf 'Error: la entrada no es un archivo regular\n' >&2
   exit 66
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
-  printf 'Error: jq is required\n' >&2
+  printf 'Error: jq es obligatorio\n' >&2
   exit 69
 fi
 
 if ! jq empty "$INPUT" >/dev/null 2>&1; then
-  printf 'Error: input is not valid JSON\n' >&2
+  printf 'Error: la entrada no es JSON válido\n' >&2
   exit 65
 fi
 

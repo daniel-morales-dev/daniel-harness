@@ -1,27 +1,27 @@
-# Security Model
+# Modelo de seguridad
 
-## Assets
+## Clases de activos
 
-- Versioned policy and code.
-- Local non-secret configuration.
-- Secret material.
-- Proprietary source and internal documentation.
-- Production and testing data.
+- Código y políticas versionadas.
+- Configuración local no secreta.
+- Credenciales y comandos de infraestructura.
+- Código propietario y documentación interna.
+- Datos de testing y producción.
 
-These are separate trust classes. A private repository protects visibility but is not an approved credential store.
+Un repositorio privado protege visibilidad, pero no es secret storage.
 
-## Trust Boundary
+## Frontera de confianza
 
-Trusted executors may access approved host tools. Restricted models receive no arbitrary shell or direct secret reads. Closed tools cross the boundary by enforcing a narrow operation and returning sanitized output.
+Los executors trusted usan herramientas aprobadas. Los modelos restricted no reciben shell arbitrario ni lectura directa de secretos. Las tools cerradas cruzan la frontera con una operación estrecha y salida sanitizada.
 
-## Known Limitation
+## Limitación conocida
 
-OpenCode `read: deny` does not create isolation if Bash can call `cat`, an interpreter, a database client, or another reader. RTK reduces output volume but does not enforce permissions.
+`read: deny` no aísla archivos si Bash puede invocar `cat`, intérpretes o clientes. RTK reduce volumen, no permisos.
 
-## Phase 1 Guarantee
+## Túneles
 
-This phase provides documentation, schemas, examples, redaction, and diagnostics. It does not claim that current production OpenCode configuration is isolated, and it does not alter that configuration.
+Los endpoints locales y `commandRef` viven en `connections.yaml`. Los comandos reales viven en `secrets/tunnels/`, fuera de Git. Doctor puede revisar puerto, ruta y permisos; nunca lee o ejecuta el comando.
 
-## Proprietary Code
+## Código propietario
 
-The exact policy for sending proprietary code to free/restricted models remains open. Until decided, use the conservative default: do not send proprietary source outside approved trusted models and tools.
+La política definitiva para modelos restricted sigue abierta. Default: no enviar código propietario fuera de modelos y herramientas trusted aprobados.

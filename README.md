@@ -1,83 +1,105 @@
 # Daniel Harness
 
-Daniel Harness is a private, global agentic-coding control layer for Daniel Morales. It sits above OpenCode and Gentle AI to resolve project context, repository scope, task risk, model trust, available capabilities, workflow, delegation, and verification.
+Daniel Harness es la capa privada y global que coordina el trabajo agentic de Daniel Morales sobre OpenCode y Gentle AI. Resuelve contexto, repositorios, políticas, herramientas, seguimiento de tareas y seguridad sin duplicar el motor de workflow de Gentle AI.
 
-This repository is the versioned foundation. Local configuration and credentials live outside it under `~/.config/daniel-harness/`.
+El código y los contratos viven en este repositorio. La configuración local y los secretos viven fuera, en `~/.config/daniel-harness/`.
 
-## Status
-
-Phase 1 establishes policies, schemas, examples, migrated agent assets, diagnostics, and safe installation. The executable context router and production data adapters are intentionally deferred.
-
-## Architecture
-
-```text
-Request
-  -> Daniel Harness preflight
-     -> context and repository scope
-     -> size and risk classification
-     -> project and model-trust policies
-     -> MCP/tool capability routing
-     -> workflow selection
-        -> direct
-        -> OpenCode Plan/Build
-        -> Gentle AI SDD
-        -> migration workflow
-```
-
-See `docs/architecture.md` and `docs/adr/` for the stable decisions.
-
-## Supported Contexts
-
-- Alegra monolith: PHP 7.0.9 and Zend Framework 1.
-- Alegra microservices: Node.js 24, TypeScript, Lambda/CDK, DynamoDB, Kafka, Clean Architecture, and DDD.
-- Monolith-to-micro migrations across related repositories.
-- Freelance projects, initially K Agencia.
-
-## Install
+## Ruta rápida
 
 ```bash
 ./scripts/install.sh
+./scripts/doctor.sh
+gentle-ai skill-registry refresh --force
 ```
 
-The installer creates local configuration directories with restrictive permissions, copies example configuration only when a local file is absent, and links missing OpenCode assets. It does not edit `opencode.json` or overwrite existing files.
+Reinicia OpenCode después de instalar agentes o skills.
 
-Restart OpenCode after installation so it can discover new agents, skills, and commands.
+## Reparto de autoridad
 
-To remove only links created by this repository:
+| Superficie | Autoridad |
+|---|---|
+| Routing directo, delegado o SDD | Gentle AI |
+| RDD, review, receipts y delivery gates | Gentle AI |
+| Contexto y familia de proyecto | Daniel Harness |
+| Repositorios en lectura/escritura | Daniel Harness |
+| Precedencia, permisos y confianza del modelo | Daniel Harness |
+| Linear, MCP routing y acceso de datos | Daniel Harness |
+| Implementación mínima | Ponytail |
+| Comunicación comprimida | Caveman, de forma adaptativa |
+| Arquitectura y blast radius | CodeGraph |
+| Memoria persistente | Engram |
 
-```bash
-./scripts/uninstall.sh
+SDD no se activa automáticamente por tamaño o riesgo. Gentle AI lo usa cuando el usuario lo pide o acepta una propuesta que justifica artefactos durables.
+
+## Contextos soportados
+
+- Monolito Alegra: PHP 7.0.9 y Zend Framework 1.
+- Microservicios Alegra: Node.js 24, TypeScript, Lambda/CDK, DynamoDB, Kafka, Clean Architecture y DDD.
+- Paridad y migraciones entre monolito y microservicios relacionados.
+- Proyectos freelance, inicialmente K Agencia.
+
+## Agentes y skills
+
+| Recurso | Uso |
+|---|---|
+| `php-engineer` | Cambios quirúrgicos y compatibles con PHP 7.0.9/ZF1. |
+| `senior-engineer` | TypeScript/JavaScript, arquitectura y calidad. |
+| `test-engineer` | Estrategia y construcción de pruebas. |
+| `code-reviewer` | Revisión estricta antes de entrega. |
+| `task-lifecycle` | Lectura completa y seguimiento de tareas Linear. |
+| `monolith-to-micro-migration` | Paridad observable de PHP hacia TypeScript. |
+
+## Configuración local
+
+```text
+~/.config/daniel-harness/
+├── config.yaml
+├── connections.yaml
+├── project-registry.yaml
+└── secrets/
+    ├── mysql/
+    ├── mongodb/
+    ├── tunnels/
+    └── tokens/
 ```
 
-Local configuration and secrets are preserved during uninstall.
+- `config.yaml`: autoridad de workflow, tooling, modelos, Linear y MCP routing.
+- `connections.yaml`: endpoints locales, perfiles de datos y referencias de túneles.
+- `project-registry.yaml`: proyectos, familias, relaciones, reglas y política Git.
+- `secrets/tunnels/*.command`: comandos SSH reales, locales, modo `600`, nunca versionados.
 
-## Diagnostics
+Consulta `docs/configuration.md` para agregar o eliminar túneles, MCPs, proyectos y reglas.
+
+## Flujos
+
+- `docs/workflows/task-lifecycle.md`: tarea, subtareas, comentarios, avances y cierre.
+- `docs/workflows/monolith.md`: bugs y features en PHP/ZF1.
+- `docs/workflows/microservice.md`: features y fixes en Node/TypeScript.
+- `docs/workflows/freelance.md`: proyectos externos y conexiones manuales.
+- `docs/workflows/parity.md`: paridad monolito → micro y micro → monolito.
+
+## Diagnóstico
+
+`doctor.sh` es read-only. Detecta herramientas, Gentle AI/RDD, MCPs, permisos y túneles. Si falta un túnel, informa el perfil y el archivo local que debes ejecutar; nunca abre el túnel ni imprime su comando.
 
 ```bash
 ./scripts/doctor.sh
-./scripts/redact-opencode-config.sh /explicit/path/to/opencode.json > opencode.redacted.json
+./scripts/redact-opencode-config.sh /ruta/explicita/opencode.json > opencode.redacted.json
 ```
 
-`doctor.sh` is read-only. The redactor writes only to standard output and never changes its input.
+## Seguridad
 
-Schema tests use the pinned development dependencies in `requirements-dev.txt`; installation is explicit and is not performed by `install.sh`.
+- Un repositorio privado no es un almacén de secretos.
+- Los modelos restricted no reciben shell arbitrario ni lectura directa de secretos.
+- MySQL/MariaDB operativo es siempre read-only.
+- Las escrituras DynamoDB requieren confirmación exacta.
+- Los túneles son manuales.
+- No edites prompts, agentes o configuración generada por Gentle AI; usa `gentle-ai install`, `sync` y sus contratos públicos.
 
-## Gentle AI
+Consulta `SECURITY.md` y `docs/security-model.md`.
 
-Gentle AI remains the SDD engine for large and critical changes. Daniel Harness invokes it through an external contract; this repository does not fork Gentle AI, edit generated prompts, or depend on volatile internals.
+## Estado
 
-## Security
+La fundación, seguridad, `php-engineer`, workflows y contratos de integración están versionados. El context detector/preflight ejecutable y los data tools productivos siguen en el roadmap.
 
-- A private repository is not a secret vault.
-- Keep config in `~/.config/daniel-harness/` and credentials under its `secrets/` directory.
-- Restricted models must not receive arbitrary shell access or direct secret reads.
-- Rotate any credential that was ever hardcoded or shared in plaintext.
-- Never commit raw OpenCode configuration containing headers, environment values, or tokens.
-
-See `SECURITY.md` and `docs/security-model.md`.
-
-## Private Use
-
-This is a personal, private repository. No public license is granted. External use, redistribution, or relicensing requires an explicit later decision by the owner.
-
-Contributions currently follow Daniel's private workflow and the rules in `AGENTS.md`.
+Este repositorio es privado y personal. No se concede licencia pública.

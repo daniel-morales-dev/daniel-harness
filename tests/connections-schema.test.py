@@ -41,6 +41,28 @@ def configuration(required_fields: list[str], mode: str = "exact-operation") -> 
 
 jsonschema.validate(configuration(VALID_FIELDS), SCHEMA)
 
+tunnel_configuration = {
+    "version": "1",
+    "profiles": [
+        {
+            "id": "synthetic-mysql",
+            "context": "freelance",
+            "type": "mysql",
+            "environment": "testing",
+            "host": "127.0.0.1",
+            "port": 3306,
+            "readOnly": True,
+            "credentialsRef": "secrets/mysql/synthetic.cnf",
+            "tunnel": {
+                "required": True,
+                "commandRef": "secrets/tunnels/synthetic.command",
+            },
+            "writeConfirmation": {"mode": "deny"},
+        }
+    ],
+}
+jsonschema.validate(tunnel_configuration, SCHEMA)
+
 missing_required_fields = configuration(VALID_FIELDS)
 del missing_required_fields["profiles"][0]["writeConfirmation"]["requiredFields"]
 
@@ -50,6 +72,14 @@ invalid_configurations = [
     configuration(VALID_FIELDS, mode="deny"),
     configuration(VALID_FIELDS + ["operation"]),
 ]
+
+invalid_tunnel = tunnel_configuration.copy()
+invalid_tunnel["profiles"] = [tunnel_configuration["profiles"][0].copy()]
+invalid_tunnel["profiles"][0]["tunnel"] = {
+    "required": True,
+    "commandRef": "../../unsafe.command",
+}
+invalid_configurations.append(invalid_tunnel)
 
 for invalid_configuration in invalid_configurations:
     try:

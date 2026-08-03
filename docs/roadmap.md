@@ -1,33 +1,27 @@
 # Roadmap
 
-## 1. Foundation and Security
+## Completado
 
-Policies, schemas, safe examples, migrated assets, installation, doctor, redaction, tests, ADRs, and project memory.
+- Fundación, seguridad, schemas, ejemplos, instalación, doctor y redacción.
+- Agentes base y `php-engineer`.
+- Workflows de monolito, micro, freelance y paridad.
+- Ciclo de tareas Linear como skill reutilizable.
+- Contrato de autoridad con Gentle AI, RDD, Ponytail, Caveman, CodeGraph y Engram.
+- Configuración segura de túneles mediante referencias locales.
 
-## 2. PHP Engineer
+## Siguiente
 
-Add a PHP 7.0.9 and Zend Framework 1 specialist with surgical-change and container syntax-verification rules.
+1. Reglas transversales ejecutables compartidas.
+2. Context detector y preflight.
+3. Discovery/router dinámico de MCPs.
+4. MySQL read-only y diagnóstico de grants.
+5. DynamoDB con confirmación exacta de writes.
+6. Bootstrap de proyectos y reglas.
+7. Evaluación reproducible de seguridad, routing y costo.
 
-## 3. Shared Cross-Cutting Rules
+## Pendiente de decisión
 
-Normalize delegation, testing, reviews, commit conventions, documentation, and security across contexts.
-
-## 4. Context Detector and Preflight
-
-Implement project detection, task scope, risk classification, policy resolution, and workflow selection.
-
-## 5. MCP Discovery and Routing
-
-Discover server capabilities and health dynamically; add a stable Gentle AI adapter.
-
-## 6. Data Tools
-
-Implement MySQL read-only queries and grant diagnostics, then DynamoDB reads and exactly confirmed writes. Define MongoDB mutation policy before adding writes.
-
-## 7. Work-System Integrations
-
-Generalize Linear lifecycle handling and project bootstrap for AGENTS, docs, and ADRs.
-
-## 8. Evaluation
-
-Create reproducible scenarios that measure routing correctness, safety, cost, token use, and verification quality.
+- Código propietario en modelos restricted.
+- Escritura MongoDB en K Agencia.
+- Tools y trust boundary de `alegra-test`.
+- Lenguaje final del core portable.

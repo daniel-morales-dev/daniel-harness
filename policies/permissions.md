@@ -1,17 +1,17 @@
-# Tool Permissions
+# Permisos de herramientas
 
-Permissions combine task scope, project rules, model trust, environment, and tool capability.
+Los permisos combinan scope, reglas del proyecto, confianza del modelo, entorno y capacidad.
 
 ## Defaults
 
-- Read repository documentation before implementation.
-- Use CodeGraph for architecture, call flow, references, dependencies, and impact.
-- Ask before production mutation, dependency installation, deploy, or a new branch.
-- Deny direct access to secret paths.
-- Deny arbitrary host shell to restricted models.
+- Lee documentación del proyecto antes de implementar.
+- Usa CodeGraph para arquitectura, flujo, referencias e impacto.
+- Pregunta antes de mutar producción, instalar dependencias, desplegar o crear rama.
+- Niega acceso directo a rutas de secretos.
+- Niega shell arbitrario a modelos restricted.
 
-## Closed Tools
+## Tools cerradas
 
-A closed tool owns credential access and policy enforcement. It accepts only non-secret parameters, validates the requested operation, uses credentials internally, and returns sanitized output.
+Una tool cerrada posee el acceso a credenciales y aplica la política. Recibe parámetros no secretos, valida la operación y devuelve salida sanitizada.
 
-Shell wrappers do not become safe merely because their output is compressed by RTK.
+RTK comprime salida; no concede ni restringe permisos.

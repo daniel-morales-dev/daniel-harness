@@ -10,23 +10,25 @@ remove_managed_link() {
   local target=$2
 
   if [[ ! -L "$target" ]]; then
-    printf 'preserved: %s is not a managed link\n' "$target"
+    printf 'conservado: %s no es un enlace administrado\n' "$target"
     return
   fi
 
   if [[ $(readlink "$target") != "$source" ]]; then
-    printf 'preserved: %s points elsewhere\n' "$target"
+    printf 'conservado: %s apunta a otro destino\n' "$target"
     return
   fi
 
   rm "$target"
-  printf 'removed: %s\n' "$target"
+  printf 'eliminado: %s\n' "$target"
 }
 
 remove_managed_link "$ROOT_DIR/agents/senior-engineer.md" "$OPENCODE_CONFIG_DIR/agents/senior-engineer.md"
 remove_managed_link "$ROOT_DIR/agents/code-reviewer.md" "$OPENCODE_CONFIG_DIR/agents/code-reviewer.md"
 remove_managed_link "$ROOT_DIR/agents/test-engineer.md" "$OPENCODE_CONFIG_DIR/agents/test-engineer.md"
+remove_managed_link "$ROOT_DIR/agents/php-engineer.md" "$OPENCODE_CONFIG_DIR/agents/php-engineer.md"
 remove_managed_link "$ROOT_DIR/skills/monolith-to-micro-migration" "$OPENCODE_CONFIG_DIR/skills/monolith-to-micro-migration"
+remove_managed_link "$ROOT_DIR/skills/task-lifecycle" "$OPENCODE_CONFIG_DIR/skills/task-lifecycle"
 remove_managed_link "$ROOT_DIR/commands/migration-gap-analysis.md" "$OPENCODE_CONFIG_DIR/commands/migration-gap-analysis.md"
 
-printf '\nUninstall complete. Local Daniel Harness configuration and secrets were preserved.\n'
+printf '\nDesinstalación completada. La configuración local y los secretos se conservaron.\n'

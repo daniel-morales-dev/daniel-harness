@@ -1,19 +1,15 @@
-# ADR 0004: Secret Boundary for Restricted Models
+# ADR 0004: Frontera de secretos para modelos restricted
 
-## Status
+## Estado
 
-Accepted
+Aceptado
 
-## Decision
+## Decisión
 
-Restricted models receive neither direct secret reads nor arbitrary host shell. They use closed tools that own credential access, validate operations, enforce policy, and sanitize results.
+Los modelos restricted no reciben secretos ni shell arbitrario. Acceden a sistemas protegidos mediante tools cerradas con validación y sanitización.
 
-## Context
+## Consecuencias
 
-File-read denial alone is bypassable through Bash, interpreters, database clients, and similar tools. RTK compresses output but does not enforce access.
-
-## Consequences
-
-- Existing OpenCode configuration cannot be described as isolated until audited and changed.
-- Productive data adapters must expose narrow operations rather than generic command execution.
-- Phase 1 documents and diagnoses this boundary without automatically changing production configuration.
+- `read: deny` con Bash amplio no cuenta como aislamiento.
+- Los data adapters productivos deben ser operaciones estrechas.
+- La fase actual documenta y diagnostica; no reescribe OpenCode automáticamente.

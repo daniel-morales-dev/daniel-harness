@@ -1,21 +1,19 @@
-# MCP Capability Registry
+# Registro de capacidades MCP
 
-The registry is capability-driven and discovered at runtime. This table is the known starting inventory, not a hardcoded source of truth.
+El registro se descubre por capacidad. Esta tabla es inventario inicial, no source of truth hardcodeado.
 
-| Server | Expected state | Capabilities | Sensitive configuration |
-|---|---|---|---|
-| `codegraph` | Connected | Structure, symbols, references, call paths, impact. | No credentials expected in output. |
-| `context7` | Connected | Current public library documentation. | Service authentication remains runtime-owned. |
-| `engram` | Connected | Persistent observations and SDD artifacts. | Stored content must exclude secrets. |
-| `github` | Connected | Repositories, issues, PRs. | Authentication must be externalized. |
-| `linear` | Connected | Issues, comments, statuses, relations. | Tokens remain outside repository. |
-| `wiki-alegra` | Connected | Internal documentation. | Internal content follows project trust rules. |
-| `sentry` | Authentication required | Error and event diagnosis. | Never expose auth headers. |
-| `alegra-test` | Present, tools unknown | Discover before routing. | Unknown until capability discovery. |
-| `mcp-raia-lib` | Disabled | `docs.search`, `docs.overview`, indexed shared-library guidance. | GHCR authentication stays outside prompts. |
+| Servidor | Estado esperado | Capacidades |
+|---|---|---|
+| `codegraph` | Connected | Estructura, símbolos, referencias, call paths e impacto. |
+| `context7` | Connected | Documentación pública actual. |
+| `engram` | Connected | Memoria persistente y artefactos SDD. |
+| `github` | Connected | Repositorios, issues y PRs; identidad depende del proyecto. |
+| `linear` | Connected | Tareas, comentarios, jerarquía y estados. |
+| `wiki-alegra` | Connected | Documentación interna. |
+| `sentry` | Requiere autenticación | Diagnóstico de errores. |
+| `alegra-test` | Por descubrir | No asignar responsabilidades hasta listar tools. |
+| `mcp-raia-lib` | Disabled | `docs.search`, `docs.overview` y librerías shared de Expenses. |
 
-## Discovery Record
+Conserva solo nombre, enabled, tipo local/remote, tools/resources anunciados, salud y fecha de discovery. Nunca persistas headers, env, URLs privadas completas o tokens.
 
-For each server, retain only name, enabled state, local/remote type, advertised tools/resources, health, and last discovery time. Do not persist headers, environment values, full private URLs, or tokens.
-
-Raia search uses Spanish queries, result ranking rather than an absolute RRF threshold, preference `hybrid` over `lexical` over `vector`, and citations by `documentPath`.
+Raia usa queries en español, ranking RRF, preferencia `hybrid > lexical > vector` y citas por `documentPath`.

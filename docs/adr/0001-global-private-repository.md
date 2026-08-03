@@ -1,16 +1,16 @@
-# ADR 0001: Global Private Repository
+# ADR 0001: Repositorio global privado
 
-## Status
+## Estado
 
-Accepted
+Aceptado
 
-## Decision
+## Decisión
 
-Maintain Daniel Harness as the private `daniel-morales-dev/daniel-harness` repository. Install it globally rather than copying the full harness into each project. Store local configuration and secrets under `~/.config/daniel-harness/`.
+Mantener Daniel Harness en `daniel-morales-dev/daniel-harness`, instalarlo globalmente y guardar config/secrets en `~/.config/daniel-harness/`.
 
-## Consequences
+## Consecuencias
 
-- Shared behavior is versioned once.
-- Project repositories retain only their own rules.
-- Private visibility does not permit committing secrets.
-- Runtime adapters must not make the decision core OpenCode-only.
+- Una sola fuente versionada para políticas compartidas.
+- Los proyectos conservan sus reglas específicas.
+- Privado no significa secret storage.
+- Los adapters no pueden volver OpenCode-only al core.

@@ -12,9 +12,28 @@ OUTPUT="$TMP_DIR/doctor.out"
 
 install -d -m 700 "$CONFIG_DIR"
 install -d -m 700 "$CONFIG_DIR/secrets"
+install -d -m 700 "$CONFIG_DIR/secrets/tunnels"
 install -m 600 "$ROOT_DIR/examples/config.example.yaml" "$CONFIG_DIR/config.yaml"
-install -m 600 "$ROOT_DIR/examples/connections.example.yaml" "$CONFIG_DIR/connections.yaml"
 install -m 600 "$ROOT_DIR/examples/project-registry.example.yaml" "$CONFIG_DIR/project-registry.yaml"
+
+printf '%s\n' 'version: "1"
+profiles:
+  - id: synthetic-tunnel
+    context: freelance
+    type: mysql
+    environment: testing
+    host: 127.0.0.1
+    port: 65534
+    readOnly: true
+    credentialsRef: secrets/mysql/synthetic.cnf
+    tunnel:
+      required: true
+      commandRef: secrets/tunnels/synthetic.command
+    writeConfirmation:
+      mode: deny' >"$CONFIG_DIR/connections.yaml"
+chmod 600 "$CONFIG_DIR/connections.yaml"
+printf 'ssh synthetic-host\n' >"$CONFIG_DIR/secrets/tunnels/synthetic.command"
+chmod 600 "$CONFIG_DIR/secrets/tunnels/synthetic.command"
 
 printf '%s\n' '{
   "permission": {"bash": "ask"},
@@ -48,10 +67,12 @@ if ! DANIEL_HARNESS_CONFIG_DIR="$CONFIG_DIR" \
   exit 1
 fi
 
-grep -F '[mcp] name=synthetic-local enabled=true type=local status=available' "$OUTPUT" >/dev/null
-grep -F '[mcp] name=synthetic-remote enabled=false type=remote status=not-probed' "$OUTPUT" >/dev/null
-grep -F 'No supported hardcoded-secret patterns detected' "$OUTPUT" >/dev/null
-grep -F 'Summary: 0 critical' "$OUTPUT" >/dev/null
+grep -F '[mcp] nombre=synthetic-local habilitado=true tipo=local estado=disponible' "$OUTPUT" >/dev/null
+grep -F '[mcp] nombre=synthetic-remote habilitado=false tipo=remote estado=no-probado' "$OUTPUT" >/dev/null
+grep -F 'No se detectaron patrones soportados de secretos hardcodeados' "$OUTPUT" >/dev/null
+grep -F 'Falta el túnel synthetic-tunnel (127.0.0.1:65534)' "$OUTPUT" >/dev/null
+grep -F "Ejecuta: bash $CONFIG_DIR/secrets/tunnels/synthetic.command" "$OUTPUT" >/dev/null
+grep -F 'Resumen: 0 crítico(s)' "$OUTPUT" >/dev/null
 
 if grep -F 'SYNTHETIC_TOKEN' "$OUTPUT" >/dev/null; then
   printf 'Doctor exposed a sensitive reference\n' >&2
@@ -76,10 +97,42 @@ if DANIEL_HARNESS_CONFIG_DIR="$CONFIG_DIR" \
   exit 1
 fi
 
-grep -F '[critical] OpenCode configuration contains hardcoded sensitive values' "$OUTPUT" >/dev/null
+grep -F '[crítico] OpenCode contiene valores sensibles hardcodeados' "$OUTPUT" >/dev/null
 if grep -F 'literal-secret-value' "$OUTPUT" >/dev/null; then
   printf 'Doctor exposed a synthetic secret\n' >&2
   exit 1
 fi
+
+printf '%s\n' '{
+  "permission": {"bash": "ask"},
+  "url": "https://synthetic-user:synthetic-password@example.invalid/mcp",
+  "mcp": {}
+}' >"$OPENCODE_CONFIG"
+
+if DANIEL_HARNESS_CONFIG_DIR="$CONFIG_DIR" \
+  OPENCODE_CONFIG_FILE="$OPENCODE_CONFIG" \
+  DANIEL_HARNESS_REPO="$ROOT_DIR" \
+  "$ROOT_DIR/scripts/doctor.sh" >"$OUTPUT"; then
+  printf 'Expected embedded synthetic URL credentials to fail doctor\n' >&2
+  exit 1
+fi
+
+grep -F '[crítico] OpenCode contiene valores sensibles hardcodeados' "$OUTPUT" >/dev/null
+if grep -F 'synthetic-password' "$OUTPUT" >/dev/null; then
+  printf 'Doctor exposed synthetic URL credentials\n' >&2
+  exit 1
+fi
+
+printf '%s\n' '{"permission":"invalid","mcp":{}}' >"$OPENCODE_CONFIG"
+
+if DANIEL_HARNESS_CONFIG_DIR="$CONFIG_DIR" \
+  OPENCODE_CONFIG_FILE="$OPENCODE_CONFIG" \
+  DANIEL_HARNESS_REPO="$ROOT_DIR" \
+  "$ROOT_DIR/scripts/doctor.sh" >"$OUTPUT"; then
+  printf 'Expected an invalid OpenCode permission shape to fail doctor\n' >&2
+  exit 1
+fi
+
+grep -F '[crítico] No se pudo evaluar el acceso Bash de modelos restricted' "$OUTPUT" >/dev/null
 
 printf 'doctor tests passed\n'

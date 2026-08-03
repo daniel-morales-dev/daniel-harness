@@ -1,41 +1,52 @@
-# Agent Instructions
+# Instrucciones para agentes
 
-This repository defines the stable foundation for Daniel Harness.
+Este repositorio define la base estable de Daniel Harness.
 
-## Start Here
+## Inicio
 
-1. Read `docs/project-memory.md`.
-2. Read relevant records under `docs/adr/`.
-3. Read the policy for the surface being changed.
-4. Use CodeGraph before broad code exploration when it is available.
+1. Lee `docs/project-memory.md`.
+2. Lee los ADR relevantes en `docs/adr/`.
+3. Lee la política y el workflow del contexto activo.
+4. Usa CodeGraph antes de exploración amplia.
+5. Si hay una tarea Linear, carga `skills/task-lifecycle/SKILL.md`.
 
-## Precedence
+## Precedencia
 
-1. Explicit user instruction.
-2. This repository's `AGENTS.md`.
-3. Context policy.
-4. Global policy.
-5. Conservative default.
+1. Instrucción explícita del usuario.
+2. `AGENTS.md` del proyecto activo.
+3. Política del contexto.
+4. Política global.
+5. Default conservador.
 
-## Boundaries
+## Autoridad
 
-- Never read, print, copy, or commit real secrets.
-- Never treat a private repository as secret storage.
-- Do not edit Gentle AI generated prompts, agents, or artifacts.
-- Do not modify migrated Phase 1 assets unless a task explicitly targets them.
-- Do not create a branch without asking first.
-- Do not edit production OpenCode configuration automatically.
-- Keep comments in Spanish when they explain a non-obvious technical decision; omit obvious comments.
+- Gentle AI decide routing directo/delegado/SDD y administra RDD.
+- Daniel Harness decide contexto, repositorios, políticas, MCPs, Linear y seguridad.
+- No reconstruyas receipts ni lifecycle de Gentle AI desde narración.
+- No edites prompts, agentes o configuración generada por Gentle AI.
 
-## Changes
+## Límites
 
-- Prefer the smallest correct change.
-- Keep one writer per shared surface.
-- Run focused tests and lint checks for the changed files.
-- Use synthetic fixtures only; never test against real local configuration.
-- Conventional Commit headers use an English type, a Spanish description, and at most 120 characters.
-- Commit, push, and deploy only when the user's project-specific authorization allows it.
+- Nunca leas, imprimas, copies o versiones secretos reales.
+- No trates un repositorio privado como secret storage.
+- No modifiques assets migrados de Fase 1 salvo tarea explícita.
+- No crees ramas sin preguntar.
+- No edites automáticamente configuración OpenCode productiva.
+- Los comentarios técnicos no obvios van en español.
 
-## Repository Assets
+## Cambios
 
-Files under `agents/`, `skills/monolith-to-micro-migration/`, and `commands/migration-gap-analysis.md` were migrated unchanged in Phase 1. Their source mapping and checksums are recorded in `docs/project-memory.md`.
+- Prefiere el cambio mínimo correcto.
+- Mantén un writer por superficie compartida.
+- Ejecuta tests y lint enfocados.
+- Usa fixtures sintéticos; nunca pruebes con configuración real.
+- Conventional Commit: type inglés, descripción española, máximo 120 caracteres.
+- Commit, push y deploy dependen de autorización del proyecto.
+
+## Recursos propios
+
+- `agents/php-engineer.md`: PHP 7.0.9/ZF1.
+- `skills/task-lifecycle/SKILL.md`: ciclo completo de tareas Linear.
+- `skills/monolith-to-micro-migration/SKILL.md`: paridad PHP → TypeScript.
+
+Los assets migrados de Fase 1 y sus checksums están en `docs/project-memory.md`.

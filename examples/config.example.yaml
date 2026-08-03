@@ -1,12 +1,28 @@
 version: "1"
 defaultScope: single-repo
 
-workflows:
-  trivial: direct
-  small: plan-build
-  medium: plan-build-agents
-  large: gentle-ai-sdd
-  critical: gentle-ai-sdd-reviewed
+workflowAuthority:
+  provider: gentle-ai
+  implementationRouting: provider-policy
+  sddActivation: explicit-or-accepted-proposal
+  review: receipt-driven-development
+  capabilityNegotiation: true
+
+tooling:
+  codeExploration: codegraph
+  memory: engram
+  codeSimplicity: ponytail
+  communication: caveman
+  communicationMode: adaptive
+
+workTracking:
+  provider: linear
+  whenIssueLinked: true
+  readHierarchy: true
+  readRelated: true
+  progressComments: meaningful-transitions
+  commentLanguage: es
+  closeWhenVerified: true
 
 models:
   - id: trusted-primary-placeholder
@@ -33,6 +49,9 @@ mcpRouting:
     expectedState: enabled
   - capability: persistent-memory
     server: engram
+    expectedState: enabled
+  - capability: task-tracking
+    server: linear
     expectedState: enabled
   - capability: internal-shared-library-docs
     server: mcp-raia-lib

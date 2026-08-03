@@ -17,6 +17,7 @@ credentials/
 *.cnf
 *.pem
 *.key
+*.command
 *.p12
 *.pfx
 

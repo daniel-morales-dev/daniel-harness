@@ -1,18 +1,18 @@
-# Missing Inputs
+# Inputs pendientes
 
-## Supplied Inline
+## Resueltos
 
-The design, handoff, portable project memory, and Phase 1 executable prompt were supplied directly in the initiating request. Files named `harness-alegra-personal-design.md`, `harness-session-handoff.md`, and `PHASE-INITIAL-PROMPT.md` were not found locally, so the pasted content is the source for this phase.
+- Diseño, handoff y prompt inicial fueron suministrados inline.
+- `migration-gap-analysis.md` se encontró como `alegra-app/.opencode/commands/migration-gap.md`.
+- Comandos de túneles fueron suministrados y se almacenan solo localmente.
+- Autoridad de Gentle AI fue confirmada por Daniel.
 
-## Not Found Under Expected Name
+## Pendientes
 
-- `commands/migration-gap-analysis.md`: source exists as `alegra-app/.opencode/commands/migration-gap.md`; Phase 1 documents the filename mapping and preserves content.
+- Tools y alcance real de `alegra-test`.
+- Capacidades Sentry después de autenticar.
+- Salud productiva de Raia mientras siga disabled.
+- Política definitiva de código propietario en modelos restricted.
+- Política de escritura MongoDB para K Agencia.
 
-## Deferred Discovery
-
-- `alegra-test` MCP tools and exact scope.
-- Authenticated Sentry capabilities.
-- Productive Raia server health while it remains disabled.
-- A redacted OpenCode configuration fixture based on the real setup. Synthetic fixtures are used instead; the raw configuration is intentionally not read.
-
-No missing input blocks the approved Phase 1 foundation.
+Ningún input pendiente bloquea los workflows documentados.

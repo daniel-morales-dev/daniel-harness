@@ -1,15 +1,15 @@
-# ADR 0002: Gentle AI Overlay
+# ADR 0002: Overlay sobre Gentle AI
 
-## Status
+## Estado
 
-Accepted
+Aceptado
 
-## Decision
+## Decisión
 
-Use Gentle AI as the external SDD engine for large and critical changes. Daniel Harness selects when to invoke it through a stable adapter and does not fork Gentle AI or modify generated prompts and agents.
+Gentle AI permanece externo y actualizable. Daniel Harness no lo forkea ni modifica generated assets; lo integra mediante comandos y contratos públicos.
 
-## Consequences
+## Consecuencias
 
-- Gentle AI upgrades remain independent.
-- Harness policy and context resolution stay under Daniel's control.
-- The adapter must depend on documented behavior, not volatile internal files.
+- `gentle-ai upgrade/sync` conserva ownership de sus superficies.
+- El harness puede evolucionar políticas propias sin copiar internals.
+- Cambios del contrato público requieren revalidar el adapter.

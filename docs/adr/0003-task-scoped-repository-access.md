@@ -1,15 +1,15 @@
-# ADR 0003: Task-Scoped Repository Access
+# ADR 0003: Acceso a repositorios por tarea
 
-## Status
+## Estado
 
-Accepted
+Aceptado
 
-## Decision
+## Decisión
 
-Determine repository scope from the task rather than the initial directory. Support `single-repo`, `related-repos`, and exceptional `multi-project` scopes. Report read/write repositories before editing; related-repository access does not require an extra authorization prompt.
+El scope surge de la tarea, no del cwd. Se soportan `single-repo`, `related-repos` y `multi-project`. Antes de editar se informa acceso read/write; repos relacionados no requieren prompt adicional.
 
-## Consequences
+## Consecuencias
 
-- Monolith-to-micro work can read the monolith and write the micro directly.
-- The main session must maintain an explicit access map.
-- Independent repositories are not pulled into scope speculatively.
+- Una migración puede leer monolito y escribir micro.
+- La sesión mantiene un mapa explícito de acceso.
+- No se agregan repositorios especulativamente.

@@ -10,17 +10,17 @@ WARNINGS=0
 CRITICAL=0
 
 ok() { printf '[ok] %s\n' "$*"; }
-warn() { printf '[warn] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
-critical() { printf '[critical] %s\n' "$*"; CRITICAL=$((CRITICAL + 1)); }
+warn() { printf '[aviso] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
+critical() { printf '[crítico] %s\n' "$*"; CRITICAL=$((CRITICAL + 1)); }
 
 tool_status() {
   local label=$1
   local command_name=$2
 
   if command -v "$command_name" >/dev/null 2>&1; then
-    ok "$label available"
+    ok "$label disponible"
   else
-    warn "$label not found"
+    warn "$label no encontrado"
   fi
 }
 
@@ -30,31 +30,121 @@ check_permissions() {
   local mode
 
   if [[ ! -e "$path" ]]; then
-    warn "$path not found"
+    warn "$path no existe"
     return
   fi
 
   mode=$(stat -c '%a' "$path" 2>/dev/null || true)
   if [[ ! $mode =~ ^[0-7]{3,4}$ ]]; then
-    warn "could not inspect permissions for $path"
+    warn "no se pudieron revisar los permisos de $path"
     return
   fi
 
   if (( (8#$mode & 077) != 0 )); then
-    critical "$path permissions are $mode; $expected_type must not allow group or other access"
+    critical "$path tiene permisos $mode; $expected_type no debe permitir acceso a grupo u otros"
   else
-    ok "$path permissions are $mode"
+    ok "$path tiene permisos $mode"
   fi
 }
 
-check_port() {
-  local port=$1
-  local label=$2
+is_port_open() {
+  local host=$1
+  local port=$2
 
-  if command -v timeout >/dev/null 2>&1 && timeout 1 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then
-    ok "$label port $port is open"
-  else
-    warn "$label port $port is closed or unreachable"
+  command -v timeout >/dev/null 2>&1 && timeout 1 bash -c "</dev/tcp/$host/$port" 2>/dev/null
+}
+
+list_required_tunnels() {
+  local connections_file="$HARNESS_CONFIG_DIR/connections.yaml"
+
+  [[ -f "$connections_file" ]] || return
+
+  awk '
+    function clean(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      gsub(/^"|"$/, "", value)
+      return value
+    }
+    function emit() {
+      if (id != "" && required == "true" && host != "" && port != "" && command_ref != "") {
+        print id "\t" host "\t" port "\t" command_ref
+      }
+    }
+    /^  - id:/ {
+      emit()
+      id = $0
+      sub(/^  - id:[[:space:]]*/, "", id)
+      id = clean(id)
+      host = ""
+      port = ""
+      required = ""
+      command_ref = ""
+      next
+    }
+    /^    host:/ {
+      host = $0
+      sub(/^    host:[[:space:]]*/, "", host)
+      host = clean(host)
+      next
+    }
+    /^    port:/ {
+      port = $0
+      sub(/^    port:[[:space:]]*/, "", port)
+      port = clean(port)
+      next
+    }
+    /^      required:/ {
+      required = $0
+      sub(/^      required:[[:space:]]*/, "", required)
+      required = clean(required)
+      next
+    }
+    /^      commandRef:/ {
+      command_ref = $0
+      sub(/^      commandRef:[[:space:]]*/, "", command_ref)
+      command_ref = clean(command_ref)
+      next
+    }
+    END { emit() }
+  ' "$connections_file"
+}
+
+check_tunnels() {
+  local row id host port command_ref command_path count=0
+
+  while IFS= read -r row; do
+    IFS=$'\t' read -r id host port command_ref <<<"$row"
+    count=$((count + 1))
+
+    if [[ ! $command_ref =~ ^secrets/tunnels/[a-z0-9][a-z0-9._-]*\.command$ ]]; then
+      critical "commandRef inválido para el túnel $id"
+      continue
+    fi
+
+    command_path="$HARNESS_CONFIG_DIR/$command_ref"
+
+    if [[ $host != 127.0.0.1 && $host != localhost ]]; then
+      critical "El túnel $id debe apuntar a un host local, no a $host"
+      continue
+    fi
+
+    if [[ ! $port =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+      critical "Puerto local inválido para el túnel $id"
+      continue
+    fi
+
+    check_permissions "$command_path" archivo
+
+    if is_port_open "$host" "$port"; then
+      ok "Túnel activo: $id ($host:$port)"
+    else
+      warn "Falta el túnel $id ($host:$port). Ejecuta: bash $command_path"
+    fi
+  done < <(list_required_tunnels)
+
+  if (( count == 0 )); then
+    warn 'No hay túneles requeridos configurados en connections.yaml'
   fi
 }
 
@@ -68,6 +158,9 @@ has_hardcoded_sensitive_values() {
     def sensitive_command_argument:
       type == "string" and
       test("(^|[-_/])(authorization|auth[-_]?token|token|secret|password|api[-_]?key|credential)(=|:|$)"; "i");
+    def embedded_credentials:
+      type == "string" and
+      test("^[a-z][a-z0-9+.-]*://[^/@[:space:]]+:[^/@[:space:]]+@"; "i");
     def external_reference:
       type == "string" and test("^\\{(env|file):[^}]+\\}$"; "i");
     def contains_literal:
@@ -84,6 +177,7 @@ has_hardcoded_sensitive_values() {
       .. | objects | to_entries[]? |
       select(
         ((.key | sensitive_key) and (.value | contains_literal)) or
+        (.value | embedded_credentials) or
         (
           ((.key | ascii_downcase) == "command") and
           ([.value | .. | strings | select(sensitive_command_argument)] | length > 0)
@@ -113,19 +207,19 @@ print_mcp_status() {
 
   while IFS= read -r row; do
     IFS=$'\t' read -r name enabled kind executable <<<"$row"
-    status=configured
+    status=configurado
 
     if [[ $kind == local && -n $executable ]]; then
       if command -v "$executable" >/dev/null 2>&1; then
-        status=available
+        status=disponible
       else
-        status=command-not-found
+        status=comando-no-encontrado
       fi
     elif [[ $kind == remote ]]; then
-      status=not-probed
+      status=no-probado
     fi
 
-    printf '[mcp] name=%s enabled=%s type=%s status=%s\n' "$name" "$enabled" "$kind" "$status"
+    printf '[mcp] nombre=%s habilitado=%s tipo=%s estado=%s\n' "$name" "$enabled" "$kind" "$status"
   done < <(
     jq -r '
       (.mcp // {}) | to_entries[] |
@@ -139,13 +233,44 @@ print_mcp_status() {
   )
 }
 
-printf 'Daniel Harness doctor\n\n'
+check_gentle_ai() {
+  local version review_mode doctor_output
 
-printf 'Tools\n'
+  if ! command -v gentle-ai >/dev/null 2>&1; then
+    warn 'Gentle AI no encontrado'
+    return
+  fi
+
+  version=$(gentle-ai version 2>/dev/null || true)
+  ok "Gentle AI disponible: ${version:-versión desconocida}"
+
+  if review_mode=$(gentle-ai review mode status --cwd "$REPOSITORY_DIR" 2>/dev/null); then
+    ok "$(printf '%s\n' "$review_mode" | sed -n '1p')"
+  else
+    warn 'No se pudo consultar el modo RDD de Gentle AI'
+  fi
+
+  doctor_output=$(gentle-ai doctor 2>/dev/null || true)
+  if grep -Fq 'Status:  healthy' <<<"$doctor_output"; then
+    ok 'Ecosistema Gentle AI saludable'
+  else
+    warn 'gentle-ai doctor reporta estado degradado'
+  fi
+
+  if [[ -f "$REPOSITORY_DIR/.atl/skill-registry.md" ]]; then
+    ok 'Skill registry de Gentle AI disponible'
+  else
+    warn 'Skill registry ausente; ejecuta gentle-ai skill-registry refresh --force'
+  fi
+}
+
+printf 'Diagnóstico de Daniel Harness\n\n'
+
+printf 'Herramientas\n'
 tool_status Git git
 tool_status 'GitHub CLI' gh
 tool_status OpenCode opencode
-tool_status 'Gentle AI' gentle-ai
+check_gentle_ai
 tool_status RTK rtk
 tool_status CodeGraph codegraph
 tool_status Docker docker
@@ -153,53 +278,63 @@ tool_status jq jq
 tool_status 'AWS CLI' aws
 
 if command -v mariadb >/dev/null 2>&1 || command -v mysql >/dev/null 2>&1; then
-  ok 'MariaDB/MySQL client available'
+  ok 'Cliente MariaDB/MySQL disponible'
 else
-  warn 'MariaDB/MySQL client not found'
+  warn 'Cliente MariaDB/MySQL no encontrado'
 fi
 
-printf '\nConfiguration\n'
-check_permissions "$HARNESS_CONFIG_DIR" directory
-check_permissions "$HARNESS_CONFIG_DIR/secrets" directory
-check_permissions "$HARNESS_CONFIG_DIR/config.yaml" file
-check_permissions "$HARNESS_CONFIG_DIR/connections.yaml" file
-check_permissions "$HARNESS_CONFIG_DIR/project-registry.yaml" file
+printf '\nConfiguración\n'
+check_permissions "$HARNESS_CONFIG_DIR" directorio
+check_permissions "$HARNESS_CONFIG_DIR/secrets" directorio
+check_permissions "$HARNESS_CONFIG_DIR/config.yaml" archivo
+check_permissions "$HARNESS_CONFIG_DIR/connections.yaml" archivo
+check_permissions "$HARNESS_CONFIG_DIR/project-registry.yaml" archivo
 
-printf '\nOpenCode MCPs\n'
+printf '\nMCPs de OpenCode\n'
 if [[ ! -f "$OPENCODE_CONFIG_FILE" ]]; then
-  warn 'OpenCode configuration not found; MCP inventory unavailable'
+  warn 'No se encontró la configuración de OpenCode; inventario MCP no disponible'
 elif ! command -v jq >/dev/null 2>&1; then
-  warn 'jq not found; OpenCode configuration was not inspected'
+  warn 'jq no está disponible; no se inspeccionó la configuración de OpenCode'
 elif ! jq empty "$OPENCODE_CONFIG_FILE" >/dev/null 2>&1; then
-  warn 'OpenCode configuration is not valid JSON; MCP inventory was skipped'
+  warn 'La configuración de OpenCode no es JSON válido; se omitió el inventario MCP'
 else
   print_mcp_status
 
   if has_hardcoded_sensitive_values; then
-    critical 'OpenCode configuration contains hardcoded sensitive values; values were not displayed'
+    critical 'OpenCode contiene valores sensibles hardcodeados; no se mostraron los valores'
   else
-    ok 'No supported hardcoded-secret patterns detected in OpenCode JSON'
+    # jq -e retorna 1 para "sin hallazgos" y 2+ ante errores de evaluación.
+    jq_status=$?
+    if (( jq_status == 1 )); then
+      ok 'No se detectaron patrones soportados de secretos hardcodeados en OpenCode'
+    else
+      critical 'No se pudo evaluar si OpenCode contiene valores sensibles hardcodeados'
+    fi
   fi
 
-  if has_restricted_models && has_broad_bash_permission; then
-    critical 'Restricted model profiles exist while OpenCode grants broad Bash access'
+  if has_restricted_models; then
+    if has_broad_bash_permission; then
+      critical 'Hay modelos restricted mientras OpenCode concede acceso Bash amplio'
+    else
+      # Conserva la misma distinción trivaluada del análisis de secretos.
+      jq_status=$?
+      if (( jq_status != 1 )); then
+        critical 'No se pudo evaluar el acceso Bash de modelos restricted'
+      fi
+    fi
   fi
 fi
 
-printf '\nLocal ports\n'
-check_port 60001 'Alegra hopper MySQL'
-check_port 55000 'Alegra production MySQL'
-check_port 3306 'K Agencia MySQL'
-check_port 27017 'K Agencia MongoDB'
-check_port 3900 'K Agencia Garage'
+printf '\nTúneles locales\n'
+check_tunnels
 
-printf '\nRepository\n'
+printf '\nRepositorio\n'
 if git -C "$REPOSITORY_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  ok 'Git repository detected'
-  warn 'Repository visibility not verified; doctor does not call hosting APIs'
+  ok 'Repositorio Git detectado'
+  warn 'Visibilidad no verificada; doctor no llama APIs del hosting'
 else
-  critical 'Repository directory is not a Git worktree'
+  critical 'La ruta del repositorio no es un worktree Git'
 fi
 
-printf '\nSummary: %d critical, %d warning(s)\n' "$CRITICAL" "$WARNINGS"
+printf '\nResumen: %d crítico(s), %d aviso(s)\n' "$CRITICAL" "$WARNINGS"
 (( CRITICAL == 0 ))

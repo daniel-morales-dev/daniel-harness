@@ -1,13 +1,13 @@
-# Policy Precedence
+# Precedencia de políticas
 
-Apply the first matching rule in this order:
+Aplica la primera regla coincidente:
 
-1. Explicit user instruction for the current task.
-2. The active project's `AGENTS.md`.
-3. Policy selected by detected context.
-4. Daniel Harness global policy.
-5. Conservative default.
+1. Instrucción explícita del usuario para la tarea actual.
+2. `AGENTS.md` del proyecto activo.
+3. Política del contexto detectado.
+4. Política global de Daniel Harness.
+5. Default conservador.
 
-Higher-priority instructions cannot weaken non-negotiable platform safety boundaries. When two rules at the same level conflict, stop and ask one focused question.
+Una instrucción no puede debilitar límites de seguridad no negociables. Si dos reglas del mismo nivel se contradicen, detente y formula una sola pregunta concreta.
 
-Project documentation is evidence, not automatically global policy. Stale plans and historical audits must be verified before use.
+La documentación histórica es evidencia, no política automática. Verifica planes antiguos antes de usarlos.

@@ -1,11 +1,11 @@
-# Git Policy
+# Política Git
 
-- Never create a branch without asking.
-- Follow the active project's commit, push, merge, and deploy rules.
-- Conventional Commit type is English; description is Spanish; full header is at most 120 characters.
-- Do not amend, force-push, or rewrite history without explicit authorization.
-- Stage only files belonging to the current work unit.
-- Before commit, inspect status, diff, and recent commit style.
-- Before push, verify the intended branch and remote using `git`.
+- Nunca crees una rama sin preguntar.
+- Sigue las reglas de commit, push, merge y deploy del proyecto activo.
+- Conventional Commit usa type inglés, descripción española y máximo 120 caracteres.
+- No hagas amend, force-push o reescritura de historial sin autorización.
+- Stagea solo el work unit actual.
+- Antes de commit revisa status, diff y estilo reciente.
+- Antes de push verifica rama y remote con `git`.
 
-Daniel Harness itself belongs to `daniel-morales-dev`; do not use the Alegra GitHub identity for this repository.
+Daniel Harness pertenece a `daniel-morales-dev`; no uses la identidad corporativa de Alegra en este repositorio.
