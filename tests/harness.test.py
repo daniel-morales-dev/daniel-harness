@@ -39,11 +39,19 @@ def test_install_and_uninstall_consistent():
     )
 
 
-def test_bootstrap_writes_plugin_singular():
-    """Verify bootstrap.sh writes .plugin (singular) to opencode.json, not .plugins."""
-    bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()
-    assert '(.plugin // [])' in bootstrap
-    assert '(.plugins // [])' not in bootstrap
+def test_context_heuristic_never_alegra():
+    """Verify heuristics never assign alegra-* context by language."""
+    detect = (ROOT_DIR / "scripts" / "detect-context.sh").read_text()
+    heuristic_section = detect.split("# 2. Heurística")[1] if "# 2. Heurística" in detect else detect
+    assert "alegra-monolith" not in heuristic_section
+    assert "alegra-microservice" not in heuristic_section
+    assert "contexto=generic-php" in detect
+    assert "contexto=generic-typescript" in detect
+    assert "contexto=generic-go" in detect
+    detect_bin = (ROOT_DIR / "bin" / "dh").read_text()
+    assert "contexto=generic-php" in detect_bin
+    assert "contexto=generic-typescript" in detect_bin
+    assert "contexto=generic-go" in detect_bin
 
 
 def test_manifest_mcp_local_has_type():
@@ -164,7 +172,8 @@ def test_dh_cli_contexts_use_alegra_prefix():
     doc = (ROOT_DIR / "docs" / "dh-cli.md").read_text()
     assert "alegra-monolith" in doc
     assert "alegra-microservice" in doc
-    assert "`monolith`" not in doc and "`microservice`" not in doc
+    assert "generic-php" in doc
+    assert "generic-typescript" in doc
 
 
 def test_mcp_status_uninitialized():
@@ -216,8 +225,11 @@ if __name__ == "__main__":
     test_install_and_uninstall_consistent()
     print("[ok] install/uninstall consistentes")
 
-    test_bootstrap_writes_plugin_singular()
-    print("[ok] bootstrap escribe .plugin singular")
+    test_bootstrap_plugin_uses_singular()
+    print("[ok] bootstrap usa .plugin singular")
+
+    test_context_heuristic_never_alegra()
+    print("[ok] heurística nunca asigna alegra-* por lenguaje")
 
     test_manifest_mcp_local_has_type()
     print("[ok] manifest MCPs locales tienen type")

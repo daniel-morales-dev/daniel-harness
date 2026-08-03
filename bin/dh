@@ -118,7 +118,7 @@ detect_context() {
       in_proj && /^        path:/{gsub(/^        path:[[:space:]]*/,""); gsub(/^"|"$/,""); path=$0; next}
       in_proj && /^        context:/{gsub(/^        context:[[:space:]]*/,""); gsub(/^"|"$/,""); ctx=$0; next}
       in_proj && /^        rules:/ && path != "" && name != "" {
-        if (index(dir, path) == 1) {
+        if (dir == path || index(dir, path "/") == 1) {
           print name "|" ctx "|" path; exit
         }
         name=""; path=""; ctx=""
@@ -136,20 +136,20 @@ detect_context() {
   fi
 
   if [[ -f "$project_dir/composer.json" ]]; then
-    printf 'contexto=alegra-monolith\n'
+    printf 'contexto=generic-php\n'
     printf 'detectado_por=composer.json\n'
   elif [[ -f "$project_dir/package.json" ]]; then
     local has_ts
     has_ts=$(jq -r '.devDependencies.typescript // ""' "$project_dir/package.json" 2>/dev/null)
     if [[ -n "$has_ts" ]]; then
-      printf 'contexto=alegra-microservice\n'
+      printf 'contexto=generic-typescript\n'
       printf 'detectado_por=package.json+typescript\n'
     else
       printf 'contexto=generic-node\n'
       printf 'detectado_por=package.json\n'
     fi
   elif [[ -f "$project_dir/go.mod" ]]; then
-    printf 'contexto=freelance\n'
+    printf 'contexto=generic-go\n'
     printf 'detectado_por=go.mod\n'
   else
     printf 'contexto=generic\n'
@@ -191,7 +191,7 @@ project_init() {
   printf '=== Nuevo proyecto ===\n'
   read -r -p 'Nombre del proyecto: ' name
   read -r -p 'Ruta absoluta: ' path
-  read -r -p 'Contexto (alegra-monolith/alegra-microservice/freelance): ' context
+  read -r -p 'Contexto (alegra-monolith/alegra-microservice/freelance/generic-*): ' context
   read -r -p 'Repositorio Git (opcional, Enter para omitir): ' repo
   read -r -p 'Familia existente o nueva (Enter para crear automática): ' fam_input
 
@@ -201,8 +201,8 @@ project_init() {
   fi
 
   case "$context" in
-    alegra-monolith|alegra-microservice|freelance) ;;
-    *) printf '[error] Contexto inválido: %s (usar alegra-monolith, alegra-microservice o freelance)\n' "$context" >&2; exit 1 ;;
+    alegra-monolith|alegra-microservice|freelance|generic-php|generic-typescript|generic-node|generic-go|generic) ;;
+    *) printf '[error] Contexto inválido: %s\n' "$context" >&2; exit 1 ;;
   esac
 
   local registry="$HARNESS_DIR/project-registry.yaml"

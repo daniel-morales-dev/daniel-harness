@@ -18,7 +18,10 @@
   },
   "$defs": {
     "context": {
-      "enum": ["alegra-monolith", "alegra-microservice", "freelance"]
+      "enum": [
+        "alegra-monolith", "alegra-microservice", "freelance",
+        "generic-php", "generic-typescript", "generic-node", "generic-go", "generic"
+      ]
     },
     "family": {
       "type": "object",

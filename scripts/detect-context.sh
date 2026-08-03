@@ -13,7 +13,10 @@ REGISTRY="$HARNESS_CONFIG_DIR/project-registry.yaml"
 # 1. Buscar en project-registry.yaml
 if [[ -f "$REGISTRY" ]]; then
   while IFS='|' read -r name ctx path; do
-    if echo "$PROJECT_DIR" | grep -qF "$path"; then
+    normalized_dir=$(realpath "$PROJECT_DIR" 2>/dev/null || echo "$PROJECT_DIR")
+    normalized_path=$(realpath "$path" 2>/dev/null || echo "$path")
+    if [[ "$normalized_dir" == "$normalized_path" ||
+          "$normalized_dir" == "$normalized_path/"* ]]; then
       echo "proyecto=$name"
       echo "contexto=$ctx"
       echo "path=$path"
@@ -35,20 +38,20 @@ if [[ -f "$REGISTRY" ]]; then
   ' "$REGISTRY")
 fi
 
-# 2. Heurística por lenguaje
+# 2. Heurística por lenguaje (NUNCA asigna Alegra — solo registry explícito)
 if [[ -f "$PROJECT_DIR/composer.json" ]]; then
-  echo "contexto=alegra-monolith"
+  echo "contexto=generic-php"
   echo "detectado_por=composer.json"
 elif [[ -f "$PROJECT_DIR/package.json" ]]; then
   if command -v jq >/dev/null 2>&1 && jq -e '.devDependencies.typescript // "" | length > 0' "$PROJECT_DIR/package.json" >/dev/null 2>&1; then
-    echo "contexto=alegra-microservice"
+    echo "contexto=generic-typescript"
     echo "detectado_por=package.json+typescript"
   else
     echo "contexto=generic-node"
     echo "detectado_por=package.json"
   fi
 elif [[ -f "$PROJECT_DIR/go.mod" ]]; then
-  echo "contexto=freelance"
+  echo "contexto=generic-go"
   echo "detectado_por=go.mod"
 else
   echo "contexto=generic"

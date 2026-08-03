@@ -59,12 +59,15 @@ dh context /ruta/al/proyecto        # directorio específico
 
 Salida: pares `clave=valor` con `proyecto`, `contexto`, `path` y `detectado_por`.
 
-Contextos detectables:
-- `alegra-monolith`: `composer.json` presente (PHP/ZF1)
-- `alegra-microservice`: `package.json` con TypeScript en devDependencies
+Contextos detectables (por heurística de lenguaje):
+- `generic-php`: `composer.json` presente
+- `generic-typescript`: `package.json` con TypeScript en devDependencies
 - `generic-node`: `package.json` sin TypeScript
-- `freelance`: `go.mod` presente
+- `generic-go`: `go.mod` presente
 - `generic`: ningún marcador conocido
+
+Los contextos `alegra-monolith` y `alegra-microservice` solo se asignan desde
+`project-registry.yaml`. La heurística NUNCA asigna Alegra por lenguaje.
 
 ### dh update
 
