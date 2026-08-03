@@ -9,13 +9,17 @@ El código y los contratos viven en este repositorio. La configuración local y 
 ### Primera vez
 
 ```bash
-# Clona el harness en XDG data
+# Opcion 1 (recomendada): clonar con git y arrancar el instalador
+git clone git@github.com:daniel-morales-dev/daniel-harness.git \
+  "$HOME/.local/share/daniel-harness"
+cd "$HOME/.local/share/daniel-harness"
+./install --profile alegra --connect
+
+# Opcion 2 (si gh ya esta instalado):
 gh repo clone daniel-morales-dev/daniel-harness \
   "$HOME/.local/share/daniel-harness"
-
-# Instala todo el perfil cotidiano (OpenCode, agentes, MCPs, tools)
-"$HOME/.local/share/daniel-harness/scripts/bootstrap.sh" \
-  --profile alegra
+cd "$HOME/.local/share/daniel-harness"
+./install --profile alegra --connect
 ```
 
 Perfiles disponibles:
@@ -23,7 +27,7 @@ Perfiles disponibles:
 | Perfil | Incluye |
 |--------|---------|
 | `core` | OpenCode, Gentle AI, Engram, CodeGraph, RTK, DH CLI + MCPs codegraph/engram |
-| `alegra` | Core + GitHub CLI, AWS CLI + MCPs linear/context7/wiki-alegra |
+| `alegra` | Core + GitHub CLI, AWS CLI + MCPs linear/context7/wiki-alegra/github |
 | `migration` | Alegra + Docker, MariaDB + MCP raia-lib |
 | `full` | Migration + MCPs github/sentry |
 
@@ -33,6 +37,7 @@ Avanzado:
 ./scripts/bootstrap.sh               # perfil core
 ./scripts/bootstrap.sh --profile alegra
 ./scripts/bootstrap.sh --dry-run     # simulación
+./install --profile migration        # instalador completo sin conectividad
 ```
 
 ### Uso diario
