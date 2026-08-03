@@ -7,19 +7,36 @@ El código y los contratos viven en este repositorio. La configuración local y 
 ## Ruta rápida
 
 ```bash
-./scripts/bootstrap.sh           # instala todo lo necesario
-./scripts/bootstrap.sh --dry-run # solo muestra qué haría
+./scripts/bootstrap.sh             # instala todo lo necesario
+./scripts/bootstrap.sh --dry-run   # solo muestra qué haría
 ```
 
 O por pasos si ya tienes lo básico:
 
 ```bash
-./scripts/install.sh             # configuración local + symlinks
-./scripts/doctor.sh              # diagnóstico
+./scripts/install.sh               # configuración local + symlinks
+./scripts/doctor.sh                # diagnóstico
 gentle-ai skill-registry refresh --force
 ```
 
 Reinicia OpenCode después de instalar agentes, skills o plugins.
+
+## CLI `dh`
+
+Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando global.
+
+| Comando | Función |
+|---|---|
+| `dh doctor` | Diagnóstico completo del harness |
+| `dh install` | Configuración local + symlinks |
+| `dh bootstrap [--skip-docker]` | Instalación completa desde cero |
+| `dh mcp-status` | Conexión y OAuth de servidores MCP |
+| `dh tunnel list` | Lista túneles configurados |
+| `dh update` | Actualiza el harness desde Git |
+| `dh context [dir]` | Detecta contexto del proyecto |
+| `dh project init` | Asistente para registrar proyecto |
+| `dh session <issue>` | Crea brief de sesión desde Linear |
+| `dh engram-service install\|enable\|disable\|status` | Servicio systemd para Engram |
 
 ## Reparto de autoridad
 

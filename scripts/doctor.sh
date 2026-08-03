@@ -273,6 +273,7 @@ tool_status OpenCode opencode
 check_gentle_ai
 tool_status RTK rtk
 tool_status CodeGraph codegraph
+tool_status 'DH CLI' dh
 tool_status Docker docker
 tool_status jq jq
 tool_status 'AWS CLI' aws

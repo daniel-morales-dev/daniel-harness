@@ -55,6 +55,11 @@ user_tools:
     check: command -v aws
     install: 'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip'
     depends: unzip
+  dh:
+    type: binary
+    check: command -v dh
+    install: 'eval "$(command -v bash)" && "$(dirname "$(readlink -f "$(command -v opencode || echo /dev/null)")")/../harness/scripts/install.sh" || echo "dh se instala con dh install o bootstrap"'
+    note: "Se instala como symlink desde bin/dh del harness mediante install.sh"
   docker:
     type: skip_by_default
     check: command -v docker

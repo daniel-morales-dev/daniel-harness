@@ -30,5 +30,6 @@ remove_managed_link "$ROOT_DIR/agents/php-engineer.md" "$OPENCODE_CONFIG_DIR/age
 remove_managed_link "$ROOT_DIR/skills/monolith-to-micro-migration" "$OPENCODE_CONFIG_DIR/skills/monolith-to-micro-migration"
 remove_managed_link "$ROOT_DIR/skills/task-lifecycle" "$OPENCODE_CONFIG_DIR/skills/task-lifecycle"
 remove_managed_link "$ROOT_DIR/commands/migration-gap-analysis.md" "$OPENCODE_CONFIG_DIR/commands/migration-gap-analysis.md"
+remove_managed_link "$ROOT_DIR/bin/dh" "$HOME/.local/bin/dh"
 
 printf '\nDesinstalación completada. La configuración local y los secretos se conservaron.\n'

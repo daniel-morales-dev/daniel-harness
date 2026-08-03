@@ -26,6 +26,8 @@ HOME="$TMP_DIR/home" XDG_CONFIG_HOME="$CONFIG_ROOT" "$ROOT_DIR/scripts/install.s
 [[ -L "$OPENCODE_CONFIG/skills/monolith-to-micro-migration" ]]
 [[ -L "$OPENCODE_CONFIG/skills/task-lifecycle" ]]
 [[ -L "$OPENCODE_CONFIG/commands/migration-gap-analysis.md" ]]
+[[ -L "$TMP_DIR/home/.local/bin/dh" ]]
+[[ -e "$TMP_DIR/home/.local/bin/dh" ]]
 [[ $(stat -c '%a' "$HARNESS_CONFIG/config.yaml") == 600 ]]
 [[ $(stat -c '%a' "$HARNESS_CONFIG/secrets") == 700 ]]
 [[ $(stat -c '%a' "$HARNESS_CONFIG/secrets/tunnels") == 700 ]]
@@ -47,6 +49,7 @@ HOME="$TMP_DIR/home" XDG_CONFIG_HOME="$CONFIG_ROOT" "$ROOT_DIR/scripts/uninstall
 [[ ! -L "$OPENCODE_CONFIG/skills/task-lifecycle" ]]
 [[ -L "$OPENCODE_CONFIG/commands/migration-gap-analysis.md" ]]
 [[ $(readlink "$OPENCODE_CONFIG/commands/migration-gap-analysis.md") == "$FOREIGN_TARGET" ]]
+[[ ! -L "$TMP_DIR/home/.local/bin/dh" ]]
 [[ -f "$HARNESS_CONFIG/config.yaml" ]]
 [[ -d "$HARNESS_CONFIG/secrets" ]]
 

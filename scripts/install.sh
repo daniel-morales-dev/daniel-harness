@@ -5,6 +5,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
 HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
+LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 
 install_config_if_missing() {
   local source=$1
@@ -60,4 +61,7 @@ link_if_missing "$ROOT_DIR/skills/monolith-to-micro-migration" "$OPENCODE_CONFIG
 link_if_missing "$ROOT_DIR/skills/task-lifecycle" "$OPENCODE_CONFIG_DIR/skills/task-lifecycle"
 link_if_missing "$ROOT_DIR/commands/migration-gap-analysis.md" "$OPENCODE_CONFIG_DIR/commands/migration-gap-analysis.md"
 
-printf '\nInstalación completada. Reinicia OpenCode y ejecuta gentle-ai skill-registry refresh --force.\n'
+install -d -m 700 "$LOCAL_BIN"
+link_if_missing "$ROOT_DIR/bin/dh" "$LOCAL_BIN/dh"
+
+printf '\nInstalación completada. Ejecuta dh doctor para verificar.\n'

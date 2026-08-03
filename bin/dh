@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+HARNESS_DIR=${DANIEL_HARNESS_CONFIG_DIR:-$HOME/.config/daniel-harness}
+OC_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}"
+
+show_help() {
+  printf 'Uso: dh <comando> [argumentos]\n\n'
+  printf 'Comandos:\n'
+  printf '  doctor           Diagnóstico del harness\n'
+  printf '  install          Configuración local + symlinks\n'
+  printf '  bootstrap        Instalación completa de herramientas\n'
+  printf '  mcp-status       Estado de conexión y autenticación MCP\n'
+  printf '  tunnel list      Lista túneles configurados\n'
+  printf '  update           Actualiza el harness desde Git\n'
+  printf '  project init     Asistente para nuevo proyecto\n'
+  printf '  session <issue>  Genera brief de sesión desde Linear\n'
+  printf '  engram-service   Instala/systemd user service para Engram\n'
+  printf '  context          Detecta el contexto del proyecto actual\n'
+  printf '  help             Esta ayuda\n'
+}
+
+mcp_status() {
+  printf '=== MCP Status ===\n'
+
+  if ! command -v opencode >/dev/null 2>&1; then
+    printf '[aviso] OpenCode no encontrado\n'
+    return
+  fi
+
+  printf '\nConexión:\n'
+  opencode mcp list 2>/dev/null || printf '[aviso] No se pudo listar MCPs\n'
+
+  printf '\nAutenticación OAuth:\n'
+  if opencode mcp auth list 2>/dev/null; then
+    :
+  else
+    printf '[aviso] No se pudo verificar autenticación (puede que ningún MCP requiera OAuth)\n'
+  fi
+
+  if [[ -f "$OC_FILE" ]]; then
+    local total remote local_count
+    total=$(jq '.mcp.servers | length' "$OC_FILE" 2>/dev/null || echo 0)
+    remote=$(jq '[.mcp.servers[] | select(.type=="remote")] | length' "$OC_FILE" 2>/dev/null || echo 0)
+    local_count=$(jq '[.mcp.servers[] | select(.type=="local")] | length' "$OC_FILE" 2>/dev/null || echo 0)
+    printf '\nResumen: %s servidores (%s local, %s remoto)\n' "$total" "$local_count" "$remote"
+  fi
+}
+
+tunnel_cmd() {
+  local action=${1:-list}
+  local conn_file="$HARNESS_DIR/connections.yaml"
+
+  case "$action" in
+    list)
+      if [[ ! -f "$conn_file" ]]; then
+        printf 'No hay archivo de conexiones en %s\n' "$conn_file"
+        return
+      fi
+      printf 'Túneles configurados:\n'
+      awk '
+        /^  - id:/ {
+          gsub(/^  - id:[[:space:]]*/, "")
+          gsub(/^"|"$/, "")
+          id=$0
+        }
+        /^    host:/ {
+          gsub(/^    host:[[:space:]]*/, "")
+          gsub(/^"|"$/, "")
+          host=$0
+        }
+        /^    port:/ {
+          gsub(/^    port:[[:space:]]*/, "")
+          gsub(/^"|"$/, "")
+          port=$0
+        }
+        /^      required:/ {
+          gsub(/^      required:[[:space:]]*/, "")
+          gsub(/^"|"$/, "")
+          required=$0
+        }
+        /^      commandRef:/ {
+          gsub(/^      commandRef:[[:space:]]*/, "")
+          gsub(/^"|"$/, "")
+          cmdref=$0
+          printf "  %-20s %-21s requerido=%-5s comando=%s\n", id, host ":" port, required, cmdref
+        }
+      ' "$conn_file"
+      ;;
+    *)
+      printf 'Uso: dh tunnel list\n'
+      ;;
+  esac
+}
+
+detect_context() {
+  local project_dir=${1:-$PWD}
+  local registry="$HARNESS_DIR/project-registry.yaml"
+
+  if [[ -f "$registry" ]]; then
+    local match
+    match=$(awk -v dir="$project_dir" '
+      /^projects:/{in_proj=1; next}
+      in_proj && /^  - name:/{name=$0; gsub(/^  - name:[[:space:]]*/,""); gsub(/^"|"$/,"")}
+      in_proj && /^    path:/{path=$0; gsub(/^    path:[[:space:]]*/,""); gsub(/^"|"$/,"")}
+      in_proj && /^    context:/{ctx=$0; gsub(/^    context:[[:space:]]*/,""); gsub(/^"|"$/,"")}
+      in_proj && /^    rules:/ && path != "" && name != "" {
+        if (dir ~ "^" path || index(dir, path) == 1) {
+          print name "|" ctx "|" path; exit
+        }
+        name=""; path=""; ctx=""
+      }
+    ' "$registry")
+
+    if [[ -n "$match" ]]; then
+      local name ctx path
+      IFS='|' read -r name ctx path <<< "$match"
+      printf 'proyecto=%s\ncontexto=%s\npath=%s\n' "$name" "$ctx" "$path"
+      return
+    fi
+  fi
+
+  if [[ -f "$project_dir/composer.json" ]]; then
+    printf 'contexto=monolith\n'
+    printf 'detectado_por=composer.json\n'
+  elif [[ -f "$project_dir/package.json" ]]; then
+    local has_ts
+    has_ts=$(jq -r '.devDependencies.typescript // ""' "$project_dir/package.json" 2>/dev/null)
+    if [[ -n "$has_ts" ]]; then
+      printf 'contexto=microservice\n'
+      printf 'detectado_por=package.json+typescript\n'
+    else
+      printf 'contexto=generic-node\n'
+      printf 'detectado_por=package.json\n'
+    fi
+  elif [[ -f "$project_dir/go.mod" ]]; then
+    printf 'contexto=freelance\n'
+    printf 'detectado_por=go.mod\n'
+  else
+    printf 'contexto=generic\n'
+    printf 'detectado_por=default\n'
+  fi
+}
+
+self_update() {
+  printf 'Actualizando Daniel Harness...\n'
+  git -C "$ROOT_DIR" fetch origin 2>/dev/null || {
+    printf '[error] No se pudo contactar el remoto\n' >&2
+    exit 1
+  }
+
+  local local_ref remote_ref
+  local_ref=$(git -C "$ROOT_DIR" rev-parse HEAD)
+  remote_ref=$(git -C "$ROOT_DIR" rev-parse origin/main 2>/dev/null || echo "")
+
+  if [[ "$local_ref" == "$remote_ref" ]]; then
+    printf '[ok] Ya estás en la última versión (%s)\n' "${local_ref:0:8}"
+    return
+  fi
+
+  printf 'Actualizando a %s...\n' "${remote_ref:0:8}"
+  git -C "$ROOT_DIR" pull --ff-only origin main
+
+  if git -C "$ROOT_DIR" diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q '^bootstrap/manifest.yaml'; then
+    printf '[aviso] El manifest cambió. Ejecuta dh bootstrap para actualizar herramientas.\n'
+  fi
+
+  if git -C "$ROOT_DIR" diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q '^scripts/install.sh'; then
+    printf '[aviso] install.sh cambió. Ejecuta dh install para actualizar symlinks.\n'
+  fi
+
+  printf '[ok] Harness actualizado\n'
+}
+
+project_init() {
+  printf '=== Nuevo proyecto ===\n'
+  read -r -p 'Nombre del proyecto: ' name
+  read -r -p 'Ruta absoluta: ' path
+  read -r -p 'Contexto (monolith/microservice/freelance): ' context
+  read -r -p 'Repositorio Git (opcional): ' repo
+
+  if [[ ! -d "$path" ]]; then
+    printf '[error] La ruta no existe: %s\n' "$path" >&2
+    exit 1
+  fi
+
+  case "$context" in
+    monolith|microservice|freelance) ;;
+    *) printf '[error] Contexto inválido: %s (usar monolith, microservice o freelance)\n' "$context" >&2; exit 1 ;;
+  esac
+
+  local registry="$HARNESS_DIR/project-registry.yaml"
+  if [[ ! -f "$registry" ]]; then
+    mkdir -p "$HARNESS_DIR"
+    printf 'version: "1"\nprojects: []\n' > "$registry"
+    chmod 600 "$registry"
+  fi
+
+  if grep -q "name: \"$name\"" "$registry" 2>/dev/null; then
+    printf '[error] El proyecto "%s" ya existe en el registry\n' "$name" >&2
+    exit 1
+  fi
+
+  TMP=$(mktemp)
+  python3 -c "
+import yaml, sys
+with open('$registry') as f:
+    data = yaml.safe_load(f) or {'version':'1','projects':[]}
+entry = {'name':'$name','path':'$path','context':'$context'}
+if '$repo':
+    entry['repository'] = '$repo'
+data['projects'].append(entry)
+with open('$TMP', 'w') as f:
+    yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+" 2>/dev/null || {
+    printf '[error] No se pudo actualizar el registry (python3-yaml requerido)\n' >&2
+    rm -f "$TMP"
+    exit 1
+  }
+  mv "$TMP" "$registry"
+  chmod 600 "$registry"
+  printf '[ok] Proyecto "%s" registrado en %s\n' "$name" "$registry"
+}
+
+session_start() {
+  local issue_id=${1:-}
+
+  if [[ -z "$issue_id" ]]; then
+    printf 'Uso: dh session <issue-id>\n'
+    printf '  Ej: dh session ENG-123\n'
+    exit 1
+  fi
+
+  local session_file="$HARNESS_DIR/sessions/$issue_id.md"
+  mkdir -p "$HARNESS_DIR/sessions"
+
+  printf '# Sesión: %s\n\n' "$issue_id" > "$session_file"
+  printf 'Iniciada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$session_file"
+  printf '## Tarea\n\n' >> "$session_file"
+  printf 'ID: %s\n\n' "$issue_id" >> "$session_file"
+  printf '## Contexto\n\n' >> "$session_file"
+  detect_context >> "$session_file"
+  printf '\n## Objetivo\n\n- \n' >> "$session_file"
+  printf '\n## Criterios de aceptación\n\n- \n' >> "$session_file"
+  printf '\n## Archivos afectados\n\n- \n' >> "$session_file"
+
+  printf '[ok] Brief de sesión creado: %s\n' "$session_file"
+}
+
+engram_service() {
+  local action=${1:-install}
+  local service_dir="$HOME/.config/systemd/user"
+  local service_file="$service_dir/engram.service"
+
+  case "$action" in
+    install|setup)
+      mkdir -p "$service_dir"
+      cat > "$service_file" <<-SERVICEEOF
+[Unit]
+Description=Engram memory service para agentes AI
+Documentation=https://engram.sh
+
+[Service]
+ExecStart=%h/.local/bin/engram serve
+Restart=on-failure
+RestartSec=5
+Environment=ENGRAM_PORT=7437
+
+[Install]
+WantedBy=default.target
+SERVICEEOF
+      printf '[ok] Servicio Engram creado: %s\n' "$service_file"
+      systemctl --user daemon-reload 2>/dev/null || true
+      printf 'Ejecuta los siguientes comandos para activarlo:\n'
+      printf '  systemctl --user enable --now engram\n'
+      printf '  systemctl --user status engram\n'
+      ;;
+    enable)
+      systemctl --user enable --now engram 2>/dev/null || {
+        printf '[error] systemctl no disponible o falló\n' >&2
+        printf 'Prueba: systemctl --user enable --now engram\n'
+      }
+      ;;
+    disable)
+      systemctl --user disable --now engram 2>/dev/null || true
+      ;;
+    status)
+      systemctl --user status engram 2>/dev/null || printf '[aviso] Servicio no instalado o systemd no disponible\n'
+      ;;
+    *)
+      printf 'Uso: dh engram-service <install|enable|disable|status>\n'
+      ;;
+  esac
+}
+
+case "${1:-help}" in
+  doctor) shift; exec "$ROOT_DIR/scripts/doctor.sh" "$@" ;;
+  install) shift; exec "$ROOT_DIR/scripts/install.sh" "$@" ;;
+  bootstrap) shift; exec "$ROOT_DIR/scripts/bootstrap.sh" "$@" ;;
+  mcp-status) mcp_status ;;
+  tunnel) shift; tunnel_cmd "$@" ;;
+  context) shift; detect_context "$@" ;;
+  update) self_update ;;
+  project) shift; project_init "$@" ;;
+  session) shift; session_start "$@" ;;
+  engram-service) shift; engram_service "$@" ;;
+  help|--help|-h) show_help ;;
+  *)
+    printf 'Comando desconocido: %s\n\n' "$1" >&2
+    show_help
+    exit 1
+    ;;
+esac
