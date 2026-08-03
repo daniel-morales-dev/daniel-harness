@@ -4,11 +4,12 @@ Este repositorio define la base estable de Daniel Harness.
 
 ## Inicio
 
-1. Lee `docs/project-memory.md`.
-2. Lee los ADR relevantes en `docs/adr/`.
-3. Lee la política y el workflow del contexto activo.
-4. Usa CodeGraph antes de exploración amplia.
-5. Si hay una tarea Linear, carga `skills/task-lifecycle/SKILL.md`.
+1. Ejecuta `dh context` para detectar el contexto del proyecto activo.
+2. Lee `docs/project-memory.md`.
+3. Lee los ADR relevantes en `docs/adr/`.
+4. Lee la política y el workflow del contexto activo.
+5. Usa CodeGraph antes de exploración amplia.
+6. Si hay una tarea Linear, carga `skills/task-lifecycle/SKILL.md` y ejecuta `dh session <issue>` para materializar el brief.
 
 ## Precedencia
 
@@ -46,8 +47,10 @@ Este repositorio define la base estable de Daniel Harness.
 
 ## Recursos propios
 
+- `bin/dh`: CLI unificada con `dh doctor`, `dh context`, `dh session`, `dh update`, `dh mcp-status`, `dh tunnel list`, `dh project init`, `dh engram-service`.
+- `scripts/detect-context.sh`: detector de contexto por project-registry o heurística.
 - `agents/php-engineer.md`: PHP 7.0.9/ZF1.
 - `skills/task-lifecycle/SKILL.md`: ciclo completo de tareas Linear.
 - `skills/monolith-to-micro-migration/SKILL.md`: paridad PHP → TypeScript.
 
-Los assets migrados de Fase 1 y sus checksums están en `docs/project-memory.md`.
+Los assets migrados de Fase 1 y sus checksums están en `docs/project-memory.md`. La referencia completa de `dh` está en `docs/dh-cli.md`.

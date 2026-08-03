@@ -7,6 +7,7 @@ Daniel Harness está versionado en `daniel-morales-dev/daniel-harness`. La funda
 ## Invariantes
 
 - Harness global; config local en `~/.config/daniel-harness/`.
+- CLI `dh` como entry point unificado (`docs/dh-cli.md`).
 - Gentle AI es autoridad de routing y RDD; no fork ni edición de generated assets.
 - SDD es explícito o surge de una propuesta aceptada, no de tamaño/riesgo automático.
 - Scope por tarea: `single-repo`, `related-repos` o `multi-project`.
@@ -47,6 +48,10 @@ No modificar estos assets salvo tarea explícita. `migration-gap.md` solo fue no
 
 - `agents/php-engineer.md`.
 - `skills/task-lifecycle/SKILL.md`.
+- `bin/dh`: CLI unificada.
+- `scripts/detect-context.sh`: detector de contexto.
+- `scripts/bootstrap.sh`: instalación completa.
+- `bootstrap/manifest.yaml`: versión de herramientas.
 - Workflows y guías de configuración en `docs/`.
 
 ## Seguridad

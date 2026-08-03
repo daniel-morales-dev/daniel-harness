@@ -28,6 +28,7 @@ Salida:
 | Gentle AI adapter | Capabilities, routing orgánico, SDD opcional, RDD y receipts. |
 | Data adapters | Operaciones cerradas, confirmaciones y sanitización. |
 | Install/doctor | Instalación segura y diagnóstico read-only. |
+| dh CLI | Entry point unificado, autoactualización y gestión del harness. |
 
 ## Routing
 
