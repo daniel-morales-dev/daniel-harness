@@ -441,8 +441,15 @@ while IFS= read -r name; do
     else
       cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
     fi
-    _mcp_jq --arg n "$name" --argjson cmd "$cmd_array" \
-      '.mcp[$n] = {type: "local", command: $cmd, enabled: true}'
+    local cmd_first cmd_enabled
+    cmd_first=$(echo "$cmd_array" | jq -r '.[0] // ""')
+    cmd_enabled=true
+    if [[ "$cmd_first" == "docker" ]] && { [[ $SKIP_DOCKER == true ]] || ! command -v docker >/dev/null 2>&1; }; then
+      cmd_enabled=false
+      warn "MCP $name requiere Docker — registrado como deshabilitado"
+    fi
+    _mcp_jq --arg n "$name" --argjson cmd "$cmd_array" --arg e "$cmd_enabled" \
+      '.mcp[$n] = {type: "local", command: $cmd, enabled: ($e == "true")}'
   elif [[ $type == remote ]]; then
     url=$(parse_mcp_field "$name" "url")
     if [[ -n "$url" ]]; then
