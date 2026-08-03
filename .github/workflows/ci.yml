@@ -60,6 +60,9 @@ jobs:
       - name: Redact config test
         run: bash tests/redact-opencode-config.test.sh
 
+      - name: E2E bootstrap test (temp HOME)
+        run: bash tests/e2e-bootstrap.test.sh
+
   gitleaks:
     runs-on: ubuntu-24.04
     steps:

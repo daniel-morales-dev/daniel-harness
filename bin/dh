@@ -11,7 +11,7 @@ show_help() {
   printf '  doctor           Diagnóstico del harness\n'
   printf '  root             Muestra la raíz absoluta del harness\n'
   printf '  install          Configuración local + symlinks\n'
-  printf '  bootstrap        Instalación completa de herramientas\n'
+  printf '  bootstrap        Instalación completa de herramientas (--profile core|alegra|migration|full)\n'
   printf '  mcp-status       Estado de conexión y autenticación MCP\n'
   printf '  tunnel list      Lista túneles configurados\n'
   printf '  update           Actualiza el harness desde Git\n'

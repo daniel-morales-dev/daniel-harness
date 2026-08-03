@@ -4,14 +4,45 @@ Daniel Harness es la capa privada y global que coordina el trabajo agentic de Da
 
 El código y los contratos viven en este repositorio. La configuración local y los secretos viven fuera, en `~/.config/daniel-harness/`.
 
-## Ruta rápida
+## Instalación
+
+### Primera vez
 
 ```bash
-./scripts/bootstrap.sh             # instala todo lo necesario
-./scripts/bootstrap.sh --dry-run   # solo muestra qué haría
+# Clona el harness en XDG data
+gh repo clone daniel-morales-dev/daniel-harness \
+  "$HOME/.local/share/daniel-harness"
+
+# Instala todo el perfil cotidiano (OpenCode, agentes, MCPs, tools)
+"$HOME/.local/share/daniel-harness/scripts/bootstrap.sh" \
+  --profile alegra
 ```
 
-O por pasos si ya tienes lo básico:
+Perfiles disponibles:
+
+| Perfil | Incluye |
+|--------|---------|
+| `core` | OpenCode, Gentle AI, Engram, CodeGraph, RTK, DH CLI + MCPs codegraph/engram |
+| `alegra` | Core + GitHub CLI, AWS CLI + MCPs linear/context7/wiki-alegra |
+| `migration` | Alegra + Docker, MariaDB + MCP raia-lib |
+| `full` | Migration + MCPs github/sentry |
+
+Avanzado:
+
+```bash
+./scripts/bootstrap.sh               # perfil core
+./scripts/bootstrap.sh --profile alegra
+./scripts/bootstrap.sh --dry-run     # simulación
+```
+
+### Uso diario
+
+```bash
+dh update        # actualiza el harness
+dh doctor        # diagnóstico
+```
+
+Install por pasos si ya tienes las herramientas base:
 
 ```bash
 ./scripts/install.sh               # configuración local + symlinks
@@ -29,7 +60,7 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 |---|---|
 | `dh doctor` | Diagnóstico completo del harness |
 | `dh install` | Configuración local + symlinks |
-| `dh bootstrap [--skip-docker]` | Instalación completa desde cero |
+| `dh bootstrap [--profile core|alegra|migration|full] [--skip-docker]` | Instalación desde cero según perfil |
 | `dh mcp-status` | Conexión y OAuth de servidores MCP |
 | `dh tunnel list` | Lista túneles configurados |
 | `dh update` | Actualiza el harness desde Git |
