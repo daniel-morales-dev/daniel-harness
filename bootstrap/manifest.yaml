@@ -9,7 +9,7 @@ profiles:
     plugins: ["ponytail"]
   alegra:
     description: Trabajo cotidiano en Alegra
-    mcps: ["codegraph", "engram", "linear", "context7", "wiki-alegra"]
+    mcps: ["codegraph", "engram", "linear", "context7", "wiki-alegra", "github"]
     tools: ["opencode", "gentle-ai", "engram", "codegraph", "rtk", "dh", "gh", "aws"]
     optional_packages: ["unzip"]
     plugins: ["ponytail"]
@@ -100,18 +100,20 @@ mcp_servers:
     type: local
   context7:
     type: remote
-    url: https://context7.com/mcp
+    url: https://mcp.context7.com/mcp
   github:
     type: remote
-    url: https://api.github.com/mcp
-    oauth_required: true
+    url: https://api.githubcopilot.com/mcp/
+    oauth_required: false
+    headers:
+      Authorization: "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}"
   linear:
     type: remote
     url: https://mcp.linear.app/mcp
     oauth_required: true
   sentry:
     type: remote
-    url: https://sentry.io/mcp
+    url: https://mcp.sentry.dev/mcp
     oauth_required: true
   wiki-alegra:
     type: remote

@@ -131,6 +131,33 @@ parse_mcp_field() {
   ' "$MANIFEST"
 }
 
+parse_mcp_headers_json() {
+  local name=$1
+  awk -v n="$name" '
+    /^mcp_servers:/{in_mcp=1; next}
+    in_mcp {
+      if ($0 ~ "^  " n ":" && !found) { found=1; next }
+      if (found && $0 ~ "^    headers:") { in_headers=1; next }
+      if (in_headers && $0 ~ /^      [a-z]/) {
+        gsub(/^      /, "")
+        split($0, parts, ": ")
+        key = parts[1]
+        sub(/^"/, "", parts[2]); sub(/"$/, "", parts[2])
+        val = parts[2]
+        for(i=3; i<=length(parts); i++) val = val ": " parts[i]
+        if (first) printf ","
+        printf "\"%s\": \"%s\"", key, val
+        first=1
+        next
+      }
+      if (found && $0 ~ /^  [a-z]/) { found=0; in_headers=0 }
+      if (in_headers && $0 !~ /^      / && $0 !~ /^[[:space:]]*$/) { in_headers=0 }
+    }
+    BEGIN { printf "{" }
+    END { printf "}" }
+  ' "$MANIFEST"
+}
+
 # Parseadores de perfiles
 profile_includes() {
   local field=$1 item=$2
@@ -409,9 +436,16 @@ while IFS= read -r name; do
     elif [[ $type == remote ]]; then
       url=$(parse_mcp_field "$name" "url")
       if [[ -n "$url" ]]; then
-        jq --arg n "$name" --arg u "$url" \
-          '.mcp[$n] = {type: "remote", url: $u, enabled: true}' \
-          "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+        headers_json=$(parse_mcp_headers_json "$name")
+        if [[ "$headers_json" != "{}" ]]; then
+          jq --arg n "$name" --arg u "$url" --argjson h "$headers_json" \
+            '.mcp[$n] = {type: "remote", url: $u, enabled: true, headers: $h}' \
+            "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+        else
+          jq --arg n "$name" --arg u "$url" \
+            '.mcp[$n] = {type: "remote", url: $u, enabled: true}' \
+            "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+        fi
       else
         skip "MCP remoto $name: sin URL. Configúralo manualmente en opencode.json"
         continue
@@ -468,6 +502,9 @@ while IFS= read -r name; do
     printf '     opencode mcp auth %s\n' "$name"
   fi
 done < <(parse_mcp_names)
+
+printf '     Configura GITHUB_PERSONAL_ACCESS_TOKEN para el MCP de GitHub\n'
+printf '     https://github.com/settings/tokens (permisos: repo, read:org, read:user)\n'
 
 printf '\n  2. Verifica estado con doctor.sh\n'
 printf '     bash scripts/doctor.sh\n'
