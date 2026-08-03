@@ -648,9 +648,8 @@ case "${1:-help}" in
   tunnel) shift; tunnel_cmd "$@" ;;
   context) shift; detect_context "$@" ;;
   version)
-    local tag
-    tag=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
-    printf '%s\n' "${tag:-0.0.0-dev}"
+    _dh_tag=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
+    printf '%s\n' "${_dh_tag:-0.0.0-dev}"
     ;;
   update) self_update ;;
   project) shift; project_init "$@" ;;
