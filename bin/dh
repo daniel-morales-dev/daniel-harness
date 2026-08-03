@@ -20,6 +20,7 @@ show_help() {
   printf '  session read <issue>      Lee issue desde Linear API\n'
   printf '  engram-service   Instala/systemd user service para Engram\n'
   printf '  preflight        Contexto completo del proyecto (JSON)\n'
+  printf '  verify           Valida el proyecto según su contexto\n'
   printf '  context          Detecta el contexto del proyecto actual\n'
   printf '  help             Esta ayuda\n'
 }
@@ -486,9 +487,77 @@ SERVICEEOF
   esac
 }
 
+verify_cmd() {
+  local ctx_info
+  ctx_info=$(detect_context)
+  local ctx
+  ctx=$(echo "$ctx_info" | grep '^contexto=' | sed 's/^contexto=//' || true)
+
+  printf 'Contexto: %s\n\n' "$ctx"
+
+  case "$ctx" in
+    generic-php)
+      local modified
+      modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
+      if [[ -z "$modified" ]]; then
+        printf 'No hay archivos modificados. Sintaxis: php -l (nada que verificar)\n'
+      else
+        for f in $modified; do
+          if [[ "$f" == *.php ]]; then
+            php -l "$f" 2>&1 | sed 's/^/  /'
+          fi
+        done
+      fi
+      ;;
+    alegra-microservice|generic-typescript)
+      if [[ -f "node_modules/.package-lock.json" || -d "node_modules" ]]; then
+        printf 'TypeScript: npx tsc --noEmit\n'
+        npx tsc --noEmit 2>&1 | sed 's/^/  /' || printf '  [error] TypeCheck falló\n'
+        if grep -q '"test"' package.json 2>/dev/null; then
+          printf '\nTests: npm test -- --coverage\n'
+          npm test -- --coverage 2>&1 | tail -5 | sed 's/^/  /'
+        fi
+      else
+        printf 'node_modules no encontrado. Ejecuta npm install primero.\n'
+      fi
+      ;;
+    generic-node)
+      if [[ -d "node_modules" ]] && grep -q '"test"' package.json 2>/dev/null; then
+        printf 'Tests: npm test\n'
+        npm test 2>&1 | tail -5 | sed 's/^/  /'
+      else
+        printf 'No hay test configurados o node_modules ausente.\n'
+      fi
+      ;;
+    generic-go)
+      if command -v go >/dev/null 2>&1; then
+        printf 'go vet ./...\n'
+        go vet ./... 2>&1 | sed 's/^/  /'
+      else
+        printf 'Go no instalado.\n'
+      fi
+      ;;
+    freelance)
+      printf 'Verificación freelance: revisa README.md del proyecto para comandos registrados.\n'
+      ;;
+    generic)
+      printf 'Harness: ShellCheck + tests\n'
+      if command -v shellcheck >/dev/null 2>&1; then
+        shellcheck -e SC1091,SC2154,SC2317 bin/dh scripts/*.sh 2>&1 | sed 's/^/  /' || true
+      fi
+      bash -n bin/dh scripts/*.sh 2>&1 | sed 's/^/  /' || true
+      if [[ -f "tests/harness.test.py" ]]; then
+        printf '\nTests: python3 tests/harness.test.py\n'
+        python3 tests/harness.test.py 2>&1 | sed 's/^/  /' || true
+      fi
+      ;;
+  esac
+}
+
 case "${1:-help}" in
   root) printf '%s\n' "$ROOT_DIR" ;;
   preflight) preflight ;;
+  verify) verify_cmd ;;
   doctor) shift; exec "$ROOT_DIR/scripts/doctor.sh" "$@" ;;
   install) shift; exec "$ROOT_DIR/scripts/install.sh" "$@" ;;
   bootstrap) shift; exec "$ROOT_DIR/scripts/bootstrap.sh" "$@" ;;
