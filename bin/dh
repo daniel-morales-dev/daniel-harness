@@ -192,7 +192,6 @@ project_init() {
   read -r -p 'Nombre del proyecto: ' name
   read -r -p 'Ruta absoluta: ' path
   read -r -p 'Contexto (alegra-monolith/alegra-microservice/freelance/generic-*): ' context
-  read -r -p 'Repositorio Git (opcional, Enter para omitir): ' repo
   read -r -p 'Familia existente o nueva (Enter para crear automática): ' fam_input
 
   if [[ ! -d "$path" ]]; then
@@ -214,7 +213,7 @@ project_init() {
 
   TMP=$(mktemp)
   python3 -c "
-import json, jsonschema, yaml, sys
+import sys, yaml
 
 registry_path = sys.argv[1]
 tmp_path = sys.argv[2]
@@ -222,18 +221,31 @@ name = sys.argv[3]
 path = sys.argv[4]
 context = sys.argv[5]
 fam_input = sys.argv[6]
-schema_path = sys.argv[7]
 
-with open(schema_path) as f:
-    schema = json.load(f)
+VALID_CONTEXTS = {
+    'alegra-monolith', 'alegra-microservice', 'freelance',
+    'generic-php', 'generic-typescript', 'generic-node', 'generic-go', 'generic',
+}
 
 with open(registry_path) as f:
     data = yaml.safe_load(f) or {'version': '1', 'families': [], 'relationships': []}
 
+if data.get('version') != '1':
+    print('error: version must be \"1\"', file=sys.stderr)
+    sys.exit(1)
+if not isinstance(data.get('families'), list):
+    print('error: families must be a list', file=sys.stderr)
+    sys.exit(1)
+if not isinstance(data.get('relationships'), list):
+    print('error: relationships must be a list', file=sys.stderr)
+    sys.exit(1)
+if context not in VALID_CONTEXTS:
+    print(f'error: contexto inválido: {context}', file=sys.stderr)
+    sys.exit(1)
+
 if fam_input:
     fam_id = fam_input
 else:
-    # Infer family from context prefix
     fam_id = 'alegra-bills' if context.startswith('alegra-') else context
 
 family = next((f for f in data.get('families', []) if f.get('id') == fam_id), None)
@@ -250,22 +262,13 @@ for p in family['projects']:
 
 entry = {'id': name, 'path': path, 'context': context, 'rules': [],
     'git': {'askBeforeBranch': True, 'commit': 'ask', 'push': 'ask', 'deploy': 'ask'}}
-# ponytail: repository omitted from project entry — not in schema, add if schema evolves
+# ponytail: repository omitted, not in schema
 family['projects'].append(entry)
-
-if 'relationships' not in data:
-    data['relationships'] = []
-
-try:
-    jsonschema.validate(data, schema)
-except jsonschema.ValidationError as e:
-    print(f'error: el resultado no pasa validación: {e.message}', file=sys.stderr)
-    sys.exit(1)
 
 with open(tmp_path, 'w') as f:
     yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
-" "$registry" "$TMP" "$name" "$path" "$context" "$fam_input" "$ROOT_DIR/schemas/project-registry.schema.json" 2>/dev/null || {
-    printf '[error] No se pudo actualizar el registry (python3-yaml + jsonschema requeridos)\n' >&2
+" "$registry" "$TMP" "$name" "$path" "$context" "$fam_input" || {
+    printf '[error] No se pudo actualizar el registry (python3-yaml requerido)\n' >&2
     rm -f "$TMP"
     exit 1
   }
