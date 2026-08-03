@@ -61,7 +61,7 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "type": { "enum": ["mysql", "mariadb"] } }, "required": ["type"] },
+          "if": { "properties": { "type": { "enum": ["mysql", "mariadb", "mongodb", "object-storage"] } }, "required": ["type"] },
           "then": { "properties": { "readOnly": { "const": true } }, "required": ["host", "port"] }
         },
         {
