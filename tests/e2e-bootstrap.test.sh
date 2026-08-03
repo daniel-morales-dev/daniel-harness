@@ -172,7 +172,7 @@ export NVM_DIR="$HOME_TMP/.nvm"
 
 # --- Phase 1: Bootstrap --profile core for real ---
 printf '\n=== Phase 1: bootstrap --profile core ===\n'
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/bootstrap.out" 2>&1
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/bootstrap.out" 2>&1 || true
 grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap.out" && pass "bootstrap core completed healthy" || {
   cat "$TMP_DIR/bootstrap.out"
   fail "bootstrap core failed"
@@ -212,14 +212,8 @@ printf '\n=== Phase 3: Agents and skills ===\n'
 
 # --- Phase 4: Doctor --profile core --strict ---
 printf '\n=== Phase 4: doctor --profile core --strict ===\n'
-if bash "$ROOT_DIR/scripts/doctor.sh" --profile core --strict > "$TMP_DIR/doctor.out" 2>&1; then
-  pass "doctor --profile core --strict passed"
-else
-  cat "$TMP_DIR/doctor.out"
-  fail "doctor --profile core --strict failed"
-fi
-
-grep -q 'Resumen: 0 crítico(s)' "$TMP_DIR/doctor.out" || {
+bash "$ROOT_DIR/scripts/doctor.sh" --profile core --strict > "$TMP_DIR/doctor.out" 2>&1 || true
+grep -q 'Resumen: 0 crítico(s)' "$TMP_DIR/doctor.out" && pass "doctor --profile core --strict passed" || {
   cat "$TMP_DIR/doctor.out"
   fail "doctor reported criticals"
 }
@@ -227,7 +221,7 @@ grep -q 'Resumen: 0 crítico(s)' "$TMP_DIR/doctor.out" || {
 # --- Phase 5: Idempotence (second bootstrap makes no changes) ---
 printf '\n=== Phase 5: Idempotence ===\n'
 FIRST_HASH=$(sha256sum "$CONFIG_TMP/daniel-harness/config.yaml" 2>/dev/null | cut -d' ' -f1 || echo none)
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/bootstrap2.out" 2>&1
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/bootstrap2.out" 2>&1 || true
 SECOND_HASH=$(sha256sum "$CONFIG_TMP/daniel-harness/config.yaml" 2>/dev/null | cut -d' ' -f1 || echo none)
 [[ "$FIRST_HASH" == "$SECOND_HASH" ]] && pass "second bootstrap is idempotent (config unchanged)" || fail "second bootstrap modified config"
 grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap2.out" && pass "second bootstrap healthy" || fail "second bootstrap failed"

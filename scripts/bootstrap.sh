@@ -464,7 +464,6 @@ while IFS= read -r name; do
     else
       cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
     fi
-    local cmd_first cmd_enabled
     cmd_first=$(echo "$cmd_array" | jq -r '.[0] // ""')
     cmd_enabled=true
     if [[ "$cmd_first" == "docker" ]] && { [[ $SKIP_DOCKER == true ]] || ! command -v docker >/dev/null 2>&1; }; then
