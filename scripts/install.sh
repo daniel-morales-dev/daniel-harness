@@ -64,9 +64,10 @@ install_config_if_missing "$ROOT_DIR/examples/project-registry.example.yaml" "$H
 
 install -d -m 700 "$OPENCODE_CONFIG_DIR/agents" "$OPENCODE_CONFIG_DIR/skills" "$OPENCODE_CONFIG_DIR/commands"
 
-install -d -m 700 "$HARNESS_CONFIG_DIR/policies"
+install -d -m 700 "$HARNESS_CONFIG_DIR/policies" "$HARNESS_CONFIG_DIR/policies.local"
 for policy in "$ROOT_DIR/policies/"*.md; do
-  install_config_if_missing "$policy" "$HARNESS_CONFIG_DIR/policies/$(basename "$policy")"
+  # ponytail: symlinks = git pull propaga cambios, policies.local para overrides
+  link_if_missing "$policy" "$HARNESS_CONFIG_DIR/policies/$(basename "$policy")"
 done
 
 link_if_missing "$ROOT_DIR/global/AGENTS.md" "$OPENCODE_CONFIG_DIR/AGENTS.md"

@@ -47,24 +47,15 @@ remove_managed_link "$ROOT_DIR/bin/dh" "$HOME/.local/bin/dh"
 remove_managed_link "$ROOT_DIR/install" "$HOME/.local/bin/dh-install"
 remove_managed_link "$ROOT_DIR/global/AGENTS.md" "$OPENCODE_CONFIG_DIR/AGENTS.md"
 
-# Remove managed policies directory (only if it matches harness policies)
+# Remove managed policy symlinks
 POLICIES_DIR="$HARNESS_CONFIG_DIR/policies"
 if [[ -d "$POLICIES_DIR" ]]; then
-  all_managed=true
   for policy in "$POLICIES_DIR/"*.md; do
-    [[ -f "$policy" ]] || continue
-    src="$ROOT_DIR/policies/$(basename "$policy")"
-    if [[ -f "$src" ]] && diff -q "$policy" "$src" >/dev/null 2>&1; then
-      rm "$policy"
-      printf 'eliminado: %s\n' "$policy"
-    else
-      printf 'conservado: %s (modificado localmente)\n' "$policy"
-      all_managed=false
-    fi
+    remove_managed_link "$ROOT_DIR/policies/$(basename "$policy")" "$policy"
   done
-  if [[ "$all_managed" == true ]]; then
-    rmdir "$POLICIES_DIR" 2>/dev/null || true
-  fi
+  rmdir "$POLICIES_DIR" 2>/dev/null || true
 fi
+# Conservar policies.local (overrides locales)
+printf 'conservado: %s/policies.local/ (overrides locales)\n' "$HARNESS_CONFIG_DIR"
 
 printf '\nDesinstalación completada. La configuración local y los secretos se conservaron.\n'
