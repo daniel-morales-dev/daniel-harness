@@ -5,7 +5,7 @@ Aplica a TODAS las sesiones de OpenCode, independientemente del proyecto activo.
 ## Inicio
 
 1. Ejecuta `dh context` para detectar el contexto del proyecto activo.
-2. Ejecuta `dh root` para resolver la raíz absoluta del harness.
+2. Ejecuta `dh preflight` para obtener contexto completo del proyecto (JSON).
 3. Las políticas del contexto activo están en `~/.config/daniel-harness/policies/`.
 4. Usa CodeGraph antes de exploración amplia.
 
@@ -37,4 +37,4 @@ Aplica a TODAS las sesiones de OpenCode, independientemente del proyecto activo.
 - `bin/dh`: CLI unificada. Ver `dh help` para comandos.
 - Las políticas de proyecto activo están en `~/.config/daniel-harness/policies/`.
 - Si hay tarea Linear, ejecuta `dh session scaffold <issue>` para crear una plantilla de brief.
-- `dh preflight` estará disponible próximamente como fuente única de contexto.
+- `dh preflight` es la fuente única de contexto del proyecto.

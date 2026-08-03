@@ -18,6 +18,7 @@ show_help() {
   printf '  project init     Asistente para nuevo proyecto\n'
   printf '  session scaffold <issue>  Crea plantilla de brief (sin Linear aún)\n'
   printf '  engram-service   Instala/systemd user service para Engram\n'
+  printf '  preflight        Contexto completo del proyecto (JSON)\n'
   printf '  context          Detecta el contexto del proyecto actual\n'
   printf '  help             Esta ayuda\n'
 }
@@ -185,6 +186,65 @@ self_update() {
   fi
 
   printf '[ok] Harness actualizado\n'
+}
+
+preflight() {
+  local ctx_output
+  ctx_output=$(detect_context)
+  local project_name ctx path
+  project_name=$(echo "$ctx_output" | grep '^proyecto=' | sed 's/^proyecto=//' || true)
+  ctx=$(echo "$ctx_output" | grep '^contexto=' | sed 's/^contexto=//' || true)
+  path=$(echo "$ctx_output" | grep '^path=' | sed 's/^path=//' || true)
+
+  local registry="$HARNESS_DIR/project-registry.yaml"
+  local family=""
+  if [[ -f "$registry" ]]; then
+    if [[ -n "$project_name" ]]; then
+      family=$(awk -v p="$project_name" '
+        /^families:/ { in_fam=1; next }
+        in_fam && /^    projects:/ { in_proj=1; next }
+        in_proj && /^      - id:/ {
+          gsub(/^      - id:[[:space:]]*/, ""); gsub(/^"|"$/, ""); id=$0
+          if (id == p) { found=1 }
+          next
+        }
+        in_fam && /^  - id:/ {
+          if (found) { gsub(/^  - id:[[:space:]]*/, ""); gsub(/^"|"$/, ""); print; exit }
+          in_proj=0
+        }
+      ' "$registry")
+    fi
+  fi
+
+  local policy_dir="$HARNESS_DIR/policies"
+  local policies="[]"
+  if [[ -d "$policy_dir" ]]; then
+    policies="["
+    local first=true
+    for f in "$policy_dir/"*.md; do
+      [[ -f "$f" ]] || continue
+      if [[ "$first" == true ]]; then first=false; else policies+=", "; fi
+      policies+="\"$(basename "$f")\""
+    done
+    policies+="]"
+  fi
+
+  local scope repopaths
+  scope="single-repo"
+  repopaths="[]"
+
+  cat <<JSON
+{
+  "project": ${project_name:-null},
+  "context": "$ctx",
+  "family": ${family:-null},
+  "scope": "$scope",
+  "path": ${path:-null},
+  "harnessRoot": "$ROOT_DIR",
+  "policies": $policies,
+  "issue": null
+}
+JSON
 }
 
 project_init() {
@@ -360,6 +420,7 @@ SERVICEEOF
 
 case "${1:-help}" in
   root) printf '%s\n' "$ROOT_DIR" ;;
+  preflight) preflight ;;
   doctor) shift; exec "$ROOT_DIR/scripts/doctor.sh" "$@" ;;
   install) shift; exec "$ROOT_DIR/scripts/install.sh" "$@" ;;
   bootstrap) shift; exec "$ROOT_DIR/scripts/bootstrap.sh" "$@" ;;

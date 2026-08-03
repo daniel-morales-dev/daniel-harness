@@ -19,6 +19,7 @@ def test_global_agents_md_exists():
     content = path.read_text()
     assert "dh context" in content, "global AGENTS.md must reference dh context"
     assert "dh preflight" in content, "global AGENTS.md must reference dh preflight"
+    assert "fuente única" in content, "preflight debe describirse como fuente única"
 
 
 def test_install_and_uninstall_consistent():
@@ -297,6 +298,21 @@ if __name__ == "__main__":
 
     test_mcp_status_uninitialized()
     print("[ok] mcp_status maneja sección MCP faltante")
+
+    def test_preflight_output():
+        result = subprocess.run(
+            ["bash", "bin/dh", "preflight"],
+            capture_output=True, text=True, timeout=5
+        )
+        parsed = json.loads(result.stdout)
+        assert "context" in parsed
+        assert "harnessRoot" in parsed
+        assert "policies" in parsed
+        assert "scope" in parsed
+        assert result.returncode == 0
+
+    test_preflight_output()
+    print("[ok] dh preflight produce JSON válido")
 
     test_uninstall_removes_global_link()
     print("[ok] uninstall.sh elimina enlace global")
