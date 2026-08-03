@@ -22,6 +22,10 @@ jobs:
         run: |
           shellcheck -e SC1091,SC2154,SC2317 bin/dh scripts/*.sh
 
+      - name: Bash syntax check
+        run: |
+          bash -n bin/dh scripts/*.sh
+
       - name: Validate config schema
         run: python3 tests/config-schema.test.py
 
@@ -31,8 +35,20 @@ jobs:
       - name: Validate example files against schemas
         run: python3 tests/examples-schema.test.py
 
-      - name: Validate bootstrap, registry, install, agents, MCP
+      - name: Validate harness structure (Python)
         run: python3 tests/harness.test.py
+
+      - name: Install test
+        run: bash tests/install.test.sh
+
+      - name: Doctor test
+        run: bash tests/doctor.test.sh
+
+      - name: Bootstrap test
+        run: bash tests/bootstrap.test.sh
+
+      - name: Redact config test
+        run: bash tests/redact-opencode-config.test.sh
 
   gitleaks:
     runs-on: ubuntu-24.04

@@ -23,6 +23,8 @@ HOME="$TMP_DIR/home" XDG_CONFIG_HOME="$CONFIG_ROOT" "$ROOT_DIR/scripts/install.s
 [[ -e "$OPENCODE_CONFIG/agents/test-engineer.md" ]]
 [[ -L "$OPENCODE_CONFIG/agents/php-engineer.md" ]]
 [[ -e "$OPENCODE_CONFIG/agents/php-engineer.md" ]]
+[[ -L "$OPENCODE_CONFIG/agents/migration-parity-reviewer.md" ]]
+[[ -e "$OPENCODE_CONFIG/agents/migration-parity-reviewer.md" ]]
 [[ -L "$OPENCODE_CONFIG/skills/monolith-to-micro-migration" ]]
 [[ -L "$OPENCODE_CONFIG/skills/task-lifecycle" ]]
 [[ -L "$OPENCODE_CONFIG/commands/migration-gap-analysis.md" ]]
@@ -45,6 +47,7 @@ HOME="$TMP_DIR/home" XDG_CONFIG_HOME="$CONFIG_ROOT" "$ROOT_DIR/scripts/uninstall
 
 [[ ! -L "$OPENCODE_CONFIG/agents/senior-engineer.md" ]]
 [[ ! -L "$OPENCODE_CONFIG/agents/php-engineer.md" ]]
+[[ ! -L "$OPENCODE_CONFIG/agents/migration-parity-reviewer.md" ]]
 [[ ! -L "$OPENCODE_CONFIG/skills/monolith-to-micro-migration" ]]
 [[ ! -L "$OPENCODE_CONFIG/skills/task-lifecycle" ]]
 [[ -L "$OPENCODE_CONFIG/commands/migration-gap-analysis.md" ]]

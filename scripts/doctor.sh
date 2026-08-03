@@ -4,7 +4,8 @@ set -u
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
 HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
-OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-"$CONFIG_ROOT/opencode/opencode.json"}
+OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
+OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-"$OPENCODE_CONFIG_DIR/opencode.json"}
 REPOSITORY_DIR=${DANIEL_HARNESS_REPO:-"$ROOT_DIR"}
 WARNINGS=0
 CRITICAL=0
@@ -324,7 +325,7 @@ else
     fi
 
     # Audit agent markdowns for bash:allow under restricted trust
-    local agent_dir="$OPENCODE_CONFIG_DIR/agents"
+    agent_dir="$OPENCODE_CONFIG_DIR/agents"
     if [[ -d "$agent_dir" ]]; then
       for agent_file in "$agent_dir/"*.md; do
         [[ -f "$agent_file" ]] || continue

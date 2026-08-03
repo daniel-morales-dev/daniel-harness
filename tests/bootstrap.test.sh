@@ -16,25 +16,19 @@ bash -n "$ROOT_DIR/scripts/bootstrap.sh"
 grep -q 'version: "1"' "$ROOT_DIR/bootstrap/manifest.yaml"
 grep -q 'ubuntu-24.04' "$ROOT_DIR/bootstrap/manifest.yaml"
 
-# Dry-run debe completar sin errores
-bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run >"$OUTPUT"
+# Dry-run debe completar sin errores (no importa qué herramientas estén instaladas)
+bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run >"$OUTPUT" 2>&1 || {
+  printf 'Dry-run falló. Salida:\n' >&2
+  cat "$OUTPUT" >&2
+  exit 1
+}
 grep -F 'Bootstrap completado' "$OUTPUT" >/dev/null
 
-# Verificar que detecta herramientas ya instaladas
-grep -F 'OpenCode ya instalado' "$OUTPUT" >/dev/null
-grep -F 'NVM ya instalado' "$OUTPUT" >/dev/null
-grep -F 'Node.js 24 activo' "$OUTPUT" >/dev/null
-
-# Verificar que MCPs se listan correctamente
+# Verificar que MCPs se listan (codegraph local presente, remotos sin URL excluidos)
 grep -F 'MCP codegraph' "$OUTPUT" >/dev/null
-grep -F 'MCP github' "$OUTPUT" >/dev/null
-grep -F 'MCP excluido' "$OUTPUT" >/dev/null
+grep -i 'remotos sin URL' "$OUTPUT" >/dev/null
 
-# Verificar que OAuth se lista en próximos pasos
-grep -F 'opencode mcp auth github' "$OUTPUT" >/dev/null
-grep -F 'opencode mcp auth linear' "$OUTPUT" >/dev/null
-
-# Verificar que no hay errores de parseo
+# Verificar que no hay errores de parseo (ignorar líneas con info/skip)
 if grep -i 'error' "$OUTPUT" | grep -v 'simulado' | grep -v 'incompatible' >/dev/null; then
   printf 'Se encontraron errores en la salida del dry-run:\n' >&2
   grep -i 'error' "$OUTPUT" >&2

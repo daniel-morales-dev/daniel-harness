@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
+HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 
 remove_managed_link() {
@@ -37,7 +38,7 @@ remove_managed_link "$ROOT_DIR/global/AGENTS.md" "$OPENCODE_CONFIG_DIR/AGENTS.md
 # Remove managed policies directory (only if it matches harness policies)
 POLICIES_DIR="$HARNESS_CONFIG_DIR/policies"
 if [[ -d "$POLICIES_DIR" ]]; then
-  local all_managed=true
+  all_managed=true
   for policy in "$POLICIES_DIR/"*.md; do
     [[ -f "$policy" ]] || continue
     src="$ROOT_DIR/policies/$(basename "$policy")"
