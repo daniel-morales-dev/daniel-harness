@@ -1,6 +1,31 @@
 version: "1"
 platform: ubuntu-24.04
 
+profiles:
+  core:
+    description: Herramientas base para cualquier proyecto
+    mcps: ["codegraph", "engram"]
+    tools: ["opencode", "gentle-ai", "engram", "codegraph", "rtk", "dh"]
+    plugins: ["ponytail"]
+  alegra:
+    description: Trabajo cotidiano en Alegra
+    mcps: ["codegraph", "engram", "linear", "context7", "wiki-alegra"]
+    tools: ["opencode", "gentle-ai", "engram", "codegraph", "rtk", "dh", "gh", "aws"]
+    optional_packages: ["unzip"]
+    plugins: ["ponytail"]
+  migration:
+    description: Migración monolito → microservicios
+    mcps: ["codegraph", "engram", "linear", "context7", "wiki-alegra", "mcp-raia-lib"]
+    tools: ["opencode", "gentle-ai", "engram", "codegraph", "rtk", "dh", "gh", "aws", "docker"]
+    optional_packages: ["mariadb-client", "unzip"]
+    plugins: ["ponytail"]
+  full:
+    description: Todos los MCPs y herramientas
+    mcps: ["codegraph", "engram", "linear", "context7", "wiki-alegra", "mcp-raia-lib", "github", "sentry"]
+    tools: ["opencode", "gentle-ai", "engram", "codegraph", "rtk", "dh", "gh", "aws", "docker"]
+    optional_packages: ["mariadb-client", "unzip"]
+    plugins: ["ponytail"]
+
 system_packages:
   required:
     - git
@@ -30,7 +55,7 @@ user_tools:
   opencode:
     type: binary
     check: command -v opencode
-    install: curl -fsSL https://opencode.ai/install.sh | sh
+    install: curl -fsSL https://opencode.ai/install | bash
   gentle-ai:
     type: binary
     check: command -v gentle-ai
@@ -75,8 +100,10 @@ mcp_servers:
     type: local
   context7:
     type: remote
+    url: https://context7.com/mcp
   github:
     type: remote
+    url: https://api.github.com/mcp
     oauth_required: true
   linear:
     type: remote
@@ -84,10 +111,15 @@ mcp_servers:
     oauth_required: true
   sentry:
     type: remote
+    url: https://sentry.io/mcp
     oauth_required: true
   wiki-alegra:
     type: remote
+    url: https://wiki.alegra.com/mcp
     oauth_required: true
+  mcp-raia-lib:
+    command: ["docker", "run", "--rm", "-i", "ghcr.io/alegradev/mcp-raia-lib:latest"]
+    type: local
 
 incompatible:
   alegra-test: "Solo funciona en Claude Code y ChatGPT; no en OpenCode"

@@ -5,12 +5,15 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
 DRY_RUN=false
 SKIP_DOCKER=false
+PROFILE=core
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --skip-docker) SKIP_DOCKER=true; shift ;;
-    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--skip-docker]\n'; exit 0 ;;
+    --profile) PROFILE=$2; shift 2 ;;
+    --profile=*) PROFILE=${1#*=}; shift ;;
+    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -128,6 +131,22 @@ parse_mcp_field() {
   ' "$MANIFEST"
 }
 
+# Parseadores de perfiles
+profile_includes() {
+  local field=$1 item=$2
+  awk -v p="$PROFILE" -v f="$field" -v i="$item" '
+    $0 ~ "^profiles:" { in_profiles=1; next }
+    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
+    in_profile && $0 ~ "^    " f ":" {
+      if (index($0, "\"" i "\"") > 0 || index($0, "'\''" i "'\''") > 0) { found=1; exit }
+      sub(/^[[:space:]]*[a-z_]+:[[:space:]]*/, "")
+      if (index($0, i) > 0) { found=1; exit }
+    }
+    in_profile && !/^    / && $0 !~ /^[[:space:]]*$/ { in_profile=0 }
+    END { exit found ? 0 : 1 }
+  ' "$MANIFEST"
+}
+
 # ---------------------------------------------------------------------------
 # Fase 1: Dependencias del sistema
 # ---------------------------------------------------------------------------
@@ -145,7 +164,11 @@ for pkg in "${packages[@]}"; do
   dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
 done
 for pkg in "${optional_packages[@]}"; do
-  dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+  if profile_includes "optional_packages" "$pkg"; then
+    dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+  else
+    skip "Paquete opcional $pkg (no incluido en perfil $PROFILE)"
+  fi
 done
 
 if (( ${#missing[@]} > 0 )); then
@@ -187,44 +210,53 @@ fi
 # ---------------------------------------------------------------------------
 phase "Herramientas CLI"
 
-install_tool() {
-  local name=$1
-  local check_cmd=$2
-  local install_cmd=$3
-
-  if eval "$check_cmd" >/dev/null 2>&1; then
-    ok "$name ya instalado"
+install_tool_if_in_profile() {
+  local profile_key=$1 label=$2 check=$3 install_cmd=$4
+  if profile_includes "tools" "$profile_key"; then
+    if eval "$check" >/dev/null 2>&1; then
+      ok "$label ya instalado"
+    else
+      info "Instalando $label..."
+      run bash -c "$install_cmd"
+    fi
   else
-    info "Instalando $name..."
-    run bash -c "$install_cmd"
+    skip "$label (no incluido en perfil $PROFILE)"
   fi
 }
 
-install_tool "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
-install_tool "Gentle AI" "command -v gentle-ai" "curl -fsSL https://gentle-ai.dev/install.sh | sh"
-install_tool "Engram"    "command -v engram"    "curl -fsSL https://engram.sh/install.sh | sh"
+install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
+install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://gentle-ai.dev/install.sh | sh"
+install_tool_if_in_profile "engram"    "Engram"    "command -v engram"    "curl -fsSL https://engram.sh/install.sh | sh"
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   . "$NVM_DIR/nvm.sh"
 elif [[ $DRY_RUN == true ]]; then
   info "[simulado] NVM estaría disponible después de la instalación. CodeGraph puede fallar sin Node."
 fi
-install_tool "CodeGraph" "command -v codegraph" "npm install -g @codegraph/cli"
-install_tool "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
+install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "npm install -g @codegraph/cli"
+install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
 
-if dpkg -s gh >/dev/null 2>&1; then
-  ok "GitHub CLI ya instalado"
+if profile_includes "tools" "gh"; then
+  if dpkg -s gh >/dev/null 2>&1; then
+    ok "GitHub CLI ya instalado"
+  else
+    info 'Instalando GitHub CLI...'
+    sudo_run apt-get install -y --no-install-recommends gh
+  fi
 else
-  info 'Instalando GitHub CLI...'
-  sudo_run apt-get install -y --no-install-recommends gh
+  skip "GitHub CLI (no incluido en perfil $PROFILE)"
 fi
 
-if command -v aws >/dev/null 2>&1; then
-  ok "AWS CLI ya instalado"
+if profile_includes "tools" "aws"; then
+  if command -v aws >/dev/null 2>&1; then
+    ok "AWS CLI ya instalado"
+  else
+    info 'Instalando AWS CLI...'
+    # ponytail: inline curl-pipe, add checksum verification if installation becomes frequent
+    run bash -c 'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip'
+  fi
 else
-  info 'Instalando AWS CLI...'
-  # ponytail: inline curl-pipe, add checksum verification if installation becomes frequent
-  run bash -c 'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip'
+  skip "AWS CLI (no incluido en perfil $PROFILE)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -276,20 +308,24 @@ if [[ $DRY_RUN == false ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 5: Docker (opcional)
+# Fase 5: Docker
 # ---------------------------------------------------------------------------
-if [[ $SKIP_DOCKER == false ]]; then
-  phase "Docker"
-  if command -v docker >/dev/null 2>&1; then
-    ok "Docker ya instalado ($(docker --version 2>/dev/null))"
+if profile_includes "tools" "docker"; then
+  if [[ $SKIP_DOCKER == true ]]; then
+    skip 'Docker omitido (--skip-docker)'
   else
-    info 'Instalando Docker...'
-    run bash -c 'curl -fsSL https://get.docker.com | sh'
-    run sudo usermod -aG docker "$USER"
-    info "Docker instalado. Cierra sesión y vuelve a entrar para usar Docker sin sudo."
+    phase "Docker"
+    if command -v docker >/dev/null 2>&1; then
+      ok "Docker ya instalado ($(docker --version 2>/dev/null))"
+    else
+      info 'Instalando Docker...'
+      run bash -c 'curl -fsSL https://get.docker.com | sh'
+      run sudo usermod -aG docker "$USER"
+      info "Docker instalado. Cierra sesión y vuelve a entrar para usar Docker sin sudo."
+    fi
   fi
 else
-  skip 'Docker omitido (--skip-docker)'
+  skip 'Docker (no incluido en perfil)'
 fi
 
 # ---------------------------------------------------------------------------
@@ -297,19 +333,23 @@ fi
 # ---------------------------------------------------------------------------
 phase "Plugins de OpenCode"
 
-PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
-if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
-  ok "Ponytail ya registrado"
-else
-  info 'Registrando Ponytail...'
-  if [[ $DRY_RUN == true ]]; then
-    info "[simulado] Agregar ponytail como plugin"
+if profile_includes "plugins" "ponytail"; then
+  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
+  if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
+    ok "Ponytail ya registrado"
   else
-    TMP=$(mktemp)
-    jq '.plugin = ((.plugin // []) + ["@dietrichgebert/ponytail@latest"] | unique)' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-    chmod 600 "$OC_FILE"
-    ok "Ponytail registrado en opencode.json"
+    info 'Registrando Ponytail...'
+    if [[ $DRY_RUN == true ]]; then
+      info "[simulado] Agregar ponytail como plugin"
+    else
+      TMP=$(mktemp)
+      jq '.plugin = ((.plugin // []) + ["@dietrichgebert/ponytail@latest"] | unique)' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+      chmod 600 "$OC_FILE"
+      ok "Ponytail registrado en opencode.json"
+    fi
   fi
+else
+  skip 'Ponytail (no incluido en perfil)'
 fi
 
 # ---------------------------------------------------------------------------
@@ -337,6 +377,10 @@ phase "Servidores MCP"
 
 while IFS= read -r name; do
   [[ -z "$name" ]] && continue
+  if ! profile_includes "mcps" "$name"; then
+    skip "MCP $name (no incluido en perfil $PROFILE)"
+    continue
+  fi
   type=$(parse_mcp_field "$name" "type")
   cmd=$(parse_mcp_field "$name" "command")
 
@@ -352,7 +396,11 @@ while IFS= read -r name; do
   else
     TMP=$(mktemp)
     if [[ $type == local && -n "$cmd" ]]; then
-      cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
+      if echo "$cmd" | jq -e '. | type == "array"' >/dev/null 2>&1; then
+        cmd_array=$cmd
+      else
+        cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
+      fi
       jq --arg n "$name" --argjson cmd "$cmd_array" \
         '.mcp[$n] = {type: "local", command: $cmd, enabled: true}' \
         "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
