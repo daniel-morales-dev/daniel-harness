@@ -291,7 +291,8 @@ fi
 # ---------------------------------------------------------------------------
 phase "Configuración de OpenCode"
 
-OC_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}"
+CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
+OC_FILE="${OPENCODE_CONFIG_FILE:-$CONFIG_ROOT/opencode/opencode.json}"
 
 ensure_opencode_config() {
   local config_dir
