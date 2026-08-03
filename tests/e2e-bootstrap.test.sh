@@ -103,13 +103,15 @@ OPENCODE
 chmod +x "$STUBS/opencode"
 
 # Stub gentle-ai
-cat > "$STUBS/gentle-ai" <<'GENTLE'
+# ponytail: $ROOT_DIR expandido por shell al crear stub para que funcione
+# dentro del subshell del bootstrap sin export
+cat > "$STUBS/gentle-ai" <<GENTLE
 #!/bin/bash
-case "$1" in
+case "\$1" in
   version) echo "gentle-ai 9.9.9 (stub)" ;;
   doctor) echo "Status:  healthy" ;;
   review)
-    if [[ "$2" == "mode" ]]; then
+    if [[ "\$2" == "mode" ]]; then
       echo "receipt-driven development: on (decided by default)"
     fi
     ;;
@@ -146,6 +148,20 @@ exit 0
 DH
 chmod +x "$STUBS/dh"
 
+# Stub engram
+cat > "$STUBS/engram" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$STUBS/engram"
+
+# Pre-crear archivos de comando de túneles para evitar warnings en doctor
+mkdir -p "$CONFIG_TMP/daniel-harness/secrets/tunnels"
+for tunnel in alegra-hopper alegra-production k-agencia-mysql k-agencia-mongodb k-agencia-garage; do
+  printf 'echo %s tunnel stub\n' "$tunnel" > "$CONFIG_TMP/daniel-harness/secrets/tunnels/$tunnel.command"
+  chmod 600 "$CONFIG_TMP/daniel-harness/secrets/tunnels/$tunnel.command"
+done
+
 # Pre-crear nvm.sh para que bootstrap lo detecte como instalado
 cat > "$HOME_TMP/.nvm/nvm.sh" <<'NVMINIT'
 nvm() {
@@ -159,7 +175,6 @@ nvm() {
 NVMINIT
 
 # Pre-crear config.yaml sin restricted trust para evitar falsos críticos en doctor
-mkdir -p "$CONFIG_TMP/daniel-harness/secrets/tunnels"
 cat > "$CONFIG_TMP/daniel-harness/config.yaml" <<'EOF'
 version: "1"
 trust: trusted
