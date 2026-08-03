@@ -14,7 +14,8 @@ show_help() {
   printf '  bootstrap        Instalación completa de herramientas (--profile core|alegra|migration|full)\n'
   printf '  mcp-status       Estado de conexión y autenticación MCP\n'
   printf '  tunnel list      Lista túneles configurados\n'
-  printf '  update           Actualiza el harness desde Git\n'
+  printf '  update           Actualiza el harness (tags o main)\n'
+printf '  version          Muestra la versión actual del harness\n'
   printf '  project init     Asistente para nuevo proyecto\n'
   printf '  session scaffold <issue>  Crea plantilla de brief\n'
   printf '  session read <issue>      Plantilla + agente lee Linear via MCP\n'
@@ -162,22 +163,36 @@ detect_context() {
 
 self_update() {
   printf 'Actualizando Daniel Harness...\n'
-  git -C "$ROOT_DIR" fetch origin 2>/dev/null || {
+  git -C "$ROOT_DIR" fetch origin --prune --tags 2>/dev/null || {
     printf '[error] No se pudo contactar el remoto\n' >&2
     exit 1
   }
 
-  local local_ref remote_ref
+  local local_ref tag_ref target label
   local_ref=$(git -C "$ROOT_DIR" rev-parse HEAD)
-  remote_ref=$(git -C "$ROOT_DIR" rev-parse origin/main 2>/dev/null || echo "")
+  tag_ref=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
+
+  if [[ -n "$tag_ref" ]]; then
+    target="$tag_ref"
+    label="$tag_ref"
+  else
+    target="origin/main"
+    label="main"
+  fi
+
+  local remote_ref
+  remote_ref=$(git -C "$ROOT_DIR" rev-parse "$target" 2>/dev/null || echo "")
 
   if [[ "$local_ref" == "$remote_ref" ]]; then
-    printf '[ok] Ya estás en la última versión (%s)\n' "${local_ref:0:8}"
+    printf '[ok] Ya estás en la última versión (%s)\n' "${label}"
     return
   fi
 
-  printf 'Actualizando a %s...\n' "${remote_ref:0:8}"
-  git -C "$ROOT_DIR" pull --ff-only origin main
+  printf 'Actualizando a %s...\n' "$label"
+  git -C "$ROOT_DIR" pull --ff-only origin main || {
+    printf '[error] Falló la actualización. Revisa conflictos locales.\n' >&2
+    exit 1
+  }
 
   if git -C "$ROOT_DIR" diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q '^bootstrap/manifest.yaml'; then
     printf '[aviso] El manifest cambió. Ejecuta dh bootstrap para actualizar herramientas.\n'
@@ -187,7 +202,7 @@ self_update() {
     printf '[aviso] install.sh cambió. Ejecuta dh install para actualizar symlinks.\n'
   fi
 
-  printf '[ok] Harness actualizado\n'
+  printf '[ok] Harness actualizado (%s)\n' "${label}"
 }
 
 preflight() {
