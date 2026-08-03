@@ -231,9 +231,8 @@ preflight() {
     policies+="]"
   fi
 
-  local scope repopaths
+  local scope
   scope="single-repo"
-  repopaths="[]"
 
   cat <<JSON
 {
@@ -368,7 +367,7 @@ session_start() {
     if [[ -n "${LINEAR_API_KEY:-}" ]]; then
       token="$LINEAR_API_KEY"
     elif [[ -f "$token_file" ]]; then
-      token=$(cat "$token_file" | tr -d '[:space:]')
+      token=$(tr -d '[:space:]' < "$token_file")
     fi
 
     if [[ -z "$token" ]]; then
@@ -377,7 +376,8 @@ session_start() {
       subcmd=scaffold
     else
       local graphql
-      graphql='{"query":"query($id: String!) { issue(id: $id) { title description identifier priority orderBy state { name type } assignee { name email } labels { nodes { name } } parent { id title identifier } children { nodes { id title identifier state { name } } } comments { nodes { body createdAt user { name } } } } }","variables":{"id":"'"$issue_id"'"}}'
+      local query_body='query($id: String!) { issue(id: $id) { title description identifier priority orderBy state { name type } assignee { name email } labels { nodes { name } } parent { id title identifier } children { nodes { id title identifier state { name } } } comments { nodes { body createdAt user { name } } } } }'
+      graphql=$(jq -n --arg q "$query_body" --arg id "$issue_id" '{query: $q, variables: {id: $id}}')
       local response
       response=$(curl -s -X POST "https://api.linear.app/graphql" \
         -H "Content-Type: application/json" \
