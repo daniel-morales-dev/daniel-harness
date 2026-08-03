@@ -33,4 +33,24 @@ remove_managed_link "$ROOT_DIR/commands/migration-gap-analysis.md" "$OPENCODE_CO
 remove_managed_link "$ROOT_DIR/bin/dh" "$HOME/.local/bin/dh"
 remove_managed_link "$ROOT_DIR/global/AGENTS.md" "$OPENCODE_CONFIG_DIR/AGENTS.md"
 
+# Remove managed policies directory (only if it matches harness policies)
+POLICIES_DIR="$HARNESS_CONFIG_DIR/policies"
+if [[ -d "$POLICIES_DIR" ]]; then
+  local all_managed=true
+  for policy in "$POLICIES_DIR/"*.md; do
+    [[ -f "$policy" ]] || continue
+    src="$ROOT_DIR/policies/$(basename "$policy")"
+    if [[ -f "$src" ]] && diff -q "$policy" "$src" >/dev/null 2>&1; then
+      rm "$policy"
+      printf 'eliminado: %s\n' "$policy"
+    else
+      printf 'conservado: %s (modificado localmente)\n' "$policy"
+      all_managed=false
+    fi
+  done
+  if [[ "$all_managed" == true ]]; then
+    rmdir "$POLICIES_DIR" 2>/dev/null || true
+  fi
+fi
+
 printf '\nDesinstalación completada. La configuración local y los secretos se conservaron.\n'

@@ -9,13 +9,14 @@ show_help() {
   printf 'Uso: dh <comando> [argumentos]\n\n'
   printf 'Comandos:\n'
   printf '  doctor           Diagnóstico del harness\n'
+  printf '  root             Muestra la raíz absoluta del harness\n'
   printf '  install          Configuración local + symlinks\n'
   printf '  bootstrap        Instalación completa de herramientas\n'
   printf '  mcp-status       Estado de conexión y autenticación MCP\n'
   printf '  tunnel list      Lista túneles configurados\n'
   printf '  update           Actualiza el harness desde Git\n'
   printf '  project init     Asistente para nuevo proyecto\n'
-  printf '  session <issue>  Genera brief de sesión desde Linear\n'
+  printf '  session scaffold <issue>  Crea plantilla de brief (sin Linear aún)\n'
   printf '  engram-service   Instala/systemd user service para Engram\n'
   printf '  context          Detecta el contexto del proyecto actual\n'
   printf '  help             Esta ayuda\n'
@@ -274,28 +275,38 @@ with open(tmp_path, 'w') as f:
 }
 
 session_start() {
-  local issue_id=${1:-}
+  local subcmd=${1:-scaffold}
+  local issue_id=${2:-}
+
+  if [[ "$subcmd" != "scaffold" ]]; then
+    # Accept bare issue ID as positional arg (backward compat)
+    issue_id=$subcmd
+    subcmd=scaffold
+  fi
 
   if [[ -z "$issue_id" ]]; then
-    printf 'Uso: dh session <issue-id>\n'
-    printf '  Ej: dh session ENG-123\n'
+    printf 'Uso: dh session scaffold <issue-id>\n'
+    printf '  Ej: dh session scaffold ENG-123\n'
+    printf '  (scaffold crea una plantilla; la integración Linear está pendiente)\n'
     exit 1
   fi
 
   local session_file="$HARNESS_DIR/sessions/$issue_id.md"
   mkdir -p "$HARNESS_DIR/sessions"
 
-  printf '# Sesión: %s\n\n' "$issue_id" > "$session_file"
-  printf 'Iniciada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$session_file"
-  printf '## Tarea\n\n' >> "$session_file"
-  printf 'ID: %s\n\n' "$issue_id" >> "$session_file"
-  printf '## Contexto\n\n' >> "$session_file"
-  detect_context >> "$session_file"
-  printf '\n## Objetivo\n\n- \n' >> "$session_file"
-  printf '\n## Criterios de aceptación\n\n- \n' >> "$session_file"
-  printf '\n## Archivos afectados\n\n- \n' >> "$session_file"
+  {
+    printf '# Sesión: %s\n\n' "$issue_id"
+    printf 'Iniciada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf '## Tarea\n\n'
+    printf 'ID: %s\n\n' "$issue_id"
+    printf '## Contexto\n\n'
+    detect_context
+    printf '\n## Objetivo\n\n- \n'
+    printf '\n## Criterios de aceptación\n\n- \n'
+    printf '\n## Archivos afectados\n\n- \n'
+  } > "$session_file"
 
-  printf '[ok] Brief de sesión creado: %s\n' "$session_file"
+  printf '[ok] Plantilla de sesión creada: %s\n' "$session_file"
 }
 
 engram_service() {
@@ -345,6 +356,7 @@ SERVICEEOF
 }
 
 case "${1:-help}" in
+  root) printf '%s\n' "$ROOT_DIR" ;;
   doctor) shift; exec "$ROOT_DIR/scripts/doctor.sh" "$@" ;;
   install) shift; exec "$ROOT_DIR/scripts/install.sh" "$@" ;;
   bootstrap) shift; exec "$ROOT_DIR/scripts/bootstrap.sh" "$@" ;;
