@@ -2,6 +2,7 @@
 """Validate harness scripts and structure — bootstrap, registry, install, MCP, global rules."""
 
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -152,6 +153,17 @@ def test_registry_rejects_repository_property():
         assert False, "project entry with 'repository' should fail validation"
     except jsonschema.ValidationError:
         pass
+
+
+def test_agent_name_matches_filename():
+    """Verify each agent's name: matches its filename (OpenCode requirement)."""
+    for agent_md in (ROOT_DIR / "agents").glob("*.md"):
+        content = agent_md.read_text()
+        name_match = re.search(r'^name:\s*(.+)$', content, re.MULTILINE)
+        assert name_match, f"{agent_md.name} missing name in frontmatter"
+        expected = agent_md.stem
+        actual = name_match.group(1).strip()
+        assert actual == expected, f"{agent_md.name}: name '{actual}' != filename '{expected}'"
 
 
 def test_agents_no_write_permission():

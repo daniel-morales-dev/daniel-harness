@@ -45,6 +45,9 @@ jobs:
             head -1 "$skill" | grep -q '^---$' || { echo "FAIL: $skill missing frontmatter"; exit 1; }
             grep -q '^name: ' "$skill" || { echo "FAIL: $skill missing name"; exit 1; }
             grep -q '^description: ' "$skill" || { echo "FAIL: $skill missing description"; exit 1; }
+            name=$(grep '^name: ' "$skill" | sed 's/^name:[[:space:]]*//')
+            dir=$(basename "$(dirname "$skill")")
+            [ "$name" = "$dir" ] || { echo "FAIL: $skill name '$name' != directory '$dir'"; exit 1; }
             echo "  [ok] $skill"
           done
 
