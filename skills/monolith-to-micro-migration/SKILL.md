@@ -1,3 +1,10 @@
+---
+name: monolith-to-micro-migration
+description: >
+  Migra comportamiento observable de alegra-app PHP al microservicio de Bills
+  TypeScript. Activa solo ante una intención explícita de migración o paridad.
+---
+
 # Monolith → micro migration (bills backend)
 
 Traducir comportamiento del monolito (`alegra-app`, PHP 7.0.9/ZF1) al microservicio

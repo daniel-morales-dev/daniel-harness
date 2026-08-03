@@ -67,8 +67,8 @@ SDD no se activa automáticamente por tamaño o riesgo. Gentle AI lo usa cuando 
 | Recurso | Uso |
 |---|---|
 | `php-engineer` | Cambios quirúrgicos y compatibles con PHP 7.0.9/ZF1. |
-| `senior-engineer` | TypeScript/JavaScript, arquitectura y calidad. |
-| `test-engineer` | Estrategia y construcción de pruebas. |
+| `alegra-microservice-engineer` | TypeScript/JavaScript, arquitectura y calidad. |
+| `alegra-microservice-test-engineer` | Estrategia y construcción de pruebas. |
 | `code-reviewer` | Revisión estricta antes de entrega. |
 | `task-lifecycle` | Lectura completa y seguimiento de tareas Linear. |
 | `monolith-to-micro-migration` | Paridad observable de PHP hacia TypeScript. |

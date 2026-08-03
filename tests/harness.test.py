@@ -169,9 +169,9 @@ def test_code_reviewer_readonly():
     assert "git status" in content
 
 def test_writers_bash_is_ask():
-    """Verify senior-engineer and test-engineer use bash: ask, not allow."""
-    senior = (ROOT_DIR / "agents" / "senior-engineer.md").read_text()
-    test = (ROOT_DIR / "agents" / "test-engineer.md").read_text()
+    """Verify alegra-microservice-engineer and alegra-microservice-test-engineer use bash: ask, not allow."""
+    senior = (ROOT_DIR / "agents" / "alegra-microservice-engineer.md").read_text()
+    test = (ROOT_DIR / "agents" / "alegra-microservice-test-engineer.md").read_text()
     assert "bash: ask" in senior
     assert "bash: ask" in test
     assert "bash: allow" not in senior
@@ -179,8 +179,8 @@ def test_writers_bash_is_ask():
 
 def test_agents_specialized():
     """Verify agents are specialized (alegra-microservice-* names, reduced size)."""
-    senior = (ROOT_DIR / "agents" / "senior-engineer.md").read_text()
-    test = (ROOT_DIR / "agents" / "test-engineer.md").read_text()
+    senior = (ROOT_DIR / "agents" / "alegra-microservice-engineer.md").read_text()
+    test = (ROOT_DIR / "agents" / "alegra-microservice-test-engineer.md").read_text()
     assert "alegra-microservice-engineer" in senior
     assert "alegra-microservice-test-engineer" in test
     assert "preflight" in senior.lower()
@@ -282,7 +282,8 @@ if __name__ == "__main__":
     cmd = (ROOT_DIR / "commands" / "migration-gap-analysis.md").read_text()
     assert "agent: migration-parity-reviewer" in cmd
     assert "allowed-tools" not in cmd
-    assert "--apply" in cmd
+    assert "--apply" not in cmd
+    assert "mutation" not in cmd.lower() or "no muta" in cmd.lower()
 
     test_agents_no_write_permission()
     print("[ok] agents sin write permission")
@@ -291,7 +292,7 @@ if __name__ == "__main__":
     print("[ok] code-reviewer readonly con wildcard deny")
 
     test_writers_bash_is_ask()
-    print("[ok] senior-engineer y test-engineer con bash: ask")
+    print("[ok] alegra-microservice-engineer y alegra-microservice-test-engineer con bash: ask")
 
     test_dh_cli_contexts_use_alegra_prefix()
     print("[ok] dh-cli.md contextos actualizados")
@@ -309,6 +310,10 @@ if __name__ == "__main__":
         assert "harnessRoot" in parsed
         assert "policies" in parsed
         assert "scope" in parsed
+        assert "relationships" in parsed
+        assert isinstance(parsed.get("project"), (str, type(None)))
+        assert isinstance(parsed.get("family"), (str, type(None)))
+        assert isinstance(parsed.get("path"), (str, type(None)))
         assert result.returncode == 0
 
     test_preflight_output()

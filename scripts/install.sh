@@ -60,9 +60,9 @@ done
 
 link_if_missing "$ROOT_DIR/global/AGENTS.md" "$OPENCODE_CONFIG_DIR/AGENTS.md"
 
-link_if_missing "$ROOT_DIR/agents/senior-engineer.md" "$OPENCODE_CONFIG_DIR/agents/senior-engineer.md"
+link_if_missing "$ROOT_DIR/agents/alegra-microservice-engineer.md" "$OPENCODE_CONFIG_DIR/agents/alegra-microservice-engineer.md"
 link_if_missing "$ROOT_DIR/agents/code-reviewer.md" "$OPENCODE_CONFIG_DIR/agents/code-reviewer.md"
-link_if_missing "$ROOT_DIR/agents/test-engineer.md" "$OPENCODE_CONFIG_DIR/agents/test-engineer.md"
+link_if_missing "$ROOT_DIR/agents/alegra-microservice-test-engineer.md" "$OPENCODE_CONFIG_DIR/agents/alegra-microservice-test-engineer.md"
 link_if_missing "$ROOT_DIR/agents/php-engineer.md" "$OPENCODE_CONFIG_DIR/agents/php-engineer.md"
 link_if_missing "$ROOT_DIR/agents/migration-parity-reviewer.md" "$OPENCODE_CONFIG_DIR/agents/migration-parity-reviewer.md"
 link_if_missing "$ROOT_DIR/skills/monolith-to-micro-migration" "$OPENCODE_CONFIG_DIR/skills/monolith-to-micro-migration"

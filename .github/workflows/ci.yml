@@ -38,6 +38,16 @@ jobs:
       - name: Validate harness structure (Python)
         run: python3 tests/harness.test.py
 
+      - name: Validate skill frontmatter
+        run: |
+          for skill in skills/*/SKILL.md; do
+            [ -f "$skill" ] || continue
+            head -1 "$skill" | grep -q '^---$' || { echo "FAIL: $skill missing frontmatter"; exit 1; }
+            grep -q '^name: ' "$skill" || { echo "FAIL: $skill missing name"; exit 1; }
+            grep -q '^description: ' "$skill" || { echo "FAIL: $skill missing description"; exit 1; }
+            echo "  [ok] $skill"
+          done
+
       - name: Install test
         run: bash tests/install.test.sh
 

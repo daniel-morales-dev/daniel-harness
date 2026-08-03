@@ -36,11 +36,11 @@ Daniel Harness está versionado en `daniel-morales-dev/daniel-harness`. La funda
 
 | Target | SHA-256 |
 |---|---|
-| `agents/senior-engineer.md` | `30dbb1827661345acc4a214eae99c5ccbea6ff4ea6df7e59c4b127426b081ba4` |
+| `agents/alegra-microservice-engineer.md` | `30dbb1827661345acc4a214eae99c5ccbea6ff4ea6df7e59c4b127426b081ba4` |
 | `agents/code-reviewer.md` | `1b5acdb457ad9621057c8bba3697307dbd6c612ea06ca9775ec87044d906a0c0` |
-| `agents/test-engineer.md` | `73720259e88ff37f16452c841d199e8859e251473555ed0f977af1077e0658f3` |
-| `skills/monolith-to-micro-migration/SKILL.md` | `e288b645ea446696fc6628d8a1623f4be0e70a9fc8dd2d94a2be6639b2dda997` |
-| `commands/migration-gap-analysis.md` | `6ab1df3564c0e109c55c5e6e81f129815768d7e7b1a2aead50fdd12240803898` |
+| `agents/alegra-microservice-test-engineer.md` | `73720259e88ff37f16452c841d199e8859e251473555ed0f977af1077e0658f3` |
+| `skills/monolith-to-micro-migration/SKILL.md` | `bebea5554a4480174f4e02c3267e9375585716ad11979b835c772a88b37714a0` |
+| `commands/migration-gap-analysis.md` | `2b3126ea4a4b34b888f9d560ebdef4b33799d42013a3fccdd9b7de1a683be7d1` |
 
 No modificar estos assets salvo tarea explícita. `migration-gap.md` solo fue normalizado de nombre.
 

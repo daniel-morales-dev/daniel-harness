@@ -199,53 +199,54 @@ preflight() {
   path=$(echo "$ctx_output" | grep '^path=' | sed 's/^path=//' || true)
 
   local registry="$HARNESS_DIR/project-registry.yaml"
-  local family=""
-  if [[ -f "$registry" ]]; then
-    if [[ -n "$project_name" ]]; then
-      family=$(awk -v p="$project_name" '
-        /^families:/ { in_fam=1; next }
-        in_fam && /^    projects:/ { in_proj=1; next }
-        in_proj && /^      - id:/ {
-          gsub(/^      - id:[[:space:]]*/, ""); gsub(/^"|"$/, ""); id=$0
-          if (id == p) { found=1 }
-          next
-        }
-        in_fam && /^  - id:/ {
-          if (found) { gsub(/^  - id:[[:space:]]*/, ""); gsub(/^"|"$/, ""); print; exit }
-          in_proj=0
-        }
-      ' "$registry")
-    fi
-  fi
 
-  local policy_dir="$HARNESS_DIR/policies"
-  local policies="[]"
-  if [[ -d "$policy_dir" ]]; then
-    policies="["
-    local first=true
-    for f in "$policy_dir/"*.md; do
-      [[ -f "$f" ]] || continue
-      if [[ "$first" == true ]]; then first=false; else policies+=", "; fi
-      policies+="\"$(basename "$f")\""
-    done
-    policies+="]"
-  fi
+  _DH_PROJECT="$project_name" _DH_CONTEXT="$ctx" _DH_PATH="$path" python3 -c "
+import json, sys, os
+try:
+    import yaml
+except ImportError:
+    print(json.dumps({'error': 'pyyaml not installed'}))
+    sys.exit(1)
 
-  local scope
-  scope="single-repo"
-
-  cat <<JSON
-{
-  "project": ${project_name:-null},
-  "context": "$ctx",
-  "family": ${family:-null},
-  "scope": "$scope",
-  "path": ${path:-null},
-  "harnessRoot": "$ROOT_DIR",
-  "policies": $policies,
-  "issue": null
+project_raw = os.environ.get('_DH_PROJECT', '') or ''
+result = {
+    'project': project_raw if project_raw.strip() else None,
+    'context': os.environ.get('_DH_CONTEXT', 'generic') or 'generic',
+    'family': None,
+    'scope': 'single-repo',
+    'path': (os.environ.get('_DH_PATH', '') or '').strip() or None,
+    'harnessRoot': '$ROOT_DIR',
+    'policies': [],
+    'issue': None,
+    'relationships': [],
 }
-JSON
+
+registry_path = '$registry'
+if os.path.exists(registry_path):
+    with open(registry_path) as f:
+        data = yaml.safe_load(f)
+
+    pname = result['project']
+    if pname and data and 'families' in data:
+        for fam in data['families']:
+            for proj in fam.get('projects', []):
+                if proj.get('id') == pname:
+                    result['family'] = fam['id']
+                    break
+            if result['family']:
+                break
+
+    if data and 'relationships' in data:
+        result['relationships'] = data['relationships']
+
+policy_dir = '$HARNESS_DIR/policies'
+if os.path.isdir(policy_dir):
+    for f in sorted(os.listdir(policy_dir)):
+        if f.endswith('.md'):
+            result['policies'].append(f)
+
+print(json.dumps(result, ensure_ascii=False, indent=2))
+" 2>&1 || printf '[error] preflight: falló la generación de JSON\n'
 }
 
 project_init() {
@@ -493,6 +494,7 @@ verify_cmd() {
   ctx_info=$(detect_context)
   local ctx
   ctx=$(echo "$ctx_info" | grep '^contexto=' | sed 's/^contexto=//' || true)
+  local failures=0
 
   printf 'Contexto: %s\n\n' "$ctx"
 
@@ -505,7 +507,7 @@ verify_cmd() {
       else
         for f in $modified; do
           if [[ "$f" == *.php ]]; then
-            php -l "$f" 2>&1 | sed 's/^/  /'
+            php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
           fi
         done
       fi
@@ -513,10 +515,10 @@ verify_cmd() {
     alegra-microservice|generic-typescript)
       if [[ -f "node_modules/.package-lock.json" || -d "node_modules" ]]; then
         printf 'TypeScript: npx tsc --noEmit\n'
-        npx tsc --noEmit 2>&1 | sed 's/^/  /' || printf '  [error] TypeCheck falló\n'
+        npx tsc --noEmit 2>&1 | sed 's/^/  /' || { printf '  [error] TypeCheck falló\n'; failures=$((failures + 1)); }
         if grep -q '"test"' package.json 2>/dev/null; then
           printf '\nTests: npm test -- --coverage\n'
-          npm test -- --coverage 2>&1 | tail -5 | sed 's/^/  /'
+          npm test -- --coverage 2>&1 | tail -5 | sed 's/^/  /' || failures=$((failures + 1))
         fi
       else
         printf 'node_modules no encontrado. Ejecuta npm install primero.\n'
@@ -525,7 +527,7 @@ verify_cmd() {
     generic-node)
       if [[ -d "node_modules" ]] && grep -q '"test"' package.json 2>/dev/null; then
         printf 'Tests: npm test\n'
-        npm test 2>&1 | tail -5 | sed 's/^/  /'
+        npm test 2>&1 | tail -5 | sed 's/^/  /' || failures=$((failures + 1))
       else
         printf 'No hay test configurados o node_modules ausente.\n'
       fi
@@ -533,7 +535,7 @@ verify_cmd() {
     generic-go)
       if command -v go >/dev/null 2>&1; then
         printf 'go vet ./...\n'
-        go vet ./... 2>&1 | sed 's/^/  /'
+        go vet ./... 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
       else
         printf 'Go no instalado.\n'
       fi
@@ -544,15 +546,21 @@ verify_cmd() {
     generic)
       printf 'Harness: ShellCheck + tests\n'
       if command -v shellcheck >/dev/null 2>&1; then
-        shellcheck -e SC1091,SC2154,SC2317 bin/dh scripts/*.sh 2>&1 | sed 's/^/  /' || true
+        shellcheck -e SC1091,SC2154,SC2317 bin/dh scripts/*.sh 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
       fi
-      bash -n bin/dh scripts/*.sh 2>&1 | sed 's/^/  /' || true
+      bash -n bin/dh scripts/*.sh 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
       if [[ -f "tests/harness.test.py" ]]; then
         printf '\nTests: python3 tests/harness.test.py\n'
-        python3 tests/harness.test.py 2>&1 | sed 's/^/  /' || true
+        python3 tests/harness.test.py 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
       fi
       ;;
   esac
+
+  if (( failures > 0 )); then
+    printf '\n[error] %d verificación(es) fallaron\n' "$failures"
+    return 1
+  fi
+  printf '\n[ok] Todas las verificaciones pasaron\n'
 }
 
 case "${1:-help}" in
