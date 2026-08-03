@@ -277,6 +277,12 @@ if __name__ == "__main__":
     assert "edit: deny" in parity
     assert '"*": deny' in parity
 
+    # Verify migration-gap command uses agent frontmatter, not allowed-tools
+    cmd = (ROOT_DIR / "commands" / "migration-gap-analysis.md").read_text()
+    assert "agent: migration-parity-reviewer" in cmd
+    assert "allowed-tools" not in cmd
+    assert "--apply" in cmd
+
     test_agents_no_write_permission()
     print("[ok] agents sin write permission")
 
