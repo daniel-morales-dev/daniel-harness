@@ -78,12 +78,14 @@ parse_section() {
   ' "$MANIFEST"
 }
 
-parse_list() {
-  local section=$1
-  awk -v sec="$section" '
-    $0 ~ "^" sec ":" { in_section=1; next }
-    in_section && /^  - / { gsub(/^  - /,""); print; next }
-    in_section && !/^    / && !/^  - / { in_section=0 }
+parse_nested_list() {
+  local parent=$1 child=$2
+  awk -v parent="$parent" -v child="$child" '
+    $0 ~ "^" parent ":" { in_parent=1; next }
+    in_parent && $0 ~ "^  " child ":" { in_child=1; next }
+    in_child && /^    - / { gsub(/^    - /,""); print; next }
+    in_child && !/^      / && !/^    - / { in_child=0 }
+    in_parent && !/^  / && !/^$/ { in_parent=0 }
   ' "$MANIFEST"
 }
 
@@ -129,13 +131,13 @@ parse_mcp_field() {
 # ---------------------------------------------------------------------------
 phase "Dependencias del sistema (sudo apt-get)"
 
-packages=$(parse_list "system_packages/required" | tr '\n' ' ')
+packages=$(parse_nested_list "system_packages" "required" | tr '\n' ' ')
 missing=""
 for pkg in $packages; do
   dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
 done
 
-optional_packages=$(parse_list "system_packages/optional" | tr '\n' ' ')
+optional_packages=$(parse_nested_list "system_packages" "optional" | tr '\n' ' ')
 for pkg in $optional_packages; do
   dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
 done
@@ -240,7 +242,7 @@ phase "Plugins de OpenCode"
 
 OC_CONFIG="${OPENCODE_CONFIG:-$HOME/.config/opencode/opencode.json}"
 if [[ -f "$OC_CONFIG" ]]; then
-  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_CONFIG" 2>/dev/null || true)
+  PLUGIN_LIST=$(jq -r '(.plugins // [])[]' "$OC_CONFIG" 2>/dev/null || true)
   if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
     ok "Ponytail ya registrado"
   else
@@ -249,7 +251,7 @@ if [[ -f "$OC_CONFIG" ]]; then
       info "[simulado] Agregar ponytail como plugin"
     else
       TMP=$(mktemp)
-      jq '.plugin += ["@dietrichgebert/ponytail@latest"]' "$OC_CONFIG" > "$TMP" && mv "$TMP" "$OC_CONFIG"
+      jq '.plugins += ["@dietrichgebert/ponytail@latest"]' "$OC_CONFIG" > "$TMP" && mv "$TMP" "$OC_CONFIG"
       chmod 600 "$OC_CONFIG"
       ok "Ponytail registrado en opencode.json"
     fi
@@ -291,7 +293,7 @@ else
     type=$(parse_mcp_field "$name" "type")
     cmd=$(parse_mcp_field "$name" "command")
 
-    exists=$(jq --arg n "$name" '.mcp.servers // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
+    exists=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
     if [[ $exists == true ]]; then
       ok "MCP $name ya configurado en opencode.json"
       continue
@@ -305,11 +307,11 @@ else
       if [[ $type == local && -n "$cmd" ]]; then
         cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
         jq --arg n "$name" --argjson cmd "$cmd_array" \
-          '.mcp.servers[$n] = {type: "local", enabled: true, command: $cmd}' \
+          '.mcp[$n] = {command: $cmd, enabled: true}' \
           "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
       else
         jq --arg n "$name" \
-          '.mcp.servers[$n] = {type: "remote", enabled: true}' \
+          '.mcp[$n] = {enabled: true}' \
           "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
       fi
       chmod 600 "$OC_FILE"
