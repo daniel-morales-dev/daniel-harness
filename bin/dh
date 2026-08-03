@@ -17,8 +17,9 @@ show_help() {
   printf '  update           Actualiza el harness (tags o main)\n'
 printf '  version          Muestra la versión actual del harness\n'
   printf '  project init     Asistente para nuevo proyecto\n'
-  printf '  session scaffold <issue>  Crea plantilla de brief\n'
-  printf '  session read <issue>      Plantilla + agente lee Linear via MCP\n'
+printf '  session scaffold <issue>  Crea plantilla de brief\n'
+printf '  session read <issue>      Plantilla + agente lee Linear via MCP\n'
+printf '  session close <issue>     Cierra sesion: resumen para Engram + Linear\n'
   printf '  engram-service   Instala/systemd user service para Engram\n'
   printf '  preflight        Contexto completo del proyecto (JSON)\n'
   printf '  verify           Valida el proyecto según su contexto\n'
@@ -436,7 +437,7 @@ session_start() {
   local subcmd=${1:-help}
   local issue_id=${2:-}
 
-  if [[ "$subcmd" == "scaffold" || "$subcmd" == "read" ]] && [[ -z "$issue_id" ]]; then
+  if { [[ "$subcmd" == "scaffold" || "$subcmd" == "read" ]] && [[ -z "$issue_id" ]]; } || { [[ "$subcmd" == "close" ]] && [[ -z "$issue_id" ]]; }; then
     printf 'Uso: dh session %s <issue-id>\n' "$subcmd"
     printf '  Ej: dh session %s ENG-123\n' "$subcmd"
     exit 1
@@ -447,11 +448,44 @@ session_start() {
     printf 'Subcomandos:\n'
     printf '  scaffold <issue-id>  Crea plantilla de brief (sin API)\n'
     printf '  read <issue-id>      Crea plantilla + instruye al agente a leer Linear vía MCP\n'
+    printf '  close <issue-id>     Cierra sesión: guarda resumen para Engram + Linear\n'
     return
   fi
 
-  local session_file="$HARNESS_DIR/sessions/$issue_id.md"
-  mkdir -p "$HARNESS_DIR/sessions"
+  local session_dir="$HARNESS_DIR/sessions"
+  mkdir -p "$session_dir"
+
+  if [[ "$subcmd" == "close" ]]; then
+    local session_file="$session_dir/$issue_id.md"
+    local summary_file="$session_dir/$issue_id-summary.md"
+
+    if [[ ! -f "$session_file" ]]; then
+      printf '[error] No hay sesión activa para %s\n' "$issue_id" >&2
+      printf '  Crea una con: dh session scaffold %s\n' "$issue_id"
+      exit 1
+    fi
+
+    # Generate session summary for Engram + Linear
+    {
+      printf '# Resumen de sesión: %s\n\n' "$issue_id"
+      printf 'Completada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+      printf '## Contexto al cierre\n\n'
+      detect_context
+      printf '\n## Log de la sesión\n\n'
+      cat "$session_file"
+      printf '\n## Instrucciones para el agente\n\n'
+      printf '1. Publica este resumen como comentario en Linear issue %s usando save_comment\n' "$issue_id"
+      printf '2. Guarda el resumen en Engram con mem_session_summary\n'
+    } > "$summary_file"
+
+    printf '[ok] Resumen de sesión guardado: %s\n' "$summary_file"
+    printf '\n  El agente debe:\n'
+    printf '  1. Publicar comentario en Linear: save_comment(issueId="%s", body=contenido)\n' "$issue_id"
+    printf '  2. Guardar en Engram: mem_session_summary(project="...", content=resumen)\n'
+    return
+  fi
+
+  local session_file="$session_dir/$issue_id.md"
 
   # ponytail: no curl/token — el agente lee Linear via MCP
   {
