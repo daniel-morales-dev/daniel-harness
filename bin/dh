@@ -437,17 +437,21 @@ verify_cmd() {
   printf 'Contexto: %s\n\n' "$ctx"
 
   case "$ctx" in
-    generic-php)
+    generic-php|alegra-monolith)
       local modified
       modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
       if [[ -z "$modified" ]]; then
-        printf 'No hay archivos modificados. Sintaxis: php -l (nada que verificar)\n'
+        printf 'No hay archivos modificados. Nada que verificar.\n'
       else
-        for f in $modified; do
+        while IFS= read -r f; do
           if [[ "$f" == *.php ]]; then
-            php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
+            if command -v php >/dev/null 2>&1; then
+              php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
+            else
+              printf '  [aviso] php no instalado, saltando lint de %s\n' "$f"
+            fi
           fi
-        done
+        done <<< "$modified"
       fi
       ;;
     alegra-microservice|generic-typescript)
@@ -456,7 +460,7 @@ verify_cmd() {
         npx tsc --noEmit 2>&1 | sed 's/^/  /' || { printf '  [error] TypeCheck falló\n'; failures=$((failures + 1)); }
         if grep -q '"test"' package.json 2>/dev/null; then
           printf '\nTests: npm test -- --coverage\n'
-          npm test -- --coverage 2>&1 | tail -5 | sed 's/^/  /' || failures=$((failures + 1))
+          npm test -- --coverage 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
         fi
       else
         printf 'node_modules no encontrado. Ejecuta npm install primero.\n'
@@ -465,7 +469,7 @@ verify_cmd() {
     generic-node)
       if [[ -d "node_modules" ]] && grep -q '"test"' package.json 2>/dev/null; then
         printf 'Tests: npm test\n'
-        npm test 2>&1 | tail -5 | sed 's/^/  /' || failures=$((failures + 1))
+        npm test 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
       else
         printf 'No hay test configurados o node_modules ausente.\n'
       fi
@@ -479,7 +483,8 @@ verify_cmd() {
       fi
       ;;
     freelance)
-      printf 'Verificación freelance: revisa README.md del proyecto para comandos registrados.\n'
+      printf 'Verificación freelance: contexto sin validación automática.\n'
+      printf 'Revisa README.md del proyecto para comandos registrados.\n'
       ;;
     generic)
       printf 'Harness: ShellCheck + tests\n'
@@ -491,6 +496,10 @@ verify_cmd() {
         printf '\nTests: python3 tests/harness.test.py\n'
         python3 tests/harness.test.py 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
       fi
+      ;;
+    *)
+      printf 'Contexto "%s" no tiene verificación registrada.\n' "$ctx"
+      failures=1
       ;;
   esac
 
