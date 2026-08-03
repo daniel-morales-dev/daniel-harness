@@ -160,11 +160,21 @@ def test_agents_no_write_permission():
 
 
 def test_code_reviewer_readonly():
-    """Verify code-reviewer has restricted permissions."""
+    """Verify code-reviewer has restricted permissions with wildcard deny."""
     content = (ROOT_DIR / "agents" / "code-reviewer.md").read_text()
     assert "edit: deny" in content
-    assert 'bash:' in content
+    assert '"*": deny' in content
     assert "git diff" in content
+    assert "git status" in content
+
+def test_writers_bash_is_ask():
+    """Verify senior-engineer and test-engineer use bash: ask, not allow."""
+    senior = (ROOT_DIR / "agents" / "senior-engineer.md").read_text()
+    test = (ROOT_DIR / "agents" / "test-engineer.md").read_text()
+    assert "bash: ask" in senior
+    assert "bash: ask" in test
+    assert "bash: allow" not in senior
+    assert "bash: allow" not in test
 
 
 def test_dh_cli_contexts_use_alegra_prefix():
@@ -256,7 +266,10 @@ if __name__ == "__main__":
     print("[ok] agents sin write permission")
 
     test_code_reviewer_readonly()
-    print("[ok] code-reviewer readonly")
+    print("[ok] code-reviewer readonly con wildcard deny")
+
+    test_writers_bash_is_ask()
+    print("[ok] senior-engineer y test-engineer con bash: ask")
 
     test_dh_cli_contexts_use_alegra_prefix()
     print("[ok] dh-cli.md contextos actualizados")

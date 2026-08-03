@@ -317,11 +317,21 @@ else
     if has_broad_bash_permission; then
       critical 'Hay modelos restricted mientras OpenCode concede acceso Bash amplio'
     else
-      # Conserva la misma distinción trivaluada del análisis de secretos.
       jq_status=$?
       if (( jq_status != 1 )); then
         critical 'No se pudo evaluar el acceso Bash de modelos restricted'
       fi
+    fi
+
+    # Audit agent markdowns for bash:allow under restricted trust
+    local agent_dir="$OPENCODE_CONFIG_DIR/agents"
+    if [[ -d "$agent_dir" ]]; then
+      for agent_file in "$agent_dir/"*.md; do
+        [[ -f "$agent_file" ]] || continue
+        if grep -Eq '^\s+bash:\s+(allow|ask)$' "$agent_file" 2>/dev/null; then
+          critical "Agente $(basename "$agent_file" .md) tiene bash sin wildcard deny con modelos restricted"
+        fi
+      done
     fi
   fi
 fi

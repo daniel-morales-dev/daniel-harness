@@ -20,9 +20,13 @@ permission:
   glob: allow
   grep: allow
   bash:
+    "*": deny
+    "git status": allow
+    "git status *": allow
+    "git diff": allow
     "git diff *": allow
     "git show *": allow
-    "git status *": allow
+    "git log *": allow
 ---
 
 # Code Reviewer Agent

@@ -18,7 +18,7 @@ mode: subagent
 permission:
   read: allow
   edit: allow
-  bash: allow
+  bash: ask
   glob: allow
   grep: allow
 ---
