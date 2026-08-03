@@ -2,7 +2,7 @@
 
 ## Preparación
 
-1. Aplica `task-lifecycle` si existe issue.
+1. Si no hay tarea Linear vinculada, créala con título, contexto y criterios de aceptación mínimos. Luego aplica `task-lifecycle`.
 2. Lee `AGENTS.md`, `CLAUDE.md` y docs relacionadas.
 3. Activa `php-engineer`.
 4. Usa CodeGraph para encontrar entry point, callers, side effects y blast radius.

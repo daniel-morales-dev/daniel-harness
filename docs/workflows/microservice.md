@@ -2,7 +2,7 @@
 
 ## Preparación
 
-1. Aplica `task-lifecycle` si existe issue.
+1. Si no hay tarea Linear vinculada, créala con título, contexto y criterios de aceptación mínimos. Luego aplica `task-lifecycle`.
 2. Lee `AGENTS.md`, docs index, arquitectura, testing y contratos.
 3. Usa CodeGraph para flujo e impacto.
 4. Consulta Context7 para librerías públicas y Raia para common/shared cuando corresponda.

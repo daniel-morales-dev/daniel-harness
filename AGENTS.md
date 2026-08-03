@@ -37,6 +37,7 @@ Este repositorio define la base estable de Daniel Harness.
 ## Cambios
 
 - Prefiere el cambio mínimo correcto.
+- Registra decisiones de arquitectura y diseño como ADR en `docs/adr/` del proyecto activo (ver `policies/work-tracking.md`).
 - Mantén un writer por superficie compartida.
 - Ejecuta tests y lint enfocados.
 - Usa fixtures sintéticos; nunca pruebes con configuración real.

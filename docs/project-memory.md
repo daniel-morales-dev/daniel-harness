@@ -18,6 +18,11 @@ Daniel Harness está versionado en `daniel-morales-dev/daniel-harness`. La funda
 - CodeGraph primero para estructura; Engram para memoria.
 - Ponytail minimiza código; Caveman comprime comunicación, no artefactos.
 
+## Reglas de operación
+
+- **Alegra**: nunca empezar sin tarea Linear. Si no existe, crearla antes de implementar.
+- **ADR**: toda decisión de arquitectura o diseño se registra en `docs/adr/` del proyecto activo.
+
 ## Contextos
 
 | Contexto | Reglas clave |
