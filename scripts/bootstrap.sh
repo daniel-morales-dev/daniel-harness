@@ -131,21 +131,25 @@ parse_mcp_field() {
 # ---------------------------------------------------------------------------
 phase "Dependencias del sistema (sudo apt-get)"
 
-packages=$(parse_nested_list "system_packages" "required" | tr '\n' ' ')
-missing=""
-for pkg in $packages; do
-  dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
+mapfile -t packages < <(
+  parse_nested_list "system_packages" "required"
+)
+mapfile -t optional_packages < <(
+  parse_nested_list "system_packages" "optional"
+)
+
+missing=()
+for pkg in "${packages[@]}"; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+done
+for pkg in "${optional_packages[@]}"; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
 done
 
-optional_packages=$(parse_nested_list "system_packages" "optional" | tr '\n' ' ')
-for pkg in $optional_packages; do
-  dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
-done
-
-if [[ -n "$missing" ]]; then
-  info "Instalando:$missing"
+if (( ${#missing[@]} > 0 )); then
+  info "Instalando: ${missing[*]}"
   sudo_run apt-get update -qq
-  sudo_run apt-get install -y --no-install-recommends $missing
+  sudo_run apt-get install -y --no-install-recommends "${missing[@]}"
 else
   ok 'Todos los paquetes del sistema están instalados'
 fi
@@ -198,7 +202,11 @@ install_tool "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/
 install_tool "Gentle AI" "command -v gentle-ai" "curl -fsSL https://gentle-ai.dev/install.sh | sh"
 install_tool "Engram"    "command -v engram"    "curl -fsSL https://engram.sh/install.sh | sh"
 
-. "$NVM_DIR/nvm.sh"
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+  . "$NVM_DIR/nvm.sh"
+elif [[ $DRY_RUN == true ]]; then
+  info "[simulado] NVM estaría disponible después de la instalación. CodeGraph puede fallar sin Node."
+fi
 install_tool "CodeGraph" "command -v codegraph" "npm install -g @codegraph/cli"
 install_tool "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
 

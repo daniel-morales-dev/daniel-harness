@@ -51,9 +51,9 @@ mcp_status() {
     if [[ -z "$mcp_root" ]]; then
       printf '\nResumen: 0 servidores\n'
     else
-      total=$(jq "$mcp_root | length" "$OC_FILE" 2>/dev/null || echo 0)
-      remote=$(jq "[$mcp_root[] | select(.type==\"remote\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
-      local_count=$(jq "[$mcp_root[] | select(.type==\"local\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
+      total=$(jq "${mcp_root} | length" "$OC_FILE" 2>/dev/null || echo 0)
+      remote=$(jq "[${mcp_root}[] | select(.type == \"remote\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
+      local_count=$(jq "[${mcp_root}[] | select(.type == \"local\")] | length" "$OC_FILE" 2>/dev/null || echo 0)
       printf '\nResumen: %s servidores (%s local, %s remoto)\n' "$total" "$local_count" "$remote"
     fi
   fi
