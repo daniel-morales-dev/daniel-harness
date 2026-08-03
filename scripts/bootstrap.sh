@@ -302,18 +302,14 @@ ensure_opencode_config() {
       ok "opencode.json existe y es JSON válido"
       return 0
     else
-      warn "opencode.json existe pero no es JSON válido"
+      critical "opencode.json existe pero no es JSON válido"
+      critical "  Backup: cp \"$OC_FILE\" \"${OC_FILE}.bak.$(date +%s)\""
+      critical "  No se realizaron cambios. Corrige el JSON o elimina el archivo para regenerarlo."
+      return 1
     fi
   fi
 
   run mkdir -p "$config_dir"
-
-  local backup=""
-  if [[ -f "$OC_FILE" ]]; then
-    backup="${OC_FILE}.bak.$(date +%s)"
-    run cp "$OC_FILE" "$backup"
-    info "backup creado: $backup"
-  fi
 
   if [[ $DRY_RUN == true ]]; then
     OC_FILE=$(mktemp /tmp/opencode.json.XXXXXXXX)
@@ -400,9 +396,20 @@ if command -v gentle-ai >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 8: Servidores MCP (mediante opencode.json)
+# Fase 8: Servidores MCP (transaccional — candidato único + validación + backup)
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
+
+TMP_CANDIDATE=$(mktemp)
+cp "$OC_FILE" "$TMP_CANDIDATE"
+MCP_ADDED=0
+MCP_EXISTING=0
+
+_mcp_jq() {
+  local tmp_next
+  tmp_next=$(mktemp)
+  jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
+}
 
 while IFS= read -r name; do
   [[ -z "$name" ]] && continue
@@ -413,51 +420,68 @@ while IFS= read -r name; do
   type=$(parse_mcp_field "$name" "type")
   cmd=$(parse_mcp_field "$name" "command")
 
-  exists=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
+  exists=$(jq --arg n "$name" '.mcp // {} | has($n)' "$TMP_CANDIDATE" 2>/dev/null || false)
   if [[ $exists == true ]]; then
-    ok "MCP $name ya configurado en opencode.json"
+    ok "MCP $name ya configurado"
+    MCP_EXISTING=$((MCP_EXISTING + 1))
     continue
   fi
 
-  info "Agregando MCP $name a opencode.json..."
+  info "Agregando MCP $name..."
   if [[ $DRY_RUN == true ]]; then
     info "[simulado] jq injectaría MCP $name"
-  else
-    TMP=$(mktemp)
-    if [[ $type == local && -n "$cmd" ]]; then
-      if echo "$cmd" | jq -e '. | type == "array"' >/dev/null 2>&1; then
-        cmd_array=$cmd
+    MCP_ADDED=$((MCP_ADDED + 1))
+    continue
+  fi
+
+  if [[ $type == local && -n "$cmd" ]]; then
+    if echo "$cmd" | jq -e '. | type == "array"' >/dev/null 2>&1; then
+      cmd_array=$cmd
+    else
+      cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
+    fi
+    _mcp_jq --arg n "$name" --argjson cmd "$cmd_array" \
+      '.mcp[$n] = {type: "local", command: $cmd, enabled: true}'
+  elif [[ $type == remote ]]; then
+    url=$(parse_mcp_field "$name" "url")
+    if [[ -n "$url" ]]; then
+      headers_json=$(parse_mcp_headers_json "$name")
+      if [[ "$headers_json" != "{}" ]]; then
+        _mcp_jq --arg n "$name" --arg u "$url" --argjson h "$headers_json" \
+          '.mcp[$n] = {type: "remote", url: $u, enabled: true, headers: $h}'
       else
-        cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
-      fi
-      jq --arg n "$name" --argjson cmd "$cmd_array" \
-        '.mcp[$n] = {type: "local", command: $cmd, enabled: true}' \
-        "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-    elif [[ $type == remote ]]; then
-      url=$(parse_mcp_field "$name" "url")
-      if [[ -n "$url" ]]; then
-        headers_json=$(parse_mcp_headers_json "$name")
-        if [[ "$headers_json" != "{}" ]]; then
-          jq --arg n "$name" --arg u "$url" --argjson h "$headers_json" \
-            '.mcp[$n] = {type: "remote", url: $u, enabled: true, headers: $h}' \
-            "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-        else
-          jq --arg n "$name" --arg u "$url" \
-            '.mcp[$n] = {type: "remote", url: $u, enabled: true}' \
-            "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-        fi
-      else
-        skip "MCP remoto $name: sin URL. Configúralo manualmente en opencode.json"
-        continue
+        _mcp_jq --arg n "$name" --arg u "$url" \
+          '.mcp[$n] = {type: "remote", url: $u, enabled: true}'
       fi
     else
-      skip "MCP $name: tipo desconocido '$type'. Configúralo manualmente"
+      skip "MCP remoto $name: sin URL. Configúralo manualmente en opencode.json"
       continue
     fi
-    chmod 600 "$OC_FILE"
-    ok "MCP $name registrado"
+  else
+    skip "MCP $name: tipo desconocido '$type'. Configúralo manualmente"
+    continue
   fi
+  ok "MCP $name registrado en candidato"
+  MCP_ADDED=$((MCP_ADDED + 1))
 done < <(parse_mcp_names)
+
+if [[ $DRY_RUN == false && $MCP_ADDED -gt 0 ]]; then
+  if jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
+    BACKUP="${OC_FILE}.bak.$(date +%s)"
+    cp "$OC_FILE" "$BACKUP"
+    chmod 600 "$BACKUP"
+    mv "$TMP_CANDIDATE" "$OC_FILE"
+    chmod 600 "$OC_FILE"
+    ok "Configuración aplicada transaccionalmente (${MCP_ADDED} nuevos, ${MCP_EXISTING} existentes)"
+    info "Backup: $BACKUP"
+  else
+    critical "Candidato JSON inválido — cambios NO aplicados"
+    rm -f "$TMP_CANDIDATE"
+  fi
+elif [[ $DRY_RUN == false && $MCP_ADDED -eq 0 ]]; then
+  rm -f "$TMP_CANDIDATE"
+  ok "No hay MCPs nuevos que agregar"
+fi
 
 info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"
 
