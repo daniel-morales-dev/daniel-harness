@@ -222,6 +222,93 @@ def test_uninstall_removes_global_link():
     assert "global/AGENTS.md" in content
 
 
+def test_bash_syntax():
+    """Verify all shell scripts pass bash -n (no syntax errors)."""
+    scripts = [
+        ROOT_DIR / "bin" / "dh",
+        ROOT_DIR / "scripts" / "bootstrap.sh",
+        ROOT_DIR / "scripts" / "install.sh",
+        ROOT_DIR / "scripts" / "uninstall.sh",
+        ROOT_DIR / "scripts" / "doctor.sh",
+        ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "install",
+    ]
+    failures = []
+    for script in scripts:
+        if not script.exists():
+            print(f"  [-] {script.name} no existe, saltando")
+            continue
+        result = subprocess.run(
+            ["bash", "-n", str(script)],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            failures.append(f"{script.name}:\n{result.stderr}")
+        else:
+            print(f"  [ok] bash -n: {script.name}")
+    assert not failures, "Errores de sintaxis bash:\n" + "\n".join(failures)
+
+
+def test_sc2168_local_outside_function():
+    """Verify 'local' is never used outside function scope (SC2168).
+
+    Uses function-brace tracking: function definitions end with '() {'
+    at any indentation, and function-closing '}' only at column 0
+    (reliable delimiter in harness-style bash scripts).
+    """
+    import re
+    scripts = [
+        ROOT_DIR / "bin" / "dh",
+        ROOT_DIR / "scripts" / "bootstrap.sh",
+        ROOT_DIR / "scripts" / "install.sh",
+        ROOT_DIR / "scripts" / "uninstall.sh",
+        ROOT_DIR / "scripts" / "doctor.sh",
+        ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "install",
+    ]
+    for script in scripts:
+        if not script.exists():
+            continue
+        # Build list of function body line ranges using column-0 signals
+        lines = script.read_text().splitlines()
+        func_starts = []  # (start_line, name)
+        func_ends = set()
+        for lineno, line in enumerate(lines, 1):
+            m = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)\s*{', line)
+            if m:
+                func_starts.append((lineno, m.group(1)))
+            # } at column 0 closes the innermost open function
+            if line.strip() == "}" and line == line.rstrip() and func_starts:
+                # Only if line IS all at column 0 (no leading whitespace)
+                if not line.startswith(" "):
+                    start_line, name = func_starts.pop()
+                    func_ends.add(start_line)
+                    func_ends.add(lineno)
+
+        # Now check every 'local' usage
+        in_function = False
+        function_end = -1
+        func_idx = 0
+        # Rebuild sorted range list from paired func_starts/func_ends
+        collected = sorted(func_ends)
+        ranges = []
+        for i in range(0, len(collected), 2):
+            if i + 1 < len(collected):
+                ranges.append((collected[i], collected[i + 1]))
+
+        for lineno, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not stripped.startswith("local "):
+                continue
+            inside = any(start <= lineno <= end for start, end in ranges)
+            if not inside:
+                assert False, (
+                    f"{script.name}:{lineno}: 'local' usado fuera de función "
+                    f"(SC2168). Usa una variable global sin 'local' o mueve "
+                    f"el código a una función.\n  > {stripped}"
+                )
+
+
 def test_shellcheck():
     """Run ShellCheck on all shell scripts if available."""
     import shutil
@@ -237,6 +324,7 @@ def test_shellcheck():
         ROOT_DIR / "scripts" / "uninstall.sh",
         ROOT_DIR / "scripts" / "doctor.sh",
         ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "install",
     ]
     for script in scripts:
         if not script.exists():
@@ -345,6 +433,12 @@ if __name__ == "__main__":
 
     test_uninstall_removes_global_link()
     print("[ok] uninstall.sh elimina enlace global")
+
+    test_bash_syntax()
+    print("[ok] bash -n: todos los scripts")
+
+    test_sc2168_local_outside_function()
+    print("[ok] SC2168: sin local fuera de función")
 
     test_shellcheck()
     print("[ok] ShellCheck")
