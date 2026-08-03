@@ -1,0 +1,42 @@
+version: "1"
+
+families:
+  - id: alegra-bills
+    contexts: [alegra-monolith, alegra-microservice]
+    projects:
+      - id: alegra-app
+        path: /ABSOLUTE/PATH/TO/alegra-app
+        context: alegra-monolith
+        rules: [AGENTS.md, CLAUDE.md]
+        git:
+          askBeforeBranch: true
+          commit: ask
+          push: ask
+          deploy: ask
+      - id: api-alegra-bills-backend
+        path: /ABSOLUTE/PATH/TO/api-alegra-bills-backend
+        context: alegra-microservice
+        rules: [AGENTS.md, docs/README.md, docs/testing/testing-philosophy.md]
+        git:
+          askBeforeBranch: true
+          commit: ask
+          push: ask
+          deploy: ask
+  - id: k-agencia
+    contexts: [freelance]
+    projects:
+      - id: k-agencia-placeholder
+        path: /ABSOLUTE/PATH/TO/K-AGENCIA-PROJECT
+        context: freelance
+        rules: [AGENTS.md, README.md]
+        git:
+          askBeforeBranch: true
+          commit: ask
+          push: ask
+          deploy: project-policy
+
+relationships:
+  - from: alegra-app
+    to: api-alegra-bills-backend
+    type: migration
+    defaultAccess: read-write

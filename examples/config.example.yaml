@@ -1,0 +1,48 @@
+version: "1"
+defaultScope: single-repo
+
+workflows:
+  trivial: direct
+  small: plan-build
+  medium: plan-build-agents
+  large: gentle-ai-sdd
+  critical: gentle-ai-sdd-reviewed
+
+models:
+  - id: trusted-primary-placeholder
+    trust: trusted
+    allowArbitraryShell: true
+    allowedCapabilities:
+      - repository-read
+      - repository-write
+      - approved-shell
+      - closed-data-tools
+  - id: restricted-free-placeholder
+    trust: restricted
+    allowArbitraryShell: false
+    allowedCapabilities:
+      - repository-read-sanitized
+      - closed-data-tools
+
+mcpRouting:
+  - capability: code-structure
+    server: codegraph
+    expectedState: enabled
+  - capability: public-library-docs
+    server: context7
+    expectedState: enabled
+  - capability: persistent-memory
+    server: engram
+    expectedState: enabled
+  - capability: internal-shared-library-docs
+    server: mcp-raia-lib
+    expectedState: disabled
+  - capability: test-platform
+    server: alegra-test
+    expectedState: discover
+
+confirmations:
+  branchCreation: always
+  productionMutation: always
+  dynamodbWrite: exact-operation
+  mongodbWrite: always

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://daniel-harness.local/schemas/config.schema.json",
+  "title": "Daniel Harness Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "defaultScope", "workflows", "models", "mcpRouting", "confirmations"],
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "defaultScope": {
+      "$ref": "#/$defs/taskScope"
+    },
+    "workflows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trivial", "small", "medium", "large", "critical"],
+      "properties": {
+        "trivial": { "const": "direct" },
+        "small": { "const": "plan-build" },
+        "medium": { "const": "plan-build-agents" },
+        "large": { "const": "gentle-ai-sdd" },
+        "critical": { "const": "gentle-ai-sdd-reviewed" }
+      }
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/modelPolicy" }
+    },
+    "mcpRouting": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mcpRoute" }
+    },
+    "confirmations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branchCreation", "productionMutation", "dynamodbWrite", "mongodbWrite"],
+      "properties": {
+        "branchCreation": { "const": "always" },
+        "productionMutation": { "const": "always" },
+        "dynamodbWrite": { "const": "exact-operation" },
+        "mongodbWrite": { "enum": ["always", "deny"] }
+      }
+    }
+  },
+  "$defs": {
+    "taskScope": {
+      "enum": ["single-repo", "related-repos", "multi-project"]
+    },
+    "modelPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "trust", "allowArbitraryShell", "allowedCapabilities"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "trust": { "enum": ["trusted", "restricted"] },
+        "allowArbitraryShell": { "type": "boolean" },
+        "allowedCapabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "trust": { "const": "restricted" } },
+            "required": ["trust"]
+          },
+          "then": {
+            "properties": { "allowArbitraryShell": { "const": false } }
+          }
+        }
+      ]
+    },
+    "mcpRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "server", "expectedState"],
+      "properties": {
+        "capability": { "type": "string", "minLength": 1 },
+        "server": { "type": "string", "minLength": 1 },
+        "expectedState": { "enum": ["enabled", "disabled", "authentication-required", "discover"] }
+      }
+    }
+  }
+}

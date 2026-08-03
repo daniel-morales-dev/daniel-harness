@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://daniel-harness.local/schemas/connections.schema.json",
+  "title": "Daniel Harness Connection Profiles",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "profiles"],
+  "properties": {
+    "version": { "const": "1" },
+    "profiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/profile" }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "context", "type", "environment", "credentialsRef", "readOnly"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "context": { "enum": ["alegra-monolith", "alegra-microservice", "freelance"] },
+        "type": { "enum": ["mysql", "mariadb", "mongodb", "dynamodb", "object-storage"] },
+        "environment": { "enum": ["local", "testing", "production", "freelance"] },
+        "host": { "type": "string", "minLength": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "region": { "type": "string", "minLength": 1 },
+        "readOnly": { "type": "boolean" },
+        "credentialsRef": {
+          "type": "string",
+          "pattern": "^(secrets/|aws-profile://|env://|keychain://)",
+          "description": "Reference only; never an inline credential."
+        },
+        "writeConfirmation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "enum": ["deny", "exact-operation"] },
+            "requiredFields": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": ["operation", "profile", "region", "resource", "keys", "fields", "condition"]
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "enum": ["mysql", "mariadb"] } }, "required": ["type"] },
+          "then": { "properties": { "readOnly": { "const": true } }, "required": ["host", "port"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "dynamodb" } }, "required": ["type"] },
+          "then": {
+            "required": ["region", "writeConfirmation"],
+            "properties": {
+              "writeConfirmation": {
+                "required": ["requiredFields"],
+                "properties": {
+                  "mode": { "const": "exact-operation" },
+                  "requiredFields": {
+                    "type": "array",
+                    "minItems": 7,
+                    "maxItems": 7,
+                    "uniqueItems": true,
+                    "allOf": [
+                      { "contains": { "const": "operation" } },
+                      { "contains": { "const": "profile" } },
+                      { "contains": { "const": "region" } },
+                      { "contains": { "const": "resource" } },
+                      { "contains": { "const": "keys" } },
+                      { "contains": { "const": "fields" } },
+                      { "contains": { "const": "condition" } }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

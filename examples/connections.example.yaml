@@ -1,0 +1,62 @@
+version: "1"
+
+profiles:
+  - id: hopper
+    context: alegra-monolith
+    type: mariadb
+    environment: testing
+    host: 127.0.0.1
+    port: 60001
+    readOnly: true
+    credentialsRef: secrets/mysql/hopper.cnf
+    writeConfirmation:
+      mode: deny
+  - id: production
+    context: alegra-monolith
+    type: mariadb
+    environment: production
+    host: 127.0.0.1
+    port: 55000
+    readOnly: true
+    credentialsRef: secrets/mysql/production.cnf
+    writeConfirmation:
+      mode: deny
+  - id: k-agencia-mysql
+    context: freelance
+    type: mysql
+    environment: freelance
+    host: 127.0.0.1
+    port: 3306
+    readOnly: true
+    credentialsRef: secrets/mysql/k-agencia.cnf
+    writeConfirmation:
+      mode: deny
+  - id: k-agencia-mongodb
+    context: freelance
+    type: mongodb
+    environment: freelance
+    host: 127.0.0.1
+    port: 27017
+    readOnly: true
+    credentialsRef: secrets/mongodb/k-agencia.env
+    writeConfirmation:
+      mode: exact-operation
+      requiredFields: [operation, profile, resource, keys, fields, condition]
+  - id: k-agencia-garage
+    context: freelance
+    type: object-storage
+    environment: freelance
+    host: 127.0.0.1
+    port: 3900
+    readOnly: true
+    credentialsRef: secrets/tokens/k-agencia-garage.env
+  - id: alegra-dynamodb-placeholder
+    context: alegra-microservice
+    type: dynamodb
+    environment: testing
+    region: us-east-1
+    readOnly: false
+    credentialsRef: aws-profile://REPLACE_WITH_PROFILE
+    writeConfirmation:
+      mode: exact-operation
+      requiredFields: [operation, profile, region, resource, keys, fields, condition]

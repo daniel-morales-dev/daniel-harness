@@ -1,0 +1,42 @@
+# Local agent state
+.atl/
+.codegraph/
+
+# Local harness configuration and secrets
+config.yaml
+connections.yaml
+project-registry.yaml
+secrets/
+credentials/
+*.credentials.*
+
+# Environment and key material
+.env*
+!.env.example
+!.env.*.example
+*.cnf
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Data and diagnostic output
+*.sql
+*.sql.gz
+*.bson
+*.dump
+query-results/
+results/
+*.log
+
+# Runtime and build output
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+tmp/
+*.tmp
+
+# Redacted local exports
+opencode.redacted.json
