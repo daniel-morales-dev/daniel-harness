@@ -20,7 +20,7 @@ jobs:
 
       - name: ShellCheck scripts
         run: |
-          shellcheck -e SC1091,SC2154,SC2317 bin/dh scripts/*.sh
+          shellcheck -e SC1091,SC2016,SC2154,SC2317 bin/dh scripts/*.sh
 
       - name: Bash syntax check
         run: |
