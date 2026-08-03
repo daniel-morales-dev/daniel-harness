@@ -131,6 +131,29 @@ parse_mcp_field() {
   ' "$MANIFEST"
 }
 
+parse_mcp_list_json() {
+  local name=$1 field=$2
+  awk -v n="$name" -v f="$field" '
+    /^mcp_servers:/{in_mcp=1; next}
+    in_mcp {
+      if ($0 ~ "^  " n ":" && !found) { found=1; next }
+      if (found && $0 ~ "^    " f ":") { in_list=1; next }
+      if (in_list && /^      - /) {
+        gsub(/^      - /, "")
+        gsub(/^["\x27]/,""); gsub(/["\x27]$/,"")
+        if (first) printf ","
+        printf "\"%s\"", $0
+        first=1
+        next
+      }
+      if (in_list && !/^        / && !/^      - /) { in_list=0 }
+      if (found && $0 ~ /^  [a-z]/ && !in_list) { found=0 }
+    }
+    BEGIN { printf "[" }
+    END { printf "]" }
+  ' "$MANIFEST"
+}
+
 parse_mcp_headers_json() {
   local name=$1
   awk -v n="$name" '
@@ -454,9 +477,16 @@ while IFS= read -r name; do
     url=$(parse_mcp_field "$name" "url")
     if [[ -n "$url" ]]; then
       headers_json=$(parse_mcp_headers_json "$name")
-      if [[ "$headers_json" != "{}" ]]; then
+      tools_json=$(parse_mcp_list_json "$name" "disabled_tools")
+      if [[ "$headers_json" != "{}" && "$tools_json" != "[]" ]]; then
+        _mcp_jq --arg n "$name" --arg u "$url" --argjson h "$headers_json" --argjson dt "$tools_json" \
+          '.mcp[$n] = {type: "remote", url: $u, enabled: true, headers: $h, disabledTools: $dt}'
+      elif [[ "$headers_json" != "{}" ]]; then
         _mcp_jq --arg n "$name" --arg u "$url" --argjson h "$headers_json" \
           '.mcp[$n] = {type: "remote", url: $u, enabled: true, headers: $h}'
+      elif [[ "$tools_json" != "[]" ]]; then
+        _mcp_jq --arg n "$name" --arg u "$url" --argjson dt "$tools_json" \
+          '.mcp[$n] = {type: "remote", url: $u, enabled: true, disabledTools: $dt}'
       else
         _mcp_jq --arg n "$name" --arg u "$url" \
           '.mcp[$n] = {type: "remote", url: $u, enabled: true}'
