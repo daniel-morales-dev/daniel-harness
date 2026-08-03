@@ -131,4 +131,4 @@ incompatible:
 
 plugins:
   ponytail:
-    package: "@dietrichgebert/ponytail@latest"
+    package: "@dietrichgebert/ponytail@4.8.4"
