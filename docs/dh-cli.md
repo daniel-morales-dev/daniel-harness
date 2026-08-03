@@ -6,15 +6,48 @@
 
 ### dh doctor
 
-Ejecuta el diagnóstico completo del harness: herramientas, configuración, MCPs, túneles y repositorio.
+Ejecuta el diagnóstico completo del harness: herramientas, configuración, MCPs, túneles, agentes y repositorio.
+Detecta agentes con `bash: allow` bajo modelos `restricted`.
 
 ```bash
 dh doctor
 ```
 
+### dh root
+
+Imprime la ruta absoluta del directorio del harness.
+
+```bash
+dh root
+# /home/user/.config/daniel-harness
+```
+
+### dh preflight
+
+Devuelve contexto completo del proyecto como JSON: proyecto, contexto, familia, scope, policies,
+harnessRoot y estado de issue.
+
+```bash
+dh preflight
+```
+
+Salida (ejemplo):
+```json
+{
+  "project": "api-alegra-bills-backend",
+  "context": "alegra-microservice",
+  "family": "alegra-bills",
+  "scope": "single-repo",
+  "policies": ["data-access.md", "git.md", "work-tracking.md"],
+  "issue": null
+}
+```
+
+Es la fuente única de contexto para `global/AGENTS.md`.
+
 ### dh install
 
-Crea o actualiza la configuración local y los symlinks de agentes, skills y comandos en OpenCode.
+Crea o actualiza la configuración local y los symlinks de agentes, skills, comandos y policies en OpenCode.
 
 ```bash
 dh install
@@ -38,7 +71,7 @@ Muestra el estado de conexión y autenticación OAuth de todos los servidores MC
 dh mcp-status
 ```
 
-Salida: lista de servidores con estado (connected, failed, disabled), tipo (local/remote) y autenticación OAuth (authenticated, expired, not authenticated), más un resumen numérico.
+Salida: lista de servidores con tipo (local/remote), habilitado y estado (disponible, no-probado, comando-no-encontrado).
 
 ### dh tunnel list
 
@@ -69,6 +102,23 @@ Contextos detectables (por heurística de lenguaje):
 Los contextos `alegra-monolith` y `alegra-microservice` solo se asignan desde
 `project-registry.yaml`. La heurística NUNCA asigna Alegra por lenguaje.
 
+### dh verify
+
+Valida el proyecto actual según su contexto:
+
+| Contexto | Verificación |
+|---|---|
+| `generic-php` | `php -l` en archivos modificados |
+| `alegra-microservice` / `generic-typescript` | `tsc --noEmit` + `npm test` |
+| `generic-node` | `npm test` |
+| `generic-go` | `go vet ./...` |
+| `freelance` | Remite a README del proyecto |
+| `generic` | ShellCheck + `bash -n` + tests del harness |
+
+```bash
+dh verify
+```
+
 ### dh update
 
 Actualiza el harness desde Git. Hace `git pull --ff-only` y avisa si cambiaron el manifest, `install.sh` o `bootstrap.sh` para sugerir re-ejecutarlos.
@@ -79,18 +129,36 @@ dh update
 
 ### dh project init
 
-Asistente interactivo para registrar un nuevo proyecto en `project-registry.yaml`. Pide nombre, ruta absoluta, contexto y repositorio opcional. Valida que la ruta exista y que el contexto sea válido.
+Asistente interactivo para registrar un nuevo proyecto en `project-registry.yaml`.
+Pide nombre, ruta absoluta, contexto y familia. Valida contra el schema.
+El campo `repository` no está incluido (no declarado en schema).
 
 ```bash
 dh project init
 ```
 
-### dh session \<issue\>
+### dh session scaffold \<issue\>
 
-Crea un brief de sesión a partir de un ID de tarea Linear. Genera un archivo markdown en `~/.config/daniel-harness/sessions/<issue>.md` con la tarea, el contexto detectado, objetivos, criterios de aceptación y archivos afectados como plantilla.
+Crea una plantilla de brief de sesión. No requiere API. Genera un archivo markdown
+en `~/.config/daniel-harness/sessions/<issue>.md` con la tarea, contexto, objetivos
+y criterios de aceptación.
 
 ```bash
-dh session ENG-123
+dh session scaffold ENG-123
+```
+
+### dh session read \<issue\>
+
+Lee un issue desde Linear API (GraphQL). Requiere token configurado:
+
+- Variable de entorno `LINEAR_API_KEY`
+- O archivo `~/.config/daniel-harness/secrets/tokens/linear.token`
+
+El brief incluye título, descripción, estado, asignado, contexto y subtareas.
+Si no hay token, fallback automático a scaffold.
+
+```bash
+dh session read ENG-123
 ```
 
 ### dh engram-service
