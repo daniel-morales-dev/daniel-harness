@@ -24,9 +24,11 @@ bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run >"$OUTPUT" 2>&1 || {
 }
 grep -F 'Bootstrap completado' "$OUTPUT" >/dev/null
 
-# Verificar MCPs: listados O config ausente (CI limpio sin opencode.json)
-grep -q 'MCP codegraph\|se configurarán cuando exista' "$OUTPUT"
-grep -iq 'remotos sin URL\|se configurarán cuando exista' "$OUTPUT"
+# Verificar MCPs del perfil core se procesan
+grep -q 'MCP codegraph' "$OUTPUT"
+grep -q 'MCP engram' "$OUTPUT"
+# Verificar perfil filtra MCPs no incluidos
+grep -q 'no incluido en perfil core' "$OUTPUT"
 
 # Verificar que no hay errores de parseo (ignorar líneas con info/skip)
 if grep -i 'error' "$OUTPUT" | grep -v 'simulado' | grep -v 'incompatible' >/dev/null; then

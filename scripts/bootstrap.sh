@@ -279,7 +279,7 @@ ensure_opencode_config() {
     fi
   fi
 
-  mkdir -p "$config_dir"
+  run mkdir -p "$config_dir"
 
   local backup=""
   if [[ -f "$OC_FILE" ]]; then
@@ -288,24 +288,26 @@ ensure_opencode_config() {
     info "backup creado: $backup"
   fi
 
-  local tmp
-  tmp=$(mktemp "$(dirname "$OC_FILE")/opencode.json.XXXXXXXX")
-  printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "plugin": [],\n  "mcp": {}\n}\n' > "$tmp"
+  if [[ $DRY_RUN == true ]]; then
+    OC_FILE=$(mktemp /tmp/opencode.json.XXXXXXXX)
+  else
+    local tmp
+    tmp=$(mktemp "$config_dir/opencode.json.XXXXXXXX")
+    printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "plugin": [],\n  "mcp": {}\n}\n' > "$tmp"
 
-  if ! jq empty "$tmp" >/dev/null 2>&1; then
-    critical "JSON generado no es válido"
-    rm -f "$tmp"
-    return 1
+    if ! jq empty "$tmp" >/dev/null 2>&1; then
+      critical "JSON generado no es válido"
+      rm -f "$tmp"
+      return 1
+    fi
+
+    mv "$tmp" "$OC_FILE"
+    chmod 600 "$OC_FILE"
   fi
-
-  run mv "$tmp" "$OC_FILE"
-  run chmod 600 "$OC_FILE"
   ok "opencode.json creado en $OC_FILE"
 }
 
-if [[ $DRY_RUN == false ]]; then
-  ensure_opencode_config
-fi
+ensure_opencode_config
 
 # ---------------------------------------------------------------------------
 # Fase 5: Docker
