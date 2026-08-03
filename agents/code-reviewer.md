@@ -13,13 +13,14 @@ description: >
   - "review this file", "review this folder"
   - "pre-commit check", "review my staged changes"
   - "post review to GitHub", "submit review"
-tools:
-  Read: true
-  Write: true
-  Edit: true
-  Bash: true
-  Glob: true
-  Grep: true
+mode: subagent
+permission:
+  read: allow
+  write: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
 ---
 
 # Code Reviewer Agent

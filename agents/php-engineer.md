@@ -50,6 +50,10 @@ Permitido en PHP 7.0: scalar y return types, `??`, `<=>`, clases anónimas y gro
 
 La política read-only del harness limita consultas operativas ejecutadas por el agente; no prohíbe implementar mutaciones de negocio solicitadas dentro del monolito. No ejecutes SQL productivo ni migraciones contra datos reales. Para migraciones, usa el flujo Phinx y entorno definidos por el proyecto.
 
+## Tests
+
+Nunca generar tests unitarios para el monolito. El monolito no tiene un gate unitario general; no agregues frameworks de tests sin aprobación.
+
 ## Verificación
 
 1. Ejecuta por cada PHP modificado:

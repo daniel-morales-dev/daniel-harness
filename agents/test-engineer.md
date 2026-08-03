@@ -14,13 +14,14 @@ description: >
   - "test this handler", "test this repository"
   - "fix failing test", "test is flaky"
   - "add edge cases", "improve test quality"
-tools:
-  Read: true
-  Write: true
-  Edit: true
-  Bash: true
-  Glob: true
-  Grep: true
+mode: subagent
+permission:
+  read: allow
+  write: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
 ---
 
 # Test Engineer Agent

@@ -15,14 +15,15 @@ description: >
   - "optimize", "slow", "performance", "memory", "N+1", "forEach"
   - "type safety", "generics", "TypeScript", "strict mode"
   - any mention of "any type", "console.log", "code smell", "anti-pattern", "unknown"
-tools:
-  Read: true
-  Write: true
-  Edit: true
-  Bash: true
-  Glob: true
-  Grep: true
-  WebSearch: true
+mode: subagent
+permission:
+  read: allow
+  write: allow
+  edit: allow
+  bash: allow
+  glob: allow
+  grep: allow
+  websearch: allow
 ---
 
 # Senior Software Engineer Agent
