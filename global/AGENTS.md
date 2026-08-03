@@ -36,5 +36,7 @@ Aplica a TODAS las sesiones de OpenCode, independientemente del proyecto activo.
 
 - `bin/dh`: CLI unificada. Ver `dh help` para comandos.
 - Las políticas de proyecto activo están en `~/.config/daniel-harness/policies/`.
-- Si hay tarea Linear, ejecuta `dh session scaffold <issue>` para crear una plantilla de brief.
+- Si hay tarea Linear, ejecuta `dh session read <issue>` para crear una plantilla de brief.
+  El agente debe usar `linear_get_issue` (Linear MCP) para poblarla con título,
+  descripción, estado, asignado, subtareas y comentarios.
 - `dh preflight` es la fuente única de contexto del proyecto.

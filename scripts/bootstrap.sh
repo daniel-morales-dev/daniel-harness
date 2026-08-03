@@ -316,8 +316,18 @@ else
         jq --arg n "$name" --argjson cmd "$cmd_array" \
           '.mcp[$n] = {type: "local", command: $cmd, enabled: true}' \
           "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+      elif [[ $type == remote ]]; then
+        url=$(parse_mcp_field "$name" "url")
+        if [[ -n "$url" ]]; then
+          jq --arg n "$name" --arg u "$url" \
+            '.mcp[$n] = {type: "remote", url: $u, enabled: true}' \
+            "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+        else
+          skip "MCP remoto $name: sin URL. Configúralo manualmente en opencode.json"
+          continue
+        fi
       else
-        skip "MCP remoto $name: bootstrap no configura servidores remotos. Configúralo manualmente en opencode.json"
+        skip "MCP $name: tipo desconocido '$type'. Configúralo manualmente"
         continue
       fi
       chmod 600 "$OC_FILE"
@@ -325,7 +335,7 @@ else
     fi
   done < <(parse_mcp_names)
 
-  info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin URL (configurar manualmente)"
+  info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"
 fi
 
 # ---------------------------------------------------------------------------

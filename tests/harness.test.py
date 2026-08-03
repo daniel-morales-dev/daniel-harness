@@ -77,9 +77,10 @@ def test_bootstrap_generates_local_mcp_with_type():
 
 
 def test_bootstrap_skips_remote_mcp():
-    """Verify bootstrap.sh does not create incomplete remote MCP entries."""
+    """Verify bootstrap.sh skips remote MCPs without url and configures those with url."""
     bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()
-    assert "remotos sin URL" in bootstrap or "no configura servidores remotos" in bootstrap
+    assert "remotos sin url" in bootstrap
+    assert 'type: "remote"' in bootstrap or 'type: remote' in bootstrap
 
 
 def test_bootstrap_nvm_uses_direct_curl():

@@ -79,6 +79,7 @@ mcp_servers:
     oauth_required: true
   linear:
     type: remote
+    url: https://mcp.linear.app/mcp
     oauth_required: true
   sentry:
     type: remote

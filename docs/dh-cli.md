@@ -149,13 +149,8 @@ dh session scaffold ENG-123
 
 ### dh session read \<issue\>
 
-Lee un issue desde Linear API (GraphQL). Requiere token configurado:
-
-- Variable de entorno `LINEAR_API_KEY`
-- O archivo `~/.config/daniel-harness/secrets/tokens/linear.token`
-
-El brief incluye título, descripción, estado, asignado, contexto y subtareas.
-Si no hay token, fallback automático a scaffold.
+Crea una plantilla de brief e instruye al agente a poblar los datos del issue
+usando Linear MCP (`linear_get_issue`). No requiere token local.
 
 ```bash
 dh session read ENG-123
