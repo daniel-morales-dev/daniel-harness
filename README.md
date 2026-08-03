@@ -7,12 +7,19 @@ El código y los contratos viven en este repositorio. La configuración local y 
 ## Ruta rápida
 
 ```bash
-./scripts/install.sh
-./scripts/doctor.sh
+./scripts/bootstrap.sh           # instala todo lo necesario
+./scripts/bootstrap.sh --dry-run # solo muestra qué haría
+```
+
+O por pasos si ya tienes lo básico:
+
+```bash
+./scripts/install.sh             # configuración local + symlinks
+./scripts/doctor.sh              # diagnóstico
 gentle-ai skill-registry refresh --force
 ```
 
-Reinicia OpenCode después de instalar agentes o skills.
+Reinicia OpenCode después de instalar agentes, skills o plugins.
 
 ## Reparto de autoridad
 

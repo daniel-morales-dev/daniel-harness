@@ -1,0 +1,90 @@
+version: "1"
+platform: ubuntu-24.04
+
+system_packages:
+  required:
+    - git
+    - curl
+    - jq
+    - python3
+    - python3-pip
+    - ca-certificates
+    - gnupg
+  optional:
+    - mariadb-client
+    - unzip
+
+user_tools:
+  nvm:
+    type: version
+    version: "0.40.4"
+    check: '[ -s "$NVM_DIR/nvm.sh" ]'
+    install: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+  node:
+    type: version
+    version: "24"
+    check: '. "$NVM_DIR/nvm.sh" && node --version 2>/dev/null | head -1 | grep -q "^v24"'
+    install: . "$NVM_DIR/nvm.sh" && nvm install 24 && nvm alias default 24
+    depends: nvm
+  opencode:
+    type: binary
+    check: command -v opencode
+    install: curl -fsSL https://opencode.ai/install.sh | sh
+  gentle-ai:
+    type: binary
+    check: command -v gentle-ai
+    install: curl -fsSL https://gentle-ai.dev/install.sh | sh
+  engram:
+    type: binary
+    check: command -v engram
+    install: curl -fsSL https://engram.sh/install.sh | sh
+  codegraph:
+    type: binary
+    check: command -v codegraph
+    install: npm install -g @codegraph/cli
+    depends: node
+  rtk:
+    type: binary
+    check: command -v rtk
+    install: curl -fsSL https://rtk.dev/install.sh | sh
+  gh:
+    type: system_package
+    package: gh
+  aws:
+    type: binary
+    check: command -v aws
+    install: 'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip'
+    depends: unzip
+  docker:
+    type: skip_by_default
+    check: command -v docker
+    install: curl -fsSL https://get.docker.com | sh
+
+mcp_servers:
+  codegraph:
+    command: codegraph serve --mcp
+    type: local
+  engram:
+    command: engram mcp --tools=agent
+    type: local
+  context7:
+    type: remote
+  github:
+    type: remote
+    oauth_required: true
+  linear:
+    type: remote
+    oauth_required: true
+  sentry:
+    type: remote
+    oauth_required: true
+  wiki-alegra:
+    type: remote
+    oauth_required: true
+
+incompatible:
+  alegra-test: "Solo funciona en Claude Code y ChatGPT; no en OpenCode"
+
+plugins:
+  ponytail:
+    package: "@dietrichgebert/ponytail@latest"

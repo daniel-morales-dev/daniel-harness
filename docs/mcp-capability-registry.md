@@ -11,7 +11,7 @@ El registro se descubre por capacidad. Esta tabla es inventario inicial, no sour
 | `linear` | Connected | Tareas, comentarios, jerarquía y estados. |
 | `wiki-alegra` | Connected | Documentación interna. |
 | `sentry` | Requiere autenticación | Diagnóstico de errores. |
-| `alegra-test` | Por descubrir | No asignar responsabilidades hasta listar tools. |
+| `alegra-test` | Incompatible con OpenCode | Funciona solo en Claude Code y ChatGPT. No incluir en bootstrap ni en la configuración de OpenCode. |
 | `mcp-raia-lib` | Disabled | `docs.search`, `docs.overview` y librerías shared de Expenses. |
 
 Conserva solo nombre, enabled, tipo local/remote, tools/resources anunciados, salud y fecha de discovery. Nunca persistas headers, env, URLs privadas completas o tokens.

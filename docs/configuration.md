@@ -2,7 +2,15 @@
 
 La configuración versionada contiene schemas y placeholders. Los valores reales viven en `~/.config/daniel-harness/`.
 
-## Ruta rápida
+## Instalación completa
+
+```bash
+./scripts/bootstrap.sh
+```
+
+Instala o actualiza todas las herramientas, plugins y configuración. Usa `--dry-run` para previsualizar y `--skip-docker` si no necesitas Docker. Las autenticaciones OAuth quedan como paso posterior.
+
+## Ruta rápida (solo configuración)
 
 ```bash
 ./scripts/install.sh
