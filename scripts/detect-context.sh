@@ -21,28 +21,27 @@ if [[ -f "$REGISTRY" ]]; then
       exit 0
     fi
   done < <(awk '
-    /^projects:/ { in_proj = 1; next }
-    in_proj && /^  - name:/ {
-      gsub(/^  - name:[[:space:]]*/, ""); gsub(/^"|"$/, ""); name = $0
-    }
-    in_proj && /^    path:/ {
-      gsub(/^    path:[[:space:]]*/, ""); gsub(/^"|"$/, ""); path = $0
-    }
-    in_proj && /^    context:/ {
-      gsub(/^    context:[[:space:]]*/, ""); gsub(/^"|"$/, ""); ctx = $0
+    /^families:/ { in_families=1; next }
+    in_families && /^    projects:/ { in_proj=1; next }
+    in_proj && /^      - id:/ { gsub(/^      - id:[[:space:]]*/, ""); gsub(/^"|"$/, ""); name=$0; next }
+    in_proj && /^        path:/ { gsub(/^        path:[[:space:]]*/, ""); gsub(/^"|"$/, ""); path=$0; next }
+    in_proj && /^        context:/ {
+      gsub(/^        context:[[:space:]]*/, ""); gsub(/^"|"$/, ""); ctx=$0
       if (name && path && ctx) print name "|" ctx "|" path
-      name = ""; path = ""; ctx = ""
+      name=""; path=""; ctx=""; next
     }
+    in_families && /^  - / { in_proj=0 }
+    /^[a-z]/ && $0 != "families:" { in_families=0; in_proj=0 }
   ' "$REGISTRY")
 fi
 
 # 2. Heurística por lenguaje
 if [[ -f "$PROJECT_DIR/composer.json" ]]; then
-  echo "contexto=monolith"
+  echo "contexto=alegra-monolith"
   echo "detectado_por=composer.json"
 elif [[ -f "$PROJECT_DIR/package.json" ]]; then
   if command -v jq >/dev/null 2>&1 && jq -e '.devDependencies.typescript // "" | length > 0' "$PROJECT_DIR/package.json" >/dev/null 2>&1; then
-    echo "contexto=microservice"
+    echo "contexto=alegra-microservice"
     echo "detectado_por=package.json+typescript"
   else
     echo "contexto=generic-node"
