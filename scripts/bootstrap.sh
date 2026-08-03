@@ -32,6 +32,8 @@ phase() {
 ok() { printf '  [ok] %s\n' "$*"; }
 skip() { printf '  [- ] %s\n' "$*"; }
 info() { printf '  [..] %s\n' "$*"; }
+warn() { printf '  [aviso] %s\n' "$*"; }
+critical() { printf '  [crítico] %s\n' "$*"; }
 run() {
   if [[ $DRY_RUN == true ]]; then
     info "[simulado] $*"
@@ -198,7 +200,7 @@ install_tool() {
   fi
 }
 
-install_tool "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install.sh | sh"
+install_tool "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
 install_tool "Gentle AI" "command -v gentle-ai" "curl -fsSL https://gentle-ai.dev/install.sh | sh"
 install_tool "Engram"    "command -v engram"    "curl -fsSL https://engram.sh/install.sh | sh"
 
@@ -226,7 +228,55 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 4: Docker (opcional)
+# Fase 4: Configuración de OpenCode (crear opencode.json si no existe)
+# ---------------------------------------------------------------------------
+phase "Configuración de OpenCode"
+
+OC_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}"
+
+ensure_opencode_config() {
+  local config_dir
+  config_dir=$(dirname "$OC_FILE")
+
+  if [[ -f "$OC_FILE" ]]; then
+    if jq empty "$OC_FILE" >/dev/null 2>&1; then
+      ok "opencode.json existe y es JSON válido"
+      return 0
+    else
+      warn "opencode.json existe pero no es JSON válido"
+    fi
+  fi
+
+  mkdir -p "$config_dir"
+
+  local backup=""
+  if [[ -f "$OC_FILE" ]]; then
+    backup="${OC_FILE}.bak.$(date +%s)"
+    run cp "$OC_FILE" "$backup"
+    info "backup creado: $backup"
+  fi
+
+  local tmp
+  tmp=$(mktemp "$(dirname "$OC_FILE")/opencode.json.XXXXXXXX")
+  printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "plugin": [],\n  "mcp": {}\n}\n' > "$tmp"
+
+  if ! jq empty "$tmp" >/dev/null 2>&1; then
+    critical "JSON generado no es válido"
+    rm -f "$tmp"
+    return 1
+  fi
+
+  run mv "$tmp" "$OC_FILE"
+  run chmod 600 "$OC_FILE"
+  ok "opencode.json creado en $OC_FILE"
+}
+
+if [[ $DRY_RUN == false ]]; then
+  ensure_opencode_config
+fi
+
+# ---------------------------------------------------------------------------
+# Fase 5: Docker (opcional)
 # ---------------------------------------------------------------------------
 if [[ $SKIP_DOCKER == false ]]; then
   phase "Docker"
@@ -243,32 +293,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 5: Plugins de OpenCode
+# Fase 6: Plugins de OpenCode
 # ---------------------------------------------------------------------------
 phase "Plugins de OpenCode"
 
-OC_CONFIG="${OPENCODE_CONFIG:-$HOME/.config/opencode/opencode.json}"
-if [[ -f "$OC_CONFIG" ]]; then
-  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_CONFIG" 2>/dev/null || true)
-  if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
-    ok "Ponytail ya registrado"
-  else
-    info 'Registrando Ponytail...'
-    if [[ $DRY_RUN == true ]]; then
-      info "[simulado] Agregar ponytail como plugin"
-    else
-      TMP=$(mktemp)
-      jq '.plugin = ((.plugin // []) + ["@dietrichgebert/ponytail@latest"] | unique)' "$OC_CONFIG" > "$TMP" && mv "$TMP" "$OC_CONFIG"
-      chmod 600 "$OC_CONFIG"
-      ok "Ponytail registrado en opencode.json"
-    fi
-  fi
+PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
+if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
+  ok "Ponytail ya registrado"
 else
-  info "opencode.json no encontrado en $OC_CONFIG"
+  info 'Registrando Ponytail...'
+  if [[ $DRY_RUN == true ]]; then
+    info "[simulado] Agregar ponytail como plugin"
+  else
+    TMP=$(mktemp)
+    jq '.plugin = ((.plugin // []) + ["@dietrichgebert/ponytail@latest"] | unique)' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+    chmod 600 "$OC_FILE"
+    ok "Ponytail registrado en opencode.json"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 6: Configuración del harness
+# Fase 7: Configuración del harness
 # ---------------------------------------------------------------------------
 phase "Configuración del harness"
 
@@ -286,57 +331,51 @@ if command -v gentle-ai >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 7: Servidores MCP (mediante opencode.json)
+# Fase 8: Servidores MCP (mediante opencode.json)
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
 
-OC_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}"
+while IFS= read -r name; do
+  [[ -z "$name" ]] && continue
+  type=$(parse_mcp_field "$name" "type")
+  cmd=$(parse_mcp_field "$name" "command")
 
-if [[ ! -f "$OC_FILE" ]]; then
-  info "opencode.json no encontrado en $OC_FILE; los MCPs se configurarán cuando exista"
-else
-  while IFS= read -r name; do
-    [[ -z "$name" ]] && continue
-    type=$(parse_mcp_field "$name" "type")
-    cmd=$(parse_mcp_field "$name" "command")
+  exists=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
+  if [[ $exists == true ]]; then
+    ok "MCP $name ya configurado en opencode.json"
+    continue
+  fi
 
-    exists=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
-    if [[ $exists == true ]]; then
-      ok "MCP $name ya configurado en opencode.json"
-      continue
-    fi
-
-    info "Agregando MCP $name a opencode.json..."
-    if [[ $DRY_RUN == true ]]; then
-      info "[simulado] jq injectaría MCP $name"
-    else
-      TMP=$(mktemp)
-      if [[ $type == local && -n "$cmd" ]]; then
-        cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
-        jq --arg n "$name" --argjson cmd "$cmd_array" \
-          '.mcp[$n] = {type: "local", command: $cmd, enabled: true}' \
+  info "Agregando MCP $name a opencode.json..."
+  if [[ $DRY_RUN == true ]]; then
+    info "[simulado] jq injectaría MCP $name"
+  else
+    TMP=$(mktemp)
+    if [[ $type == local && -n "$cmd" ]]; then
+      cmd_array=$(printf '%s' "$cmd" | jq -R 'split(" ")')
+      jq --arg n "$name" --argjson cmd "$cmd_array" \
+        '.mcp[$n] = {type: "local", command: $cmd, enabled: true}' \
+        "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+    elif [[ $type == remote ]]; then
+      url=$(parse_mcp_field "$name" "url")
+      if [[ -n "$url" ]]; then
+        jq --arg n "$name" --arg u "$url" \
+          '.mcp[$n] = {type: "remote", url: $u, enabled: true}' \
           "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-      elif [[ $type == remote ]]; then
-        url=$(parse_mcp_field "$name" "url")
-        if [[ -n "$url" ]]; then
-          jq --arg n "$name" --arg u "$url" \
-            '.mcp[$n] = {type: "remote", url: $u, enabled: true}' \
-            "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-        else
-          skip "MCP remoto $name: sin URL. Configúralo manualmente en opencode.json"
-          continue
-        fi
       else
-        skip "MCP $name: tipo desconocido '$type'. Configúralo manualmente"
+        skip "MCP remoto $name: sin URL. Configúralo manualmente en opencode.json"
         continue
       fi
-      chmod 600 "$OC_FILE"
-      ok "MCP $name registrado"
+    else
+      skip "MCP $name: tipo desconocido '$type'. Configúralo manualmente"
+      continue
     fi
-  done < <(parse_mcp_names)
+    chmod 600 "$OC_FILE"
+    ok "MCP $name registrado"
+  fi
+done < <(parse_mcp_names)
 
-  info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"
-fi
+info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"
 
 # ---------------------------------------------------------------------------
 # Fase 8: Verificación
@@ -345,14 +384,25 @@ phase "Verificación"
 
 if [[ -f "$ROOT_DIR/scripts/doctor.sh" ]]; then
   info 'Ejecutando doctor.sh...'
-  run bash "$ROOT_DIR/scripts/doctor.sh" || true
+  if run bash "$ROOT_DIR/scripts/doctor.sh" --strict; then
+    ok 'Bootstrap completado y saludable'
+  else
+    printf '\n========================================\n'
+    printf '  Bootstrap completado con acciones pendientes\n'
+    if [[ $DRY_RUN == true ]]; then
+      printf '  (simulación, no se realizaron cambios)\n'
+    fi
+    printf '========================================\n'
+    printf '\nRevisa los errores críticos arriba antes de usar el harness.\n'
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------------------
 # Resumen
 # ---------------------------------------------------------------------------
 printf '\n========================================\n'
-printf '  Bootstrap completado\n'
+printf '  Bootstrap completado y saludable\n'
 if [[ $DRY_RUN == true ]]; then
   printf '  (simulación, no se realizaron cambios)\n'
 fi
@@ -361,6 +411,8 @@ printf '\nPróximos pasos:\n'
 printf '  1. Autentica MCPs OAuth:\n'
 
 while IFS= read -r name; do
+  configured=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
+  [[ $configured == true ]] || continue
   oauth=$(parse_mcp_field "$name" "oauth_required")
   if [[ "$oauth" == "true" ]]; then
     printf '     opencode mcp auth %s\n' "$name"

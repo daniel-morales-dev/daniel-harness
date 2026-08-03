@@ -6,6 +6,17 @@ CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
 HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 
+# Legacy cleanup: remove symlinks from old agent names
+remove_legacy_managed_link() {
+  local source=$1 target=$2
+  if [[ -L "$target" ]] && [[ $(readlink "$target") == "$source" ]]; then
+    rm "$target"
+    printf 'eliminado symlink legacy: %s\n' "$target"
+  fi
+}
+remove_legacy_managed_link "$ROOT_DIR/agents/senior-engineer.md" "$OPENCODE_CONFIG_DIR/agents/senior-engineer.md"
+remove_legacy_managed_link "$ROOT_DIR/agents/test-engineer.md" "$OPENCODE_CONFIG_DIR/agents/test-engineer.md"
+
 remove_managed_link() {
   local source=$1
   local target=$2

@@ -7,8 +7,17 @@ HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-"$OPENCODE_CONFIG_DIR/opencode.json"}
 REPOSITORY_DIR=${DANIEL_HARNESS_REPO:-"$ROOT_DIR"}
+STRICT=false
 WARNINGS=0
 CRITICAL=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --strict) STRICT=true; shift ;;
+    --help|-h) printf 'Uso: doctor.sh [--strict]\n'; exit 0 ;;
+    *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
 
 ok() { printf '[ok] %s\n' "$*"; }
 warn() { printf '[aviso] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
@@ -349,4 +358,7 @@ else
 fi
 
 printf '\nResumen: %d crítico(s), %d aviso(s)\n' "$CRITICAL" "$WARNINGS"
+if [[ $STRICT == true ]] && (( CRITICAL > 0 )); then
+  exit 1
+fi
 (( CRITICAL == 0 ))
