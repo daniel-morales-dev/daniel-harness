@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Entry point: instala y configura el harness desde cero
+set -euo pipefail
+
+ROOT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+PROFILE=core
+CONNECT=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --profile) PROFILE=$2; shift 2 ;;
+    --profile=*) PROFILE=${1#*=}; shift ;;
+    --connect) CONNECT=true; shift ;;
+    --help|-h)
+      printf 'Uso: ./install [--profile core|alegra|migration|full] [--connect]\n'
+      printf '\n  --profile   Perfil a instalar (default: core)\n'
+      printf '  --connect   Ademas: doctor, autenticacion interactiva, resumen\n'
+      exit 0 ;;
+    *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
+
+case "$PROFILE" in
+  core|alegra|migration|full) ;;
+  *) printf 'Perfil invalido: %s (core|alegra|migration|full)\n' "$PROFILE" >&2; exit 1 ;;
+esac
+
+printf '==> Daniel Harness — instalacion perfil: %s\n' "$PROFILE"
+
+# Validacion minima de plataforma
+if [[ ! -f /etc/os-release ]] || ! grep -qi 'ubuntu' /etc/os-release 2>/dev/null; then
+  printf '  [aviso] Sistema no verificado como Ubuntu\n'
+fi
+if ! command -v sudo >/dev/null 2>&1; then
+  printf 'error: sudo es necesario\n' >&2
+  exit 1
+fi
+
+# Bootstrap
+printf '\n==> Ejecutando bootstrap --profile %s...\n' "$PROFILE"
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$PROFILE"
+
+# Connect: doctor + resumen
+if [[ $CONNECT == true ]]; then
+  printf '\n==> Verificando instalacion...\n'
+  if bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict; then
+    printf '\n========================================\n'
+    printf '  Harness instalado y saludable\n'
+    printf '  Perfil: %s\n' "$PROFILE"
+    printf '========================================\n'
+    printf '\nProximos pasos:\n'
+
+    OPENCODE_CONFIG_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}"
+    if [[ -f "$OPENCODE_CONFIG_FILE" ]] && command -v jq >/dev/null 2>&1; then
+      while IFS= read -r name; do
+        oauth=$(jq -r --arg n "$name" '.mcp[$n].oauth_required // false' "$OPENCODE_CONFIG_FILE" 2>/dev/null || false)
+        if [[ "$oauth" == "true" ]]; then
+          printf '  • Autenticar MCP: opencode mcp auth %s\n' "$name"
+        fi
+      done < <(jq -r '.mcp | to_entries[] | select(.value.oauth_required == true) | .key' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+    fi
+
+    printf '  • Verificar: dh doctor\n'
+    printf '  • Ayuda: dh help\n'
+  else
+    printf '\n[error] Harness instalado con acciones pendientes.\n'
+    printf '  Revisa: dh doctor\n'
+    exit 1
+  fi
+fi

@@ -82,5 +82,6 @@ link_if_missing "$ROOT_DIR/commands/migration-gap-analysis.md" "$OPENCODE_CONFIG
 
 install -d -m 700 "$LOCAL_BIN"
 link_if_missing "$ROOT_DIR/bin/dh" "$LOCAL_BIN/dh"
+link_if_missing "$ROOT_DIR/install" "$LOCAL_BIN/dh-install"
 
 printf '\nInstalación completada. Ejecuta dh doctor para verificar.\n'
