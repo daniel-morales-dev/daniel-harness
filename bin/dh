@@ -376,6 +376,7 @@ session_start() {
       subcmd=scaffold
     else
       local graphql
+      # shellcheck disable=SC2016  # $id es variable GraphQL, no del shell
       local query_body='query($id: String!) { issue(id: $id) { title description identifier priority orderBy state { name type } assignee { name email } labels { nodes { name } } parent { id title identifier } children { nodes { id title identifier state { name } } } comments { nodes { body createdAt user { name } } } } }'
       graphql=$(jq -n --arg q "$query_body" --arg id "$issue_id" '{query: $q, variables: {id: $id}}')
       local response
