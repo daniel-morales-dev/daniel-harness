@@ -272,6 +272,11 @@ if __name__ == "__main__":
     test_registry_rejects_repository_property()
     print("[ok] registry con repository es rechazado")
 
+    # Verify migration-parity-reviewer exists and is read-only
+    parity = (ROOT_DIR / "agents" / "migration-parity-reviewer.md").read_text()
+    assert "edit: deny" in parity
+    assert '"*": deny' in parity
+
     test_agents_no_write_permission()
     print("[ok] agents sin write permission")
 
