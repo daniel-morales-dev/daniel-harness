@@ -322,11 +322,22 @@ if __name__ == "__main__":
         assert "context" in parsed
         assert "harnessRoot" in parsed
         assert "policies" in parsed
+        assert "policyFiles" in parsed
         assert "scope" in parsed
         assert "relationships" in parsed
+        assert "readRepositories" in parsed
+        assert "writeRepositories" in parsed
+        assert "modelTrust" in parsed
+        assert "mcpCapabilities" in parsed
+        assert "tunnelStatus" in parsed
         assert isinstance(parsed.get("project"), (str, type(None)))
         assert isinstance(parsed.get("family"), (str, type(None)))
         assert isinstance(parsed.get("path"), (str, type(None)))
+        assert isinstance(parsed.get("readRepositories"), list)
+        assert isinstance(parsed.get("writeRepositories"), list)
+        assert isinstance(parsed.get("mcpCapabilities"), dict)
+        assert isinstance(parsed.get("tunnelStatus"), dict)
+        assert isinstance(parsed.get("policyFiles"), list)
         assert result.returncode == 0
 
     test_preflight_output()

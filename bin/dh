@@ -199,9 +199,14 @@ preflight() {
   path=$(echo "$ctx_output" | grep '^path=' | sed 's/^path=//' || true)
 
   local registry="$HARNESS_DIR/project-registry.yaml"
+  local config_yaml="$HARNESS_DIR/config.yaml"
+  local connections="$HARNESS_DIR/connections.yaml"
 
-  _DH_PROJECT="$project_name" _DH_CONTEXT="$ctx" _DH_PATH="$path" python3 -c "
-import json, sys, os
+  _DH_PROJECT="$project_name" _DH_CONTEXT="$ctx" _DH_PATH="$path" \
+  _DH_REGISTRY="$registry" _DH_CONFIG="$config_yaml" _DH_CONNECTIONS="$connections" \
+  _DH_HARNESS_DIR="$HARNESS_DIR" _DH_OC_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}" \
+  python3 -c "
+import json, sys, os, glob
 try:
     import yaml
 except ImportError:
@@ -216,12 +221,21 @@ result = {
     'scope': 'single-repo',
     'path': (os.environ.get('_DH_PATH', '') or '').strip() or None,
     'harnessRoot': '$ROOT_DIR',
+    'readRepositories': [],
+    'writeRepositories': [],
+    'modelTrust': 'unknown',
+    'mcpCapabilities': {},
+    'tunnelStatus': {},
     'policies': [],
+    'policyFiles': [],
     'issue': None,
     'relationships': [],
 }
 
-registry_path = '$registry'
+registry_path = os.environ.get('_DH_REGISTRY', '')
+active_family = None
+active_projects = []
+
 if os.path.exists(registry_path):
     with open(registry_path) as f:
         data = yaml.safe_load(f)
@@ -231,19 +245,83 @@ if os.path.exists(registry_path):
         for fam in data['families']:
             for proj in fam.get('projects', []):
                 if proj.get('id') == pname:
-                    result['family'] = fam['id']
+                    result['family'] = active_family = fam['id']
+                    active_projects = fam.get('projects', [])
                     break
-            if result['family']:
+            if active_family:
                 break
 
-    if data and 'relationships' in data:
-        result['relationships'] = data['relationships']
+    if active_family:
+        result['scope'] = 'related-repos' if len(active_projects) > 1 else 'single-repo'
+        result['readRepositories'] = sorted(set(
+            p['path'] for p in active_projects if p.get('path')
+        ))
+        write_projects = [p for p in active_projects if p.get('git', {}).get('push', 'ask') not in ('never', 'deny')]
+        result['writeRepositories'] = sorted(set(
+            p['path'] for p in write_projects if p.get('path')
+        ))
 
-policy_dir = '$HARNESS_DIR/policies'
+    if data and 'relationships' in data:
+        if active_family:
+            result['relationships'] = [
+                r for r in data['relationships']
+                if r.get('from') == active_family or r.get('to') == active_family
+            ]
+        else:
+            result['relationships'] = data['relationships']
+
+config_path = os.environ.get('_DH_CONFIG', '')
+if os.path.exists(config_path):
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f) or {}
+    result['modelTrust'] = cfg.get('trust', 'unknown')
+
+oc_file = os.environ.get('_DH_OC_FILE', '')
+if os.path.exists(oc_file):
+    with open(oc_file) as f:
+        try:
+            oc = json.load(f)
+            mcps = oc.get('mcp', {})
+            for name, cfg in mcps.items():
+                enabled = cfg.get('enabled', True)
+                if enabled == False:
+                    result['mcpCapabilities'][name] = 'disabled'
+                elif cfg.get('type') == 'local' and cfg.get('command'):
+                    cmd_name = cfg['command'][0] if isinstance(cfg['command'], list) else cfg['command'].split()[0]
+                    result['mcpCapabilities'][name] = 'available' if any(
+                        os.access(p + '/' + cmd_name, os.X_OK)
+                        for p in os.environ.get('PATH', '').split(':')
+                    ) else 'command-missing'
+                elif cfg.get('type') == 'remote':
+                    result['mcpCapabilities'][name] = 'configured'
+                else:
+                    result['mcpCapabilities'][name] = 'unknown'
+        except (json.JSONDecodeError, Exception):
+            pass
+
+connections_path = os.environ.get('_DH_CONNECTIONS', '')
+if os.path.exists(connections_path):
+    with open(connections_path) as f:
+        try:
+            conn = yaml.safe_load(f) or {}
+            for profile in conn.get('profiles', []):
+                pid = profile.get('id', 'unknown')
+                tunnel = profile.get('tunnel', {})
+                if tunnel.get('required'):
+                    result['tunnelStatus'][pid] = {
+                        'required': True,
+                        'host': profile.get('host', ''),
+                        'port': profile.get('port', 0),
+                    }
+        except Exception:
+            pass
+
+policy_dir = os.environ.get('_DH_HARNESS_DIR', '') + '/policies'
 if os.path.isdir(policy_dir):
     for f in sorted(os.listdir(policy_dir)):
         if f.endswith('.md'):
             result['policies'].append(f)
+            result['policyFiles'].append(os.path.abspath(os.path.join(policy_dir, f)))
 
 print(json.dumps(result, ensure_ascii=False, indent=2))
 " 2>&1 || printf '[error] preflight: falló la generación de JSON\n'
