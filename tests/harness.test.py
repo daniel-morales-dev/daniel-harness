@@ -176,6 +176,16 @@ def test_writers_bash_is_ask():
     assert "bash: allow" not in senior
     assert "bash: allow" not in test
 
+def test_agents_specialized():
+    """Verify agents are specialized (alegra-microservice-* names, reduced size)."""
+    senior = (ROOT_DIR / "agents" / "senior-engineer.md").read_text()
+    test = (ROOT_DIR / "agents" / "test-engineer.md").read_text()
+    assert "alegra-microservice-engineer" in senior
+    assert "alegra-microservice-test-engineer" in test
+    assert "preflight" in senior.lower()
+    assert len(senior) < 5000
+    assert len(test) < 5000
+
 
 def test_dh_cli_contexts_use_alegra_prefix():
     """Verify dh-cli.md uses alegra-monolith/alegra-microservice context names."""
