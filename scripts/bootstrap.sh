@@ -220,6 +220,95 @@ phase "Configuración de OpenCode"
 CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
 OC_FILE="${OPENCODE_CONFIG_FILE:-$CONFIG_ROOT/opencode/opencode.json}"
 
+# Lock y journal para transacción crash-consistent (antes de cualquier modificación)
+LOCK_FILE="$STATE_DIR/.bootstrap.lock"
+JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
+  warn "No se pudo crear lock (estado no escribible)"
+elif ! flock -n 200 2>/dev/null; then
+  critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
+  exit 1
+fi
+TMP_CANDIDATE=""
+TMP_STATE=""
+BACKUP_OC=""
+BACKUP_STATE=""
+
+# Recuperar transacción incompleta de una ejecución anterior
+_recover_incomplete_transaction() {
+  trap '' EXIT INT TERM
+  local j_oc j_st b_oc b_st e_oc e_st
+  j_oc=$(jq -r '.configFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+  j_st=$(jq -r '.stateFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+  b_oc=$(jq -r '.backupConfig // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+  b_st=$(jq -r '.backupState // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+  e_oc=$(jq -r '.existedBeforeConfig // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
+  e_st=$(jq -r '.existedBeforeState // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
+  warn "Recuperando transacción incompleta"
+  if [[ -n "$b_oc" && -f "$b_oc" ]]; then cp "$b_oc" "$j_oc"; chmod 600 "$j_oc" 2>/dev/null || true
+  elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then rm -f "$j_oc"; fi
+  if [[ -n "$b_st" && -f "$b_st" ]]; then cp "$b_st" "$j_st"; chmod 600 "$j_st" 2>/dev/null || true
+  elif [[ "$e_st" == "false" && -n "$j_st" ]]; then rm -f "$j_st"; fi
+  rm -f "$JOURNAL_FILE"
+}
+if [[ -f "$JOURNAL_FILE" ]]; then _recover_incomplete_transaction; fi
+
+# Trap para transacción actual
+trap _rollback EXIT
+trap '_rollback; exit 1' INT TERM
+
+_rollback() {
+  local rc=$?
+  trap '' EXIT INT TERM
+  if [[ -f "$JOURNAL_FILE" ]]; then
+    local j_oc j_st b_oc b_st e_oc e_st
+    j_oc=$(jq -r '.configFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    j_st=$(jq -r '.stateFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    b_oc=$(jq -r '.backupConfig // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    b_st=$(jq -r '.backupState // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    e_oc=$(jq -r '.existedBeforeConfig // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
+    e_st=$(jq -r '.existedBeforeState // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
+    critical "Rollback transacción incompleta (fase: $(jq -r '.phase // "unknown"' "$JOURNAL_FILE" 2>/dev/null || echo "unknown"))"
+    if [[ -n "$b_oc" && -f "$b_oc" ]]; then cp "$b_oc" "$j_oc"; chmod 600 "$j_oc" 2>/dev/null || true
+    elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then rm -f "$j_oc"; fi
+    if [[ -n "$b_st" && -f "$b_st" ]]; then cp "$b_st" "$j_st"; chmod 600 "$j_st" 2>/dev/null || true
+    elif [[ "$e_st" == "false" && -n "$j_st" ]]; then rm -f "$j_st"; fi
+    _clear_journal
+  fi
+  [[ -n "$TMP_CANDIDATE" && -f "$TMP_CANDIDATE" ]] && rm -f "$TMP_CANDIDATE"
+  [[ -n "$TMP_STATE" && -f "$TMP_STATE" ]] && rm -f "$TMP_STATE"
+  exit $rc
+}
+
+# Journal de transacción con paths exactos de backup
+_write_journal() {
+  local phase=$1 b_oc=$2 b_st=$3 e_oc=$4 e_st=$5
+  jq -n --arg p "$phase" \
+    --arg oc "$OC_FILE" \
+    --arg st "$STATE_FILE" \
+    --arg b_oc "${b_oc:-}" \
+    --arg b_st "${b_st:-}" \
+    --argjson e_oc "${e_oc:-false}" \
+    --argjson e_st "${e_st:-false}" \
+    '{phase: $p, configFile: $oc, stateFile: $st, backupConfig: $b_oc, backupState: $b_st, existedBeforeConfig: $e_oc, existedBeforeState: $e_st}' > "$JOURNAL_FILE"
+}
+_clear_journal() { rm -f "$JOURNAL_FILE"; }
+
+_check_failpoint() {
+  local point=$1
+  if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "$point" ]]; then
+    critical "Failpoint alcanzado: $point"
+    exit 1
+  fi
+}
+
+# Registrar si los archivos existían antes de la transacción
+OC_EXISTED_BEFORE=false
+[[ -f "$OC_FILE" ]] && OC_EXISTED_BEFORE=true
+STATE_EXISTED_BEFORE=false
+[[ -f "$STATE_FILE" ]] && STATE_EXISTED_BEFORE=true
+
 ensure_opencode_config() {
   local config_dir
   config_dir=$(dirname "$OC_FILE")
@@ -342,67 +431,6 @@ fi
 # Fase 8: Servidores MCP (crash-consistent transaction)
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
-
-# Lock para impedir bootstrap concurrente
-LOCK_FILE="$STATE_DIR/.bootstrap.lock"
-JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
-mkdir -p "$STATE_DIR"
-exec 200>"$LOCK_FILE"
-flock -n 200 || {
-  critical "Otro bootstrap en ejecucion (lock: $LOCK_FILE)"
-  exit 1
-}
-
-# Failpoints para tests deterministicos
-_check_failpoint() {
-  local point=$1
-  if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "$point" ]]; then
-    critical "Failpoint alcanzado: $point"
-    exit 1
-  fi
-}
-
-# Journal de transaccion
-_write_journal() {
-  local phase=$1
-  jq -n --arg p "$phase" \
-    --arg oc "$OC_FILE" \
-    --arg st "$STATE_FILE" \
-    '{phase: $p, configFile: $oc, stateFile: $st}' > "$JOURNAL_FILE"
-}
-
-_clear_journal() { rm -f "$JOURNAL_FILE"; }
-
-trap _rollback EXIT
-trap '_rollback; exit 1' INT TERM
-
-# Rollback atómico (desactivar trap antes de restaurar)
-_rollback() {
-  local rc=$?
-  trap '' EXIT INT TERM
-  if [[ -f "$JOURNAL_FILE" ]]; then
-    local j_phase j_oc j_st
-    j_phase=$(jq -r '.phase // "unknown"' "$JOURNAL_FILE" 2>/dev/null || echo "unknown")
-    j_oc=$(jq -r '.configFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
-    j_st=$(jq -r '.stateFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
-    critical "Recuperando transaccion incompleta (fase: $j_phase)"
-    if [[ -n "$j_oc" && -f "${j_oc}.bak" ]]; then
-      cp "${j_oc}.bak" "$j_oc"
-    fi
-    if [[ -n "$j_st" && -f "${j_st}.bak" ]]; then
-      cp "${j_st}.bak" "$j_st"
-    fi
-    _clear_journal
-  fi
-  rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-  exit $rc
-}
-
-# Recuperar transacción incompleta al iniciar
-if [[ -f "$JOURNAL_FILE" ]]; then
-  warn "Transaccion incompleta detectada — recuperando"
-  _rollback
-fi
 
 TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
 cp "$OC_FILE" "$TMP_CANDIDATE"
@@ -584,13 +612,13 @@ if [[ $DRY_RUN == false ]]; then
       _check_failpoint "backup-config"
       _check_failpoint "backup-state"
 
-      _write_journal "apply-config"
+      _write_journal "apply-config" "$BACKUP_OC" "" "$OC_EXISTED_BEFORE" "false"
       _check_failpoint "move-config"
       mv "$TMP_CANDIDATE" "$OC_FILE"
       chmod 600 "$OC_FILE"
 
       if (( ${#MANAGED_MCPS[@]} > 0 )); then
-        _write_journal "apply-state"
+        _write_journal "apply-state" "$BACKUP_OC" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
         _check_failpoint "move-state"
         mv "$TMP_STATE" "$STATE_FILE"
         chmod 600 "$STATE_FILE"
@@ -614,7 +642,7 @@ if [[ $DRY_RUN == false ]]; then
           chmod 600 "$BACKUP_STATE"
         fi
 
-        _write_journal "apply-state"
+        _write_journal "apply-state" "" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
         _check_failpoint "move-state"
         mv "$TMP_STATE" "$STATE_FILE"
         _check_failpoint "chmod-state"
