@@ -63,6 +63,9 @@ jobs:
       - name: Redact config test
         run: bash tests/redact-opencode-config.test.sh
 
+      - name: Clean runtime test (jsonschema dependency)
+        run: bash tests/clean-runtime.test.sh
+
       - name: E2E bootstrap test (temp HOME)
         run: bash tests/e2e-bootstrap.test.sh
 
@@ -75,3 +78,5 @@ jobs:
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
