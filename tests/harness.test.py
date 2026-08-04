@@ -298,6 +298,13 @@ def test_aws_pin_from_manifest():
     assert "awscli-exe-linux-x86_64-2.36.15.zip" in manifest
     assert "02a8eb2fe985be8ebcc284aaa5bae206ee8668872d6369e66a5c7d49d8671a08" in manifest
 
+def test_doctor_uses_root_dir_for_harness_components():
+    """Verify doctor resolves schema/validator from ROOT_DIR, not REPOSITORY_DIR."""
+    doctor = (ROOT_DIR / "scripts" / "doctor.sh").read_text()
+    # Schema path must use ROOT_DIR, not REPOSITORY_DIR
+    assert '$ROOT_DIR/tests/fixtures/opencode-config.schema.json' in doctor
+    assert '$ROOT_DIR/scripts/validate-opencode-config.py' in doctor
+
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
     scripts = [
@@ -524,6 +531,9 @@ if __name__ == "__main__":
 
     test_aws_pin_from_manifest()
     print("[ok] AWS version/url/sha256 desde manifest")
+
+    test_doctor_uses_root_dir_for_harness_components()
+    print("[ok] doctor usa ROOT_DIR para schema/validator")
 
     test_data_tools_exist()
     print("[ok] data tools: existencia, frontmatter basico")
