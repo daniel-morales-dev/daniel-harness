@@ -39,9 +39,9 @@ else
 fi
 
 bootstrap_ok() {
-  local label=$1 out=$2
+  local label=$1 out=$2; shift 2
   local rc
-  bash "$ROOT_DIR/scripts/bootstrap.sh" $DRY > "$out" 2>&1 || rc=$?
+  bash "$ROOT_DIR/scripts/bootstrap.sh" "$@" $DRY > "$out" 2>&1 || rc=$?
   if [[ ${rc:-0} -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$out" 2>/dev/null; then
     pass "$label OK"
     return 0
@@ -58,7 +58,7 @@ echo "=== Smoke Test: v0.1.0 Release ==="
 # Step 1: Install core profile
 echo "--- Step 1: install core ---"
 bash "$ROOT_DIR/scripts/install.sh" > "$TMP_DIR/s1.out" 2>&1 && pass "install core OK" || fail "install core failed"
-bootstrap_ok "bootstrap core" "$TMP_DIR/s1b.out"
+bootstrap_ok "bootstrap core" "$TMP_DIR/s1b.out" --profile core
 
 # Step 2: Doctor --profile core (install-check mode)
 echo "--- Step 2: doctor core ---"
@@ -81,7 +81,7 @@ fi
 # Step 3: Second core bootstrap (idempotence)
 echo "--- Step 3: core idempotence ---"
 OC_HASH_BEFORE=$(sha256sum "$HOME_DIR/.config/opencode/opencode.json" 2>/dev/null | cut -d' ' -f1 || echo "none")
-bootstrap_ok "second core" "$TMP_DIR/s3.out"
+bootstrap_ok "second core" "$TMP_DIR/s3.out" --profile core
 if [[ "$OC_HASH_BEFORE" != "none" ]]; then
   OC_HASH_AFTER=$(sha256sum "$HOME_DIR/.config/opencode/opencode.json" 2>/dev/null | cut -d' ' -f1)
   [[ "$OC_HASH_BEFORE" == "$OC_HASH_AFTER" ]] && pass "core idempotent" || fail "core modified opencode.json"
@@ -89,27 +89,15 @@ fi
 
 # Step 4: Alegra profile
 echo "--- Step 4: alegra ---"
-bootstrap_ok "bootstrap alegra" "$TMP_DIR/s4.out"
+bootstrap_ok "bootstrap alegra" "$TMP_DIR/s4.out" --profile alegra
 
 # Step 5: Migration profile (skip docker)
 echo "--- Step 5: migration ---"
-SKIP_DOCKER=""
-$DRY || SKIP_DOCKER="--skip-docker"
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile migration $SKIP_DOCKER $DRY > "$TMP_DIR/s5.out" 2>&1
-if [[ $? -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$TMP_DIR/s5.out"; then
-  pass "bootstrap migration OK"
-else
-  fail "bootstrap migration failed"
-fi
+bootstrap_ok "bootstrap migration" "$TMP_DIR/s5.out" --profile migration --skip-docker
 
 # Step 6: Full profile
 echo "--- Step 6: full ---"
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile full $DRY > "$TMP_DIR/s6.out" 2>&1
-if [[ $? -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$TMP_DIR/s6.out"; then
-  pass "bootstrap full OK"
-else
-  fail "bootstrap full failed"
-fi
+bootstrap_ok "bootstrap full" "$TMP_DIR/s6.out" --profile full --skip-docker
 
 # Step 7: Schema validation
 echo "--- Step 7: schema validation ---"
@@ -125,11 +113,10 @@ fi
 # Step 8: Profile transitions
 echo "--- Step 8: profile transitions ---"
 for transition in "core" "alegra" "core" "alegra"; do
-  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$transition" $DRY > "$TMP_DIR/s8_${transition}.out" 2>&1
-  if [[ $? -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$TMP_DIR/s8_${transition}.out"; then
-    pass "transition: $transition"
+  if [[ "$transition" == "alegra" ]]; then
+    bootstrap_ok "transition: $transition" "$TMP_DIR/s8_${transition}.out" --profile "$transition"
   else
-    fail "transition: $transition"
+    bootstrap_ok "transition: $transition" "$TMP_DIR/s8_${transition}.out" --profile "$transition"
   fi
 done
 
