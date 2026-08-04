@@ -11,6 +11,17 @@ STATE_DIR="$HARNESS_CONFIG_DIR/state"
 STATE_FILE="$STATE_DIR/opencode-managed.json"
 MANAGED_MCPS=()
 
+# Lock de arranque para proteger state contra concurrencia y dir no escribible
+LOCK_FILE="$STATE_DIR/.bootstrap.lock"
+mkdir -p "$STATE_DIR" 2>/dev/null || { critical "No se pudo crear $STATE_DIR"; exit 1; }
+if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
+  critical "No se pudo crear lock (estado no escribible)"
+  exit 1
+elif ! flock -n 200 2>/dev/null; then
+  critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
+  exit 1
+fi
+
 DRY_RUN=false
 SKIP_DOCKER=false
 PROFILE=core
@@ -256,20 +267,8 @@ phase "Configuración de OpenCode"
 CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
 OC_FILE="${OPENCODE_CONFIG_FILE:-$CONFIG_ROOT/opencode/opencode.json}"
 
-# Lock y journal para transacción crash-consistent (antes de cualquier modificación)
-LOCK_FILE="$STATE_DIR/.bootstrap.lock"
+# Journal para transacción crash-consistent
 JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
-mkdir -p "$STATE_DIR" 2>/dev/null || {
-  critical "No se pudo crear $STATE_DIR"
-  exit 1
-}
-if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
-  critical "No se pudo crear lock (estado no escribible)"
-  exit 1
-elif ! flock -n 200 2>/dev/null; then
-  critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
-  exit 1
-fi
 TMP_CANDIDATE=""
 TMP_STATE=""
 BACKUP_OC=""

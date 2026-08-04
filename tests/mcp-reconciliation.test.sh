@@ -214,17 +214,17 @@ chmod +x "$STATE_FAIL_HOME/.nvm/versions/node/v24.0.0/bin/node"
 echo 'nvm() { :; }' > "$STATE_FAIL_HOME/.nvm/nvm.sh"
 printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' '    allowArbitraryShell: false' '    allowedCapabilities: []' > "$STATE_FAIL_HOME/.config/daniel-harness/config.yaml"
 
-# Make state dir unwritable
+# Make state dir unwritable (lock file can't be created)
 mkdir -p "$STATE_FAIL_HOME/.config/daniel-harness/state"
 chmod 000 "$STATE_FAIL_HOME/.config/daniel-harness/state"
 
-# Bootstrap should still work (state write failure is non-fatal per current code)
+# Bootstrap must fail closed when lock cannot be created
+set +e
 env PATH="$STUBS:$PATH" HOME="$STATE_FAIL_HOME" XDG_CONFIG_HOME="$STATE_FAIL_HOME/.config" NVM_DIR="$STATE_FAIL_HOME/.nvm" \
-  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/statefail.out" 2>&1 || true
+  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/statefail.out" 2>&1
 RC=$?
-# Currently state write failure is not fatal (jq fails silently due to || true)
-# At minimum opencode.json should be written
-[[ -f "$STATE_FAIL_HOME/.config/opencode/opencode.json" ]] && pass "7a: opencode.json created despite state failure" || fail "7a: opencode.json missing"
+set -e
+[[ $RC -ne 0 ]] && pass "7a: bootstrap fails when state unwritable (exit $RC)" || fail "7a: bootstrap should fail when state unwritable"
 
 chmod 755 "$STATE_FAIL_HOME/.config/daniel-harness/state" 2>/dev/null || true
 
