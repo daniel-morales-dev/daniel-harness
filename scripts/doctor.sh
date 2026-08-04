@@ -441,23 +441,11 @@ else
   # Full schema validation against versioned OpenCode schema
   OC_SCHEMA="$REPOSITORY_DIR/tests/fixtures/opencode-config.schema.json"
   if [[ -f "$OC_SCHEMA" ]]; then
-    schema_errors=$(jq -e --argfile schema "$OC_SCHEMA" '
-      . as $config | $schema |
-      . as $schema_def | ($schema_def | .["$defs"].Config) as $config_def |
-      # basic structural validation against Config definition
-      $config | if type != "object" then ["root must be object"] else
-        [(.mcp // {}) | to_entries[] | select(
-          (.value.type == "local" and (.value.command | type != "array")) or
-          (.value.type == "remote" and (.value.url | type != "string"))
-        ) | "MCP \(.key): estructura inválida"]
-      end | .[]
-    ' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
-    if [[ -n "$schema_errors" ]]; then
-      while IFS= read -r err; do
-        critical "$err"
-      done <<< "$schema_errors"
-    else
+    if python3 "$REPOSITORY_DIR/scripts/validate-opencode-config.py" \
+         --config "$OPENCODE_CONFIG_FILE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
       ok 'Schema de OpenCode válido'
+    else
+      critical 'Schema de OpenCode inválido'
     fi
   fi
 

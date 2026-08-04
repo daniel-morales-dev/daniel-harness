@@ -36,10 +36,9 @@ printf 'ssh synthetic-host\n' >"$CONFIG_DIR/secrets/tunnels/synthetic.command"
 chmod 600 "$CONFIG_DIR/secrets/tunnels/synthetic.command"
 
 printf '%s\n' '{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [],
   "permission": {"bash": "ask"},
-  "security": "preserved",
-  "tokenizer": "preserved",
-  "headersTimeout": 1000,
   "mcp": {
     "synthetic-local": {
       "type": "local",

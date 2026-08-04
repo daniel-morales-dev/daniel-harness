@@ -454,19 +454,26 @@ while IFS= read -r name; do
   MANAGED_MCPS+=("$name")
 done < <(parse_mcp_names)
 
+OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
 if [[ $DRY_RUN == false ]]; then
   if (( MCP_ADDED > 0 || MCP_UPDATED > 0 )); then
     if jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
-      BACKUP="${OC_FILE}.bak.$(date +%s)"
-      cp "$OC_FILE" "$BACKUP"
-      chmod 600 "$BACKUP"
-      mv "$TMP_CANDIDATE" "$OC_FILE"
-      chmod 600 "$OC_FILE"
-      summary="${MCP_ADDED} nuevos"
-      [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
-      [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
-      ok "Configuración aplicada transaccionalmente (${summary})"
-      info "Backup: $BACKUP"
+      if python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
+           --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
+        BACKUP="${OC_FILE}.bak.$(date +%s)"
+        cp "$OC_FILE" "$BACKUP"
+        chmod 600 "$BACKUP"
+        mv "$TMP_CANDIDATE" "$OC_FILE"
+        chmod 600 "$OC_FILE"
+        summary="${MCP_ADDED} nuevos"
+        [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
+        [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
+        ok "Configuración aplicada (${summary})"
+        info "Backup: $BACKUP"
+      else
+        critical "Candidato no pasa validación de schema — cambios NO aplicados"
+        rm -f "$TMP_CANDIDATE"
+      fi
     else
       critical "Candidato JSON inválido — cambios NO aplicados"
       rm -f "$TMP_CANDIDATE"
