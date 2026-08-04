@@ -307,14 +307,12 @@ def test_doctor_uses_root_dir_for_harness_components():
 
 def test_no_duplicate_ci_workflows():
     """Only ci.yml should trigger on push/PR (no validate.yml or e2e.yml)."""
-    expected = {"ci.yml", "compatibility.yml"}
-    found = set()
-    for wf in (ROOT_DIR / ".github" / "workflows").glob("*.yml"):
+    for wf in sorted((ROOT_DIR / ".github" / "workflows").glob("*.yml")):
+        if wf.name == "ci.yml":
+            continue
         content = wf.read_text()
-        if "pull_request:" in content or "push:" in content:
-            found.add(wf.name)
-    unknown = found - expected
-    assert not unknown, f"Unexpected workflows with push/PR trigger: {unknown}"
+        assert "pull_request:" not in content, f"{wf.name} should not trigger on pull_request"
+        assert "  push:" not in content, f"{wf.name} should not trigger on push"
 
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
