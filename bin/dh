@@ -14,7 +14,7 @@ show_help() {
   printf '  bootstrap        Instalación completa de herramientas (--profile core|alegra|migration|full)\n'
   printf '  mcp-status       Estado de conexión y autenticación MCP\n'
   printf '  tunnel list      Lista túneles configurados\n'
-  printf '  update           Actualiza el harness (tags o main)\n'
+  printf '  update [--channel stable|edge]  Actualiza el harness (stable: tags, edge: main)\n'
 printf '  version          Muestra la versión actual del harness\n'
   printf '  project init     Asistente para nuevo proyecto\n'
 printf '  session scaffold <issue>  Crea plantilla de brief\n'
@@ -163,37 +163,59 @@ detect_context() {
 }
 
 self_update() {
-  printf 'Actualizando Daniel Harness...\n'
+  local channel="stable"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --channel) channel=$2; shift 2 ;;
+      --channel=*) channel=${1#*=}; shift ;;
+      *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
+    esac
+  done
+
+  case "$channel" in
+    stable|edge) ;;
+    *) printf 'Canal invalido: %s (stable|edge)\n' "$channel" >&2; exit 1 ;;
+  esac
+
+  printf 'Actualizando Daniel Harness (canal: %s)...\n' "$channel"
   git -C "$ROOT_DIR" fetch origin --prune --tags 2>/dev/null || {
     printf '[error] No se pudo contactar el remoto\n' >&2
     exit 1
   }
 
-  local local_ref tag_ref target label
+  local local_ref
   local_ref=$(git -C "$ROOT_DIR" rev-parse HEAD)
-  tag_ref=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
 
-  if [[ -n "$tag_ref" ]]; then
-    target="$tag_ref"
-    label="$tag_ref"
+  if [[ "$channel" == "stable" ]]; then
+    local tag_ref remote_ref
+    tag_ref=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
+    if [[ -z "$tag_ref" ]]; then
+      printf '[error] No hay tags de release\n' >&2
+      exit 1
+    fi
+    remote_ref=$(git -C "$ROOT_DIR" rev-parse "$tag_ref" 2>/dev/null || echo "")
+    if [[ "$local_ref" == "$remote_ref" ]]; then
+      printf '[ok] Ya estás en el último release (%s)\n' "$tag_ref"
+      return
+    fi
+    printf 'Actualizando a release %s...\n' "$tag_ref"
+    git -C "$ROOT_DIR" checkout --quiet "$tag_ref" || {
+      printf '[error] Falló checkout del tag %s\n' "$tag_ref" >&2
+      exit 1
+    }
   else
-    target="origin/main"
-    label="main"
+    local remote_ref
+    remote_ref=$(git -C "$ROOT_DIR" rev-parse "origin/main" 2>/dev/null || echo "")
+    if [[ "$local_ref" == "$remote_ref" ]]; then
+      printf '[ok] Ya estás en la última versión de main\n'
+      return
+    fi
+    printf 'Actualizando a main...\n'
+    git -C "$ROOT_DIR" pull --ff-only origin main || {
+      printf '[error] Falló la actualización. Revisa conflictos locales.\n' >&2
+      exit 1
+    }
   fi
-
-  local remote_ref
-  remote_ref=$(git -C "$ROOT_DIR" rev-parse "$target" 2>/dev/null || echo "")
-
-  if [[ "$local_ref" == "$remote_ref" ]]; then
-    printf '[ok] Ya estás en la última versión (%s)\n' "${label}"
-    return
-  fi
-
-  printf 'Actualizando a %s...\n' "$label"
-  git -C "$ROOT_DIR" pull --ff-only origin main || {
-    printf '[error] Falló la actualización. Revisa conflictos locales.\n' >&2
-    exit 1
-  }
 
   if git -C "$ROOT_DIR" diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q '^bootstrap/manifest.yaml'; then
     printf '[aviso] El manifest cambió. Ejecuta dh bootstrap para actualizar herramientas.\n'
@@ -203,7 +225,7 @@ self_update() {
     printf '[aviso] install.sh cambió. Ejecuta dh install para actualizar symlinks.\n'
   fi
 
-  printf '[ok] Harness actualizado (%s)\n' "${label}"
+  printf '[ok] Harness actualizado (%s)\n' "$channel"
 }
 
 preflight() {
@@ -564,21 +586,44 @@ verify_cmd() {
   printf 'Contexto: %s\n\n' "$ctx"
 
   case "$ctx" in
-    generic-php|alegra-monolith)
+    alegra-monolith)
+      local modified php_cmd
+      modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
+      if [[ -z "$modified" ]]; then
+        printf 'No hay archivos modificados. Nada que verificar.\n'
+      else
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qxF 'alegra-app-php-1'; then
+          php_cmd="docker exec alegra-app-php-1 php"
+          printf 'Usando PHP 7.0.9 del contenedor alegra-app-php-1\n'
+        elif command -v php >/dev/null 2>&1; then
+          php_cmd="php"
+          printf '  [aviso] PHP del host, no del contenedor alegra-app-php-1\n'
+        else
+          printf '  [error] PHP no disponible (contenedor ni host)\n'
+          failures=$((failures + 1))
+        fi
+        if [[ -n "$php_cmd" ]]; then
+          while IFS= read -r f; do
+            [[ "$f" == *.php ]] || continue
+            $php_cmd -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
+          done <<< "$modified"
+        fi
+      fi
+      ;;
+    generic-php)
       local modified
       modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
       if [[ -z "$modified" ]]; then
         printf 'No hay archivos modificados. Nada que verificar.\n'
       else
-        while IFS= read -r f; do
-          if [[ "$f" == *.php ]]; then
-            if command -v php >/dev/null 2>&1; then
-              php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
-            else
-              printf '  [aviso] php no instalado, saltando lint de %s\n' "$f"
-            fi
-          fi
-        done <<< "$modified"
+        if command -v php >/dev/null 2>&1; then
+          while IFS= read -r f; do
+            [[ "$f" == *.php ]] || continue
+            php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
+          done <<< "$modified"
+        else
+          printf '  [aviso] php no instalado, saltando lint\n'
+        fi
       fi
       ;;
     alegra-microservice|generic-typescript)
@@ -648,10 +693,15 @@ case "${1:-help}" in
   tunnel) shift; tunnel_cmd "$@" ;;
   context) shift; detect_context "$@" ;;
   version)
-    _dh_tag=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
-    printf '%s\n' "${_dh_tag:-0.0.0-dev}"
+    _dh_tag=$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || true)
+    if [[ -z "$_dh_tag" ]]; then
+      _dh_sha=$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+      printf '%s-dev\n' "$_dh_sha"
+    else
+      printf '%s\n' "$_dh_tag"
+    fi
     ;;
-  update) self_update ;;
+  update) shift; self_update "$@" ;;
   project) shift; project_init "$@" ;;
   session) shift; session_start "$@" ;;
   engram-service) shift; engram_service "$@" ;;

@@ -158,20 +158,59 @@ parse_mcp_headers_json() {
   ' "$MANIFEST"
 }
 
-# Parseadores de perfiles
-profile_includes() {
-  local field=$1 item=$2
-  awk -v p="$PROFILE" -v f="$field" -v i="$item" '
+# Parseadores de perfiles con herencia (extends)
+_get_profile_field() {
+  local p=$1 field=$2
+  awk -v p="$p" -v f="$field" '
     $0 ~ "^profiles:" { in_profiles=1; next }
     in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
     in_profile && $0 ~ "^    " f ":" {
-      if (index($0, "\"" i "\"") > 0 || index($0, "'\''" i "'\''") > 0) { found=1; exit }
       sub(/^[[:space:]]*[a-z_]+:[[:space:]]*/, "")
-      if (index($0, i) > 0) { found=1; exit }
+      gsub(/^\[|\]$/, "")
+      gsub(/["\x27]/, "")
+      gsub(/[[:space:]]*,[[:space:]]*/, "\n")
+      print; exit
     }
-    in_profile && !/^    / && $0 !~ /^[[:space:]]*$/ { in_profile=0 }
-    END { exit found ? 0 : 1 }
+    in_profile && !/^    / && !/^[[:space:]]*$/ { in_profile=0 }
   ' "$MANIFEST"
+}
+
+_get_profile_extend() {
+  local p=$1
+  awk -v p="$p" '
+    $0 ~ "^profiles:" { in_profiles=1; next }
+    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
+    in_profile && $0 ~ "^    extends:" {
+      sub(/^[[:space:]]*extends:[[:space:]]*/, "")
+      gsub(/^["\x27]/, ""); gsub(/["\x27]$/, "")
+      print; exit
+    }
+    in_profile && !/^    / && !/^[[:space:]]*$/ { in_profile=0 }
+  ' "$MANIFEST"
+}
+
+# Verifica si un item pertenece al campo de un perfil, recorriendo extends
+_profile_field_contains() {
+  local p=$1 field=$2 item=$3
+  local items
+  items=$(_get_profile_field "$p" "$field")
+  echo "$items" | grep -qxF "$item" 2>/dev/null
+}
+
+profile_includes() {
+  local field=$1 item=$2
+  local p last_p
+  p=$PROFILE
+  while [[ -n "$p" ]]; do
+    if _profile_field_contains "$p" "$field" "$item"; then
+      return 0
+    fi
+    last_p=$p
+    p=$(_get_profile_extend "$p")
+    # evitar bucles infinitos por extends cíclico
+    [[ "$p" == "$last_p" ]] && break
+  done
+  return 1
 }
 
 # ---------------------------------------------------------------------------
