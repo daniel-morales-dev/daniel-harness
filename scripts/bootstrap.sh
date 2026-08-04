@@ -339,12 +339,74 @@ if command -v gentle-ai >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 8: Servidores MCP (transaccional — candidato único + validación + backup)
+# Fase 8: Servidores MCP (crash-consistent transaction)
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
 
-TMP_CANDIDATE=$(mktemp)
+# Lock para impedir bootstrap concurrente
+LOCK_FILE="$STATE_DIR/.bootstrap.lock"
+JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
+mkdir -p "$STATE_DIR"
+exec 200>"$LOCK_FILE"
+flock -n 200 || {
+  critical "Otro bootstrap en ejecucion (lock: $LOCK_FILE)"
+  exit 1
+}
+
+# Failpoints para tests deterministicos
+_check_failpoint() {
+  local point=$1
+  if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "$point" ]]; then
+    critical "Failpoint alcanzado: $point"
+    exit 1
+  fi
+}
+
+# Journal de transaccion
+_write_journal() {
+  local phase=$1
+  jq -n --arg p "$phase" \
+    --arg oc "$OC_FILE" \
+    --arg st "$STATE_FILE" \
+    '{phase: $p, configFile: $oc, stateFile: $st}' > "$JOURNAL_FILE"
+}
+
+_clear_journal() { rm -f "$JOURNAL_FILE"; }
+
+trap _rollback EXIT
+trap '_rollback; exit 1' INT TERM
+
+# Rollback atómico (desactivar trap antes de restaurar)
+_rollback() {
+  local rc=$?
+  trap '' EXIT INT TERM
+  if [[ -f "$JOURNAL_FILE" ]]; then
+    local j_phase j_oc j_st
+    j_phase=$(jq -r '.phase // "unknown"' "$JOURNAL_FILE" 2>/dev/null || echo "unknown")
+    j_oc=$(jq -r '.configFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    j_st=$(jq -r '.stateFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    critical "Recuperando transaccion incompleta (fase: $j_phase)"
+    if [[ -n "$j_oc" && -f "${j_oc}.bak" ]]; then
+      cp "${j_oc}.bak" "$j_oc"
+    fi
+    if [[ -n "$j_st" && -f "${j_st}.bak" ]]; then
+      cp "${j_st}.bak" "$j_st"
+    fi
+    _clear_journal
+  fi
+  rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+  exit $rc
+}
+
+# Recuperar transacción incompleta al iniciar
+if [[ -f "$JOURNAL_FILE" ]]; then
+  warn "Transaccion incompleta detectada — recuperando"
+  _rollback
+fi
+
+TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
 cp "$OC_FILE" "$TMP_CANDIDATE"
+TMP_STATE=""
 MCP_ADDED=0
 MCP_UPDATED=0
 MCP_SKIPPED=0
@@ -492,65 +554,76 @@ _build_state() {
 
 if [[ $DRY_RUN == false ]]; then
   OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
-  TMP_STATE=$(mktemp)
+  TMP_STATE=$(mktemp "$STATE_DIR/.opencode-managed.json.XXXXXXXX")
+
+  _check_failpoint "pre-validate"
 
   if (( MCP_ADDED > 0 || MCP_UPDATED > 0 )); then
     if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
-      critical "Candidato JSON inválido — cambios NO aplicados"
+      critical "Candidato JSON invalido -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     elif ! python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
          --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
-      critical "Candidato no pasa validación de schema — cambios NO aplicados"
+      critical "Candidato no pasa validacion de schema -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     elif (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
-      critical "No se pudo construir state — cambios NO aplicados"
+      critical "No se pudo construir state -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     else
+      # Backups obligatorios (sin || true)
       BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
-      cp "$OC_FILE" "$BACKUP_OC" 2>/dev/null || true
-      chmod 600 "$BACKUP_OC" 2>/dev/null || true
-      if (( ${#MANAGED_MCPS[@]} > 0 )); then
+      cp "$OC_FILE" "$BACKUP_OC"
+      chmod 600 "$BACKUP_OC"
+      if (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
         BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-        cp "$STATE_FILE" "$BACKUP_STATE" 2>/dev/null || true
-        chmod 600 "$BACKUP_STATE" 2>/dev/null || true
+        cp "$STATE_FILE" "$BACKUP_STATE"
+        chmod 600 "$BACKUP_STATE"
       fi
 
-      mv "$TMP_CANDIDATE" "$OC_FILE" && chmod 600 "$OC_FILE"
-      OC_MOVED=$?
-      STATE_MOVED=0
+      _check_failpoint "backup-config"
+      _check_failpoint "backup-state"
+
+      _write_journal "apply-config"
+      _check_failpoint "move-config"
+      mv "$TMP_CANDIDATE" "$OC_FILE"
+      chmod 600 "$OC_FILE"
+
       if (( ${#MANAGED_MCPS[@]} > 0 )); then
-        mv "$TMP_STATE" "$STATE_FILE" && chmod 600 "$STATE_FILE"
-        STATE_MOVED=$?
+        _write_journal "apply-state"
+        _check_failpoint "move-state"
+        mv "$TMP_STATE" "$STATE_FILE"
+        chmod 600 "$STATE_FILE"
+        _check_failpoint "chmod-state"
       fi
 
-      if (( OC_MOVED == 0 && STATE_MOVED == 0 )); then
-        summary="${MCP_ADDED} nuevos"
-        [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
-        [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
-        ok "Configuración aplicada (${summary})"
-        [[ -f "$BACKUP_OC" ]] && info "Backup: $BACKUP_OC"
-      else
-        critical "Fallo al escribir configuración o state — restaurando backups"
-        [[ -f "$BACKUP_OC" ]] && cp "$BACKUP_OC" "$OC_FILE" 2>/dev/null || true
-        [[ -f "$BACKUP_STATE" ]] && cp "$BACKUP_STATE" "$STATE_FILE" 2>/dev/null || true
-        rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-      fi
+      _clear_journal
+      summary="${MCP_ADDED} nuevos"
+      [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
+      [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
+      ok "Configuracion aplicada (${summary})"
+      info "Backup: $BACKUP_OC"
     fi
   else
     if (( ${#MANAGED_MCPS[@]} > 0 )); then
       if _build_state "$OC_FILE" "$TMP_STATE"; then
-        BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-        cp "$STATE_FILE" "$BACKUP_STATE" 2>/dev/null || true
-        chmod 600 "$BACKUP_STATE" 2>/dev/null || true
-        mv "$TMP_STATE" "$STATE_FILE" && chmod 600 "$STATE_FILE" || {
-          critical "Fallo al escribir state — restaurando backup"
-          [[ -f "$BACKUP_STATE" ]] && cp "$BACKUP_STATE" "$STATE_FILE" 2>/dev/null || true
-        }
+        if [[ -f "$STATE_FILE" ]]; then
+          _check_failpoint "backup-state"
+          BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
+          cp "$STATE_FILE" "$BACKUP_STATE"
+          chmod 600 "$BACKUP_STATE"
+        fi
+
+        _write_journal "apply-state"
+        _check_failpoint "move-state"
+        mv "$TMP_STATE" "$STATE_FILE"
+        _check_failpoint "chmod-state"
+        chmod 600 "$STATE_FILE"
+        _clear_journal
       fi
     fi
     summary=""
     [[ $MCP_SKIPPED -gt 0 ]] && summary="${MCP_SKIPPED} personalizados omitidos"
-    rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+    rm -f "$TMP_CANDIDATE"
     if [[ -n "$summary" ]]; then
       ok "MCPs: ${summary}"
     else

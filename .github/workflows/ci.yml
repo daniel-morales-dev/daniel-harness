@@ -99,6 +99,10 @@ jobs:
         run: bash tests/plugin-reconciliation.test.sh
       - name: Preflight output
         run: python3 tests/preflight.test.py
+      - name: Drift 3-run persistence
+        run: bash tests/drift-three-run.test.sh
+      - name: Transaction failures
+        run: bash tests/transaction-failures.test.sh
 
   gitleaks:
     timeout-minutes: 5
