@@ -6,8 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    timeout-minutes: 10
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -19,23 +27,21 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: ShellCheck scripts
-        run: |
-          shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2317 bin/dh scripts/*.sh
+        run: shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2317 bin/dh scripts/*.sh
 
       - name: Bash syntax check
-        run: |
-          bash -n bin/dh scripts/*.sh
+        run: bash -n bin/dh scripts/*.sh
 
-      - name: Validate config schema
-        run: python3 tests/config-schema.test.py
+      - name: Internal schemas
+        run: python3 tests/config-schema.test.py && python3 tests/connections-schema.test.py && python3 tests/examples-schema.test.py
 
-      - name: Validate connections schema
-        run: python3 tests/connections-schema.test.py
+      - name: Profile resolver
+        run: bash tests/profile-resolver.test.sh
 
-      - name: Validate example files against schemas
-        run: python3 tests/examples-schema.test.py
+      - name: Config security
+        run: python3 tests/security-config.test.py
 
-      - name: Validate harness structure (Python)
+      - name: Agents and skills
         run: python3 tests/harness.test.py
 
       - name: Validate skill frontmatter
@@ -66,19 +72,41 @@ jobs:
       - name: Redact config test
         run: bash tests/redact-opencode-config.test.sh
 
-      - name: Clean runtime test (jsonschema dependency)
+      - name: Clean runtime test
         run: bash tests/clean-runtime.test.sh
 
-      - name: E2E bootstrap test (temp HOME)
+  e2e:
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install -r requirements-dev.txt
+      - name: E2E bootstrap
         run: bash tests/e2e-bootstrap.test.sh
+      - name: MCP reconciliation
+        run: bash tests/mcp-reconciliation.test.sh
+      - name: OpenCode schema
+        run: python3 tests/opencode-schema.test.py
+      - name: Installer first-run
+        run: bash tests/installer-first-run.test.sh
+      - name: Doctor MCP status
+        run: bash tests/doctor-mcp-status.test.sh
+      - name: Plugin reconciliation
+        run: bash tests/plugin-reconciliation.test.sh
+      - name: Preflight output
+        run: python3 tests/preflight.test.py
 
   gitleaks:
+    timeout-minutes: 5
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:

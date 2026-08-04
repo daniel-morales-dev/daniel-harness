@@ -305,6 +305,17 @@ def test_doctor_uses_root_dir_for_harness_components():
     assert '$ROOT_DIR/tests/fixtures/opencode-config.schema.json' in doctor
     assert '$ROOT_DIR/scripts/validate-opencode-config.py' in doctor
 
+def test_no_duplicate_ci_workflows():
+    """Only ci.yml should trigger on push/PR (no validate.yml or e2e.yml)."""
+    expected = {"ci.yml", "compatibility.yml"}
+    found = set()
+    for wf in (ROOT_DIR / ".github" / "workflows").glob("*.yml"):
+        content = wf.read_text()
+        if "pull_request:" in content or "push:" in content:
+            found.add(wf.name)
+    unknown = found - expected
+    assert not unknown, f"Unexpected workflows with push/PR trigger: {unknown}"
+
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
     scripts = [
@@ -534,6 +545,9 @@ if __name__ == "__main__":
 
     test_doctor_uses_root_dir_for_harness_components()
     print("[ok] doctor usa ROOT_DIR para schema/validator")
+
+    test_no_duplicate_ci_workflows()
+    print("[ok] no workflows duplicados")
 
     test_data_tools_exist()
     print("[ok] data tools: existencia, frontmatter basico")
