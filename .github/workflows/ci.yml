@@ -89,6 +89,12 @@ jobs:
       - name: Bootstrap test
         run: bash tests/bootstrap.test.sh
 
+      - name: Dry-run test
+        run: bash tests/dry-run.test.sh
+
+      - name: Release smoke test (stubs)
+        run: bash tests/release-smoke.test.sh --stubs
+
       - name: Redact config test
         run: bash tests/redact-opencode-config.test.sh
 
