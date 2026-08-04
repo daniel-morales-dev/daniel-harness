@@ -69,8 +69,9 @@ def main():
         print(json.dumps({"error": f"Unknown tool: {tool}"}))
         sys.exit(2)
 
-    result = handle(profile, credentials, operation, params)
+    result, code = handle(profile, credentials, operation, params)
     print(json.dumps(result))
+    sys.exit(code)
 
 if __name__ == "__main__":
     main()
