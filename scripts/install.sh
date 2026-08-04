@@ -64,7 +64,7 @@ install_config_if_missing "$ROOT_DIR/examples/config.example.yaml" "$HARNESS_CON
 install_config_if_missing "$ROOT_DIR/examples/connections.example.yaml" "$HARNESS_CONFIG_DIR/connections.yaml"
 install_config_if_missing "$ROOT_DIR/examples/project-registry.example.yaml" "$HARNESS_CONFIG_DIR/project-registry.yaml"
 
-install -d -m 700 "$OPENCODE_CONFIG_DIR/agents" "$OPENCODE_CONFIG_DIR/skills" "$OPENCODE_CONFIG_DIR/commands"
+install -d -m 700 "$OPENCODE_CONFIG_DIR/agents" "$OPENCODE_CONFIG_DIR/skills" "$OPENCODE_CONFIG_DIR/commands" "$OPENCODE_CONFIG_DIR/tools"
 
 install -d -m 700 "$HARNESS_CONFIG_DIR/policies" "$HARNESS_CONFIG_DIR/policies.local"
 for policy in "$ROOT_DIR/policies/"*.md; do

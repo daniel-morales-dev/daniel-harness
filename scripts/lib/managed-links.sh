@@ -22,5 +22,11 @@ commands/object-storage-read.md|OPENCODE_CONFIG_DIR|commands/object-storage-read
 bin/dh|LOCAL_BIN|dh
 install|LOCAL_BIN|dh-install
 global/AGENTS.md|OPENCODE_CONFIG_DIR|AGENTS.md
+agents/data-access.md|OPENCODE_CONFIG_DIR|agents/data-access.md
+tools/dh-mysql-query.ts|OPENCODE_CONFIG_DIR|tools/dh-mysql-query.ts
+tools/dh-mongodb-query.ts|OPENCODE_CONFIG_DIR|tools/dh-mongodb-query.ts
+tools/dh-dynamodb-read.ts|OPENCODE_CONFIG_DIR|tools/dh-dynamodb-read.ts
+tools/dh-dynamodb-write.ts|OPENCODE_CONFIG_DIR|tools/dh-dynamodb-write.ts
+tools/dh-object-storage-read.ts|OPENCODE_CONFIG_DIR|tools/dh-object-storage-read.ts
 LINKS
 }
