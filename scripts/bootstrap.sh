@@ -175,7 +175,8 @@ if [[ -s "$NVM_DIR/nvm.sh" ]]; then
 elif [[ $DRY_RUN == true ]]; then
   info "[simulado] NVM estaría disponible después de la instalación. CodeGraph puede fallar sin Node."
 fi
-install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "npm install -g @codegraph/cli"
+CG_INSTALL=$(parse_nested_value "user_tools" "codegraph" "install")
+install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "$CG_INSTALL"
 install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
 
 if profile_includes "$PROFILE" "tools" "gh"; then
