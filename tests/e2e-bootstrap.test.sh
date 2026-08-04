@@ -126,37 +126,29 @@ for tunnel in alegra-hopper alegra-production k-agencia-mysql k-agencia-mongodb 
   chmod 600 "$CONFIG_TMP/daniel-harness/secrets/tunnels/$tunnel.command"
 done
 
-cat > "$CONFIG_TMP/daniel-harness/config.yaml" <<'EOF'
-version: "1"
-defaultScope: single-repo
-workflowAuthority: {}
-tooling: {}
-workTracking: {}
-mcpRouting: []
-confirmations: {}
-models:
-  - id: default
-    trust: trusted
-    allowArbitraryShell: false
-    allowedCapabilities: []
-EOF
+# Use config.example.yaml as base but remove restricted models for E2E
+# (doctor.sh flags agents without wildcard deny when restricted models exist)
+python3 -c "
+import yaml, json
+from pathlib import Path
+cfg = yaml.safe_load((Path('examples/config.example.yaml')).read_text())
+cfg['models'] = [m for m in cfg['models'] if m.get('trust') != 'restricted']
+from pathlib import Path
+Path('$CONFIG_TMP/daniel-harness/config.yaml').write_text(yaml.dump(cfg))
+" && pass "config fixture creada sin modelos restricted"
+python3 -c "
+import json, yaml, sys
+from pathlib import Path
+schema = json.loads((Path('schemas/config.schema.json')).read_text())
+config = yaml.safe_load((Path('$CONFIG_TMP/daniel-harness/config.yaml')).read_text())
+import jsonschema
+jsonschema.validate(config, schema)
+" && pass "config fixture valida contra schema" || fail "config fixture no valida"
 
 for h in "$HOME_CORE" "$HOME_ALEGRA" "$HOME_MIGRATION" "$HOME_FULL"; do
   mkdir -p "$h/.config/daniel-harness/secrets/tunnels"
-  cat > "$h/.config/daniel-harness/config.yaml" <<'EOF'
-version: "1"
-defaultScope: single-repo
-workflowAuthority: {}
-tooling: {}
-workTracking: {}
-mcpRouting: []
-confirmations: {}
-models:
-  - id: default
-    trust: trusted
-    allowArbitraryShell: false
-    allowedCapabilities: []
-EOF
+  cp "$CONFIG_TMP/daniel-harness/config.yaml" "$h/.config/daniel-harness/config.yaml"
+  chmod 600 "$h/.config/daniel-harness/config.yaml"
 done
 
 export PATH="$STUBS:$PATH"
@@ -259,19 +251,7 @@ grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-idempotent.out" &
 printf '\n=== Phase 5c: Core → alegra transition ===\n'
 TRANSITION_HOME="$TMP_DIR/home-transition"
 mkdir -p "$TRANSITION_HOME/.config/daniel-harness/secrets/tunnels" "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin"
-printf '%s' 'version: "1"
-defaultScope: single-repo
-workflowAuthority: {}
-tooling: {}
-workTracking: {}
-mcpRouting: []
-confirmations: {}
-models:
-  - id: default
-    trust: trusted
-    allowArbitraryShell: false
-    allowedCapabilities: []
-' > "$TRANSITION_HOME/.config/daniel-harness/config.yaml"
+cp "$CONFIG_TMP/daniel-harness/config.yaml" "$TRANSITION_HOME/.config/daniel-harness/config.yaml"
 echo 'nvm() { :; }' > "$TRANSITION_HOME/.nvm/nvm.sh"
 echo '#!/bin/bash; echo v24.0.0' > "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
 chmod +x "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
