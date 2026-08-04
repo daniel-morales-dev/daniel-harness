@@ -443,12 +443,17 @@ session_start() {
     exit 1
   fi
 
+  if [[ -n "$issue_id" ]] && ! echo "$issue_id" | grep -qxE '^[A-Z][A-Z0-9]+-[0-9]+$' 2>/dev/null; then
+    printf '[error] Formato invalido: %s (esperado: PROY-123)\n' "$issue_id" >&2
+    exit 1
+  fi
+
   if [[ "$subcmd" == "help" || "$subcmd" == "--help" || "$subcmd" == "-h" ]]; then
     printf 'Uso: dh session <subcomando> <issue-id>\n\n'
     printf 'Subcomandos:\n'
     printf '  scaffold <issue-id>  Crea plantilla de brief (sin API)\n'
-    printf '  read <issue-id>      Crea plantilla + instruye al agente a leer Linear vía MCP\n'
-    printf '  close <issue-id>     Cierra sesión: guarda resumen para Engram + Linear\n'
+    printf '  read <issue-id>      Crea plantilla + instruye al agente a leer Linear via MCP\n'
+    printf '  close <issue-id>     Cierra sesion: resumen con git diff + verify\n'
     return
   fi
 
@@ -460,28 +465,44 @@ session_start() {
     local summary_file="$session_dir/$issue_id-summary.md"
 
     if [[ ! -f "$session_file" ]]; then
-      printf '[error] No hay sesión activa para %s\n' "$issue_id" >&2
+      printf '[error] No hay sesion activa para %s\n' "$issue_id" >&2
       printf '  Crea una con: dh session scaffold %s\n' "$issue_id"
       exit 1
     fi
 
-    # Generate session summary for Engram + Linear
+    local changed_files verify_output
+    changed_files=$(git diff --name-only HEAD 2>/dev/null || true)
+    verify_output=$(bash "$ROOT_DIR/bin/dh" verify 2>/dev/null || true)
+
     {
-      printf '# Resumen de sesión: %s\n\n' "$issue_id"
+      printf '# Resumen de sesion: %s\n\n' "$issue_id"
       printf 'Completada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
       printf '## Contexto al cierre\n\n'
       detect_context
-      printf '\n## Log de la sesión\n\n'
+      printf '\n## Log de la sesion\n\n'
       cat "$session_file"
-      printf '\n## Instrucciones para el agente\n\n'
-      printf '1. Publica este resumen como comentario en Linear issue %s usando save_comment\n' "$issue_id"
-      printf '2. Guarda el resumen en Engram con mem_session_summary\n'
+      printf '\n## Archivos modificados\n\n'
+      if [[ -n "$changed_files" ]]; then
+        printf '%s\n' "$changed_files"
+      else
+        printf '(ninguno)\n'
+      fi
+      printf '\n## Verificacion\n\n'
+      printf '%s\n' "${verify_output:-"(no ejecutada)"}"
+      printf '\n## Proximos pasos\n\n'
+      printf '1. Publicar este resumen como comentario en la issue de Linear\n'
+      printf '2. Guardar el resumen en Engram con mem_session_summary\n'
     } > "$summary_file"
 
-    printf '[ok] Resumen de sesión guardado: %s\n' "$summary_file"
+    printf '[ok] Resumen de sesion guardado: %s\n' "$summary_file"
+    printf '\n  Contenido:\n'
+    printf '  - Contexto del proyecto\n'
+    printf '  - Log de la sesion\n'
+    printf '  - Archivos modificados\n'
+    printf '  - Resultado de verificacion\n'
     printf '\n  El agente debe:\n'
-    printf '  1. Publicar comentario en Linear: save_comment(issueId="%s", body=contenido)\n' "$issue_id"
-    printf '  2. Guardar en Engram: mem_session_summary(project="...", content=resumen)\n'
+    printf '  1. Publicar comentario en Linear con el resumen\n'
+    printf '  2. Guardar en Engram con mem_session_summary\n'
     return
   fi
 
@@ -489,11 +510,11 @@ session_start() {
 
   # ponytail: no curl/token — el agente lee Linear via MCP
   {
-    printf '# Sesión: %s\n\n' "$issue_id"
+    printf '# Sesion: %s\n\n' "$issue_id"
     printf 'Iniciada: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')"
     if [[ "$subcmd" == "read" ]]; then
       printf '> Esta plantilla debe ser poblada por el agente usando Linear MCP.\n'
-      printf '> Usa linear_get_issue para leer título, descripción, estado, asignado,\n'
+      printf '> Usa linear_get_issue para leer titulo, descripcion, estado, asignado,\n'
       printf '> labels, subtareas y comentarios. Luego completa las secciones abajo.\n\n'
     fi
     printf '## Tarea\n\n'
@@ -501,11 +522,11 @@ session_start() {
     printf '## Contexto\n\n'
     detect_context
     printf '\n## Objetivo\n\n- \n'
-    printf '\n## Criterios de aceptación\n\n- \n'
+    printf '\n## Criterios de aceptacion\n\n- \n'
     printf '\n## Archivos afectados\n\n- \n'
   } > "$session_file"
 
-  printf '[ok] Plantilla de sesión creada: %s\n' "$session_file"
+  printf '[ok] Plantilla de sesion creada: %s\n' "$session_file"
 }
 
 engram_service() {
