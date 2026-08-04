@@ -470,7 +470,9 @@ phase "Verificación"
 
 if [[ -f "$ROOT_DIR/scripts/doctor.sh" ]]; then
   info 'Ejecutando doctor.sh...'
-  if run bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict; then
+  doctor_args="--profile $PROFILE --strict --skip-oauth"
+  if $SKIP_DOCKER; then doctor_args="$doctor_args --skip-docker"; fi
+  if run bash "$ROOT_DIR/scripts/doctor.sh" $doctor_args; then
     ok 'Bootstrap completado y saludable'
   else
     printf '\n========================================\n'

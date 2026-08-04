@@ -8,6 +8,8 @@ OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-"$OPENCODE_CONFIG_DIR/opencode.json"}
 REPOSITORY_DIR=${DANIEL_HARNESS_REPO:-"$ROOT_DIR"}
 STRICT=false
+SKIP_OAUTH=false
+SKIP_DOCKER=false
 PROFILE=
 WARNINGS=0
 CRITICAL=0
@@ -18,9 +20,11 @@ source "$ROOT_DIR/scripts/profile-resolver.sh"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --strict) STRICT=true; shift ;;
+    --skip-oauth) SKIP_OAUTH=true; shift ;;
+    --skip-docker) SKIP_DOCKER=true; shift ;;
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
-    --help|-h) printf 'Uso: doctor.sh [--strict] [--profile core|alegra|migration|full]\n'; exit 0 ;;
+    --help|-h) printf 'Uso: doctor.sh [--strict] [--skip-oauth] [--profile core|alegra|migration|full]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -445,14 +449,25 @@ else
         if [[ $configured == false ]]; then
           critical "MCP $mcp no configurado (requerido por perfil $PROFILE)"
         else
-          enabled=$(jq -r --arg n "$mcp" '.mcp[$n].enabled // true' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+          enabled=$(jq -r --arg n "$mcp" 'if .mcp[$n].enabled == null then true else .mcp[$n].enabled end' "$OPENCODE_CONFIG_FILE" 2>/dev/null || echo "true")
           if [[ $enabled == false ]]; then
-            critical "MCP $mcp deshabilitado (requerido por perfil $PROFILE)"
+            cmd0=$(jq -r --arg n "$mcp" '(.mcp[$n].command // [])[0] // ""' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+            if $SKIP_DOCKER && [[ "$cmd0" == "docker" ]]; then
+              warn "MCP $mcp deshabilitado (Docker no disponible, omitido por --skip-docker)"
+            else
+              critical "MCP $mcp deshabilitado (requerido por perfil $PROFILE)"
+            fi
           else
             live=$(check_mcp_live "$mcp")
             case "$live" in
               connected) ;;
-              auth-required) critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)" ;;
+              auth-required)
+                if $SKIP_OAUTH; then
+                  warn "MCP $mcp requiere autenticacion (omitido por --skip-oauth)"
+                else
+                  critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
+                fi
+                ;;
               *) critical "MCP $mcp no accesible (estado: $live)" ;;
             esac
           fi
