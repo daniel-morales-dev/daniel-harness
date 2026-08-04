@@ -278,6 +278,15 @@ def test_data_tools_installed():
     for name in DATA_TOOLS:
         assert f"{name}.md" in inventory, f"{name}.md must be in managed-links.sh"
 
+def test_codegraph_pin_from_manifest():
+    """Verify bootstrap reads codegraph install from manifest via parse_nested_value."""
+    bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()
+    manifest = (ROOT_DIR / "bootstrap" / "manifest.yaml").read_text()
+    assert 'parse_nested_value "user_tools" "codegraph" "install"' in bootstrap, \
+        "bootstrap must read codegraph install from manifest, not hardcode"
+    assert "@codegraph/cli@1.2.0" in manifest, \
+        "manifest must have pinned codegraph version"
+
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
     scripts = [
@@ -498,6 +507,9 @@ if __name__ == "__main__":
 
     test_uninstall_removes_global_link()
     print("[ok] uninstall.sh elimina enlace global")
+
+    test_codegraph_pin_from_manifest()
+    print("[ok] codegraph pin desde manifest, no hardcode")
 
     test_data_tools_exist()
     print("[ok] data tools: existencia, frontmatter basico")
