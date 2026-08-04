@@ -31,8 +31,13 @@ HOME="$TMP_DIR/home" XDG_CONFIG_HOME="$CONFIG_ROOT" "$ROOT_DIR/scripts/install.s
 [[ -L "$TMP_DIR/home/.local/bin/dh" ]]
 [[ -e "$TMP_DIR/home/.local/bin/dh" ]]
 # Verificar que data tools commands NO se instalaron por defecto (experimental)
-[[ ! -L "$OPENCODE_CONFIG/commands/mysql-query.md" ]] || true
-[[ ! -L "$OPENCODE_CONFIG/commands/mongodb-query.md" ]] || true
+[[ ! -L "$OPENCODE_CONFIG/commands/mysql-query.md" ]]
+[[ ! -L "$OPENCODE_CONFIG/commands/mongodb-query.md" ]]
+[[ ! -L "$OPENCODE_CONFIG/commands/dynamodb-read.md" ]]
+[[ ! -L "$OPENCODE_CONFIG/commands/dynamodb-write-confirmed.md" ]]
+[[ ! -L "$OPENCODE_CONFIG/commands/object-storage-read.md" ]]
+[[ ! -L "$OPENCODE_CONFIG/agents/data-access.md" ]]
+[[ ! -L "$TMP_DIR/home/.local/bin/dh-data-executor" ]]
 [[ $(stat -c '%a' "$HARNESS_CONFIG/config.yaml") == 600 ]]
 [[ $(stat -c '%a' "$HARNESS_CONFIG/secrets") == 700 ]]
 [[ $(stat -c '%a' "$HARNESS_CONFIG/secrets/tunnels") == 700 ]]

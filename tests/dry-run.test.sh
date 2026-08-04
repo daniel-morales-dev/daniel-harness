@@ -49,7 +49,7 @@ set +e
 timeout 60 bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile core > /dev/null 2>&1
 RC=$?
 set -e
-if [[ $RC -eq 0 ]] || [[ $RC -eq 1 ]]; then pass "dry-run core exit code $RC (acceptable)"; else fail "dry-run core exit code $RC (unexpected)"; fi
+[[ $RC -eq 0 ]] && pass "dry-run core exit code 0" || fail "dry-run core exit code $RC"
 tree_unchanged "dry-run core"
 
 echo "=== Test 3: --dry-run --profile alegra no modifica nada ==="
@@ -58,7 +58,7 @@ set +e
 timeout 60 bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile alegra > /dev/null 2>&1
 RC=$?
 set -e
-if [[ $RC -eq 0 ]] || [[ $RC -eq 1 ]]; then pass "dry-run alegra exit code $RC"; else fail "dry-run alegra exit code $RC"; fi
+[[ $RC -eq 0 ]] && pass "dry-run alegra exit code 0" || fail "dry-run alegra exit code $RC"
 tree_unchanged "dry-run alegra"
 
 echo "=== Test 4: --dry-run --profile migration --skip-docker no modifica nada ==="
@@ -67,7 +67,7 @@ set +e
 timeout 60 bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile migration --skip-docker > /dev/null 2>&1
 RC=$?
 set -e
-if [[ $RC -eq 0 ]] || [[ $RC -eq 1 ]]; then pass "dry-run migration exit code $RC"; else fail "dry-run migration exit code $RC"; fi
+[[ $RC -eq 0 ]] && pass "dry-run migration exit code 0" || fail "dry-run migration exit code $RC"
 tree_unchanged "dry-run migration"
 
 echo "=== Test 5: --dry-run --profile full no modifica nada ==="
@@ -76,7 +76,7 @@ set +e
 timeout 60 bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile full > /dev/null 2>&1
 RC=$?
 set -e
-if [[ $RC -eq 0 ]] || [[ $RC -eq 1 ]]; then pass "dry-run full exit code $RC"; else fail "dry-run full exit code $RC"; fi
+[[ $RC -eq 0 ]] && pass "dry-run full exit code 0" || fail "dry-run full exit code $RC"
 tree_unchanged "dry-run full"
 
 echo "=== Test 6: output contiene simulación ==="

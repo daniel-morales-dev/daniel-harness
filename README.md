@@ -1,6 +1,6 @@
 # Daniel Harness
 
-Daniel Harness es la capa privada y global que coordina el trabajo agentic de Daniel Morales sobre OpenCode y Gentle AI. Resuelve contexto, repositorios, políticas, herramientas, seguimiento de tareas y seguridad sin duplicar el motor de workflow de Gentle AI.
+Daniel Harness es la capa global que coordina el trabajo agentic de Daniel Morales sobre OpenCode y Gentle AI. Resuelve contexto, repositorios, políticas, herramientas, seguimiento de tareas y seguridad sin duplicar el motor de workflow de Gentle AI.
 
 El código y los contratos viven en este repositorio. La configuración local y los secretos viven fuera, en `~/.config/daniel-harness/`.
 
@@ -36,8 +36,7 @@ Los closed data tools (MySQL, MongoDB, DynamoDB, Object Storage) están en **bet
 y deshabilitados por defecto. Para activarlos:
 
 ```bash
-./install --experimental-data-tools
-./scripts/install.sh --experimental-data-tools
+./install --profile <perfil> --experimental-data-tools
 ```
 
 O durante bootstrap:
@@ -45,6 +44,9 @@ O durante bootstrap:
 ```bash
 ./scripts/bootstrap.sh --profile full --experimental-data-tools
 ```
+
+Esto crea el runtime Python, instala dependencias (boto3, pymongo, sqlglot)
+y activa los agentes, tools y comandos de acceso a datos.
 
 **Estado: experimental**. No se consideran estables en v0.1.0.
 
@@ -200,4 +202,4 @@ Consulta `SECURITY.md` y `docs/security-model.md`.
 - Plataforma: Ubuntu 24.04 LTS
 - Reporta errores en: https://github.com/daniel-morales-dev/daniel-harness/issues
 
-Este repositorio es privado y personal. No se concede licencia pública.
+Ubuntu 24.04 soportado. No se concede licencia pública.

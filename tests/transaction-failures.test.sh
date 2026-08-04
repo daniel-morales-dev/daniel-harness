@@ -125,7 +125,7 @@ jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-reduced.json" && mv "$TMP_DIR
 CONFIG_HASH_ADD=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
 STATE_HASH_ADD="no-file"
 
-ADD_FAILPOINTS=("backup-config" "backup-state" "move-config" "move-state" "chmod-state")
+ADD_FAILPOINTS=("backup-config" "backup-state" "journal-write" "move-config" "chmod-config" "crash-after-config" "move-state" "chmod-state" "crash-after-state")
 for fp in "${ADD_FAILPOINTS[@]}"; do
   set +e
   DH_TEST_MODE=1 DH_FAIL_AT="$fp" \
@@ -172,6 +172,37 @@ fi
 # Journal debe estar limpio
 JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
 [[ ! -f "$JOURNAL" ]] && pass "recovery: no journal" || fail "recovery: journal present"
+
+echo "=== Plugin-only reconciliation ==="
+# Config con todos los MCPs identicos, Ponytail con version anterior
+jq '.plugin = ["@dietrichgebert/ponytail@4.0.0"]' "$OC_FILE" > "$TMP_DIR/oc-old-ponytail.json"
+mv "$TMP_DIR/oc-old-ponytail.json" "$OC_FILE"
+CONFIG_HASH_PLUGIN=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+rm -f "$STATE_FILE"
+
+# Bootstrap debe actualizar Ponytail aunque los MCPs ya existan
+set +e
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/plugin-update.out" 2>&1
+RC=$?
+set -e
+if [[ $RC -eq 0 ]]; then
+  pass "plugin-only: bootstrap OK"
+else
+  fail "plugin-only: bootstrap exit $RC"
+fi
+
+# Ponytail debe estar actualizado
+jq -e '.plugin[] == "@dietrichgebert/ponytail@4.8.4"' "$OC_FILE" >/dev/null && pass "plugin-only: Ponytail updated" || fail "plugin-only: Ponytail NOT updated"
+
+# Segunda ejecucion no debe modificar nada
+CONFIG_HASH_AFTER=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+set +e
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/plugin-idempotent.out" 2>&1
+RC=$?
+set -e
+[[ $RC -eq 0 ]] && pass "plugin-only: second bootstrap OK" || fail "plugin-only: second bootstrap exit $RC"
+CONFIG_HASH_AFTER2=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+[[ "$CONFIG_HASH_AFTER" == "$CONFIG_HASH_AFTER2" ]] && pass "plugin-only: idempotent" || fail "plugin-only: config changed on second run"
 
 echo ""
 echo "=== Resultados: $PASS pasaron, $FAIL fallaron ==="

@@ -46,6 +46,10 @@ while IFS='|' read -r source_rel dest_var dest_rel; do
 done < <(list_managed_links)
 
 # Verificar que experimental NO se instalaron por defecto
+# Verificar que runtime-venv NO se creó (data tools deshabilitadas por defecto)
+VENV_DIR="${DANIEL_HARNESS_RUNTIME_DIR:-$HOME_DIR/.local/share/daniel-harness/runtime-venv}"
+[[ ! -d "$VENV_DIR" ]] && pass "runtime-venv no creado (experimental deshabilitado)" || fail "runtime-venv creado sin --experimental-data-tools"
+
 echo "=== Fase 1b: experimental no instalados por defecto ==="
 while IFS='|' read -r source_rel dest_var dest_rel; do
   target="${!dest_var}/$dest_rel"

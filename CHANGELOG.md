@@ -35,7 +35,7 @@
 - Journal de transacción permite rollback exacto
 - Failpoints para probar recuperación en cada fase
 - Doctor detecta secretos hardcodeados, URLs con credenciales
-- Rechazo de ambient credentials en data tools
+- Validación temprana de credenciales en data tools
 - Navi externalizado: no expone ARN, client ID ni headers
 
 ### Experimental
@@ -51,6 +51,6 @@
 - OAuth de MCPs requiere autenticación manual con `opencode mcp auth`
 - Ubuntu 24.04 es la plataforma soportada y verificada
 - Túneles locales son manuales (SSH)
-- El repositorio es privado; no se concede licencia pública
+- No se concede licencia pública
 - Las políticas de data tools (policy gate común, fail-closed) se
   completarán en v0.2.0

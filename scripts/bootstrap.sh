@@ -168,7 +168,13 @@ _create_venv() {
   ok "Venv creado en $VENV_DIR"
 }
 
-if [[ $DRY_RUN == true ]]; then
+if [[ $EXPERIMENTAL_DATA_TOOLS == false ]]; then
+  if [[ $DRY_RUN == true ]]; then
+    info "[simulado] Runtime venv omitido (data tools deshabilitadas)"
+  else
+    ok "Runtime venv omitido (data tools deshabilitadas, usa --experimental-data-tools)"
+  fi
+elif [[ $DRY_RUN == true ]]; then
   info "[simulado] Se verificaría/crearía runtime venv en $VENV_DIR"
 elif [[ ! -f "$VENV_DIR/bin/python" ]]; then
   info "Creando runtime venv..."
@@ -303,10 +309,18 @@ _recover_incomplete_transaction() {
   e_oc=$(jq -r '.existedBeforeConfig // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
   e_st=$(jq -r '.existedBeforeState // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
   warn "Recuperando transacción incompleta"
-  if [[ -n "$b_oc" && -f "$b_oc" ]]; then cp "$b_oc" "$j_oc"; chmod 600 "$j_oc" 2>/dev/null || true
-  elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then rm -f "$j_oc"; fi
-  if [[ -n "$b_st" && -f "$b_st" ]]; then cp "$b_st" "$j_st"; chmod 600 "$j_st" 2>/dev/null || true
-  elif [[ "$e_st" == "false" && -n "$j_st" ]]; then rm -f "$j_st"; fi
+  if [[ -n "$b_oc" && -f "$b_oc" ]]; then
+    cp "$b_oc" "$j_oc" || { critical "No se pudo restaurar backup de config"; return 1; }
+    chmod 600 "$j_oc" || { critical "No se pudo fijar permiso de config"; return 1; }
+  elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then
+    rm -f "$j_oc" || { critical "No se pudo eliminar config creada en transaccion fallida"; return 1; }
+  fi
+  if [[ -n "$b_st" && -f "$b_st" ]]; then
+    cp "$b_st" "$j_st" || { critical "No se pudo restaurar backup de state"; return 1; }
+    chmod 600 "$j_st" || { critical "No se pudo fijar permiso de state"; return 1; }
+  elif [[ "$e_st" == "false" && -n "$j_st" ]]; then
+    rm -f "$j_st" || true
+  fi
   rm -f "$JOURNAL_FILE"
 }
 if [[ -f "$JOURNAL_FILE" ]]; then _recover_incomplete_transaction; fi
@@ -319,7 +333,7 @@ _rollback() {
   local rc=$?
   trap '' EXIT INT TERM
   if [[ -f "$JOURNAL_FILE" ]]; then
-    local j_oc j_st b_oc b_st e_oc e_st
+    local j_oc j_st b_oc b_st e_oc e_st restore_failed=false
     j_oc=$(jq -r '.configFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
     j_st=$(jq -r '.stateFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
     b_oc=$(jq -r '.backupConfig // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
@@ -327,11 +341,19 @@ _rollback() {
     e_oc=$(jq -r '.existedBeforeConfig // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
     e_st=$(jq -r '.existedBeforeState // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
     critical "Rollback transacción incompleta (fase: $(jq -r '.phase // "unknown"' "$JOURNAL_FILE" 2>/dev/null || echo "unknown"))"
-    if [[ -n "$b_oc" && -f "$b_oc" ]]; then cp "$b_oc" "$j_oc"; chmod 600 "$j_oc" 2>/dev/null || true
-    elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then rm -f "$j_oc"; fi
-    if [[ -n "$b_st" && -f "$b_st" ]]; then cp "$b_st" "$j_st"; chmod 600 "$j_st" 2>/dev/null || true
-    elif [[ "$e_st" == "false" && -n "$j_st" ]]; then rm -f "$j_st"; fi
-    _clear_journal
+    if [[ -n "$b_oc" && -f "$b_oc" ]]; then
+      cp "$b_oc" "$j_oc" || { critical "Rollback: no se pudo restaurar config"; restore_failed=true; }
+      chmod 600 "$j_oc" || { critical "Rollback: no se pudo fijar permiso de config"; restore_failed=true; }
+    elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then
+      rm -f "$j_oc" || true
+    fi
+    if [[ -n "$b_st" && -f "$b_st" ]]; then
+      cp "$b_st" "$j_st" || { critical "Rollback: no se pudo restaurar state"; restore_failed=true; }
+      chmod 600 "$j_st" || { critical "Rollback: no se pudo fijar permiso de state"; restore_failed=true; }
+    elif [[ "$e_st" == "false" && -n "$j_st" ]]; then
+      rm -f "$j_st" || true
+    fi
+    $restore_failed && critical "Rollback: journal conservado para reintento manual" || _clear_journal
   fi
   [[ -n "$TMP_CANDIDATE" && -f "$TMP_CANDIDATE" ]] && rm -f "$TMP_CANDIDATE"
   [[ -n "$TMP_STATE" && -f "$TMP_STATE" ]] && rm -f "$TMP_STATE"
@@ -662,7 +684,14 @@ if [[ $DRY_RUN == false ]]; then
 
   _check_failpoint "pre-validate"
 
-  if (( MCP_ADDED > 0 || MCP_UPDATED > 0 )); then
+  # Comparar hash canónico del candidato completo vs archivo real
+  # Esto detecta cambios de plugins, MCPs o cualquier config administrada
+  original_hash=$(jq -S -c . "$OC_FILE" 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "no-file")
+  candidate_hash=$(jq -S -c . "$TMP_CANDIDATE" 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "no-candidate")
+  config_changed=false
+  [[ "$original_hash" != "$candidate_hash" ]] && config_changed=true
+
+  if $config_changed; then
     if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
       critical "Candidato JSON invalido -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
@@ -670,42 +699,45 @@ if [[ $DRY_RUN == false ]]; then
          --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
       critical "Candidato no pasa validacion de schema -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-    elif (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
-      critical "No se pudo construir state -- cambios NO aplicados"
-      rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     else
-      # Backups obligatorios (sin || true)
-      BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
-      cp "$OC_FILE" "$BACKUP_OC"
-      chmod 600 "$BACKUP_OC"
-      if (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
-        BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-        cp "$STATE_FILE" "$BACKUP_STATE"
-        chmod 600 "$BACKUP_STATE"
+      if (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
+        critical "No se pudo construir state -- cambios NO aplicados"
+        rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+      else
+        # Backups obligatorios (sin || true)
+        BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
+        cp "$OC_FILE" "$BACKUP_OC"
+        chmod 600 "$BACKUP_OC"
+        if (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
+          BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
+          cp "$STATE_FILE" "$BACKUP_STATE"
+          chmod 600 "$BACKUP_STATE"
+        fi
+
+        _check_failpoint "backup-config"
+        _check_failpoint "backup-state"
+
+        _write_journal "apply-config" "$BACKUP_OC" "" "$OC_EXISTED_BEFORE" "false"
+        _check_failpoint "journal-write"
+        _check_failpoint "move-config"
+        mv "$TMP_CANDIDATE" "$OC_FILE"
+        chmod 600 "$OC_FILE"
+        _check_failpoint "chmod-config"
+        _check_failpoint "crash-after-config"
+
+        if (( ${#MANAGED_MCPS[@]} > 0 )); then
+          _write_journal "apply-state" "$BACKUP_OC" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
+          _check_failpoint "move-state"
+          mv "$TMP_STATE" "$STATE_FILE"
+          chmod 600 "$STATE_FILE"
+          _check_failpoint "chmod-state"
+          _check_failpoint "crash-after-state"
+        fi
+
+        _clear_journal
+        info "Configuracion aplicada (plugins y/o MCPs actualizados)"
+        info "Backup: $BACKUP_OC"
       fi
-
-      _check_failpoint "backup-config"
-      _check_failpoint "backup-state"
-
-      _write_journal "apply-config" "$BACKUP_OC" "" "$OC_EXISTED_BEFORE" "false"
-      _check_failpoint "move-config"
-      mv "$TMP_CANDIDATE" "$OC_FILE"
-      chmod 600 "$OC_FILE"
-
-      if (( ${#MANAGED_MCPS[@]} > 0 )); then
-        _write_journal "apply-state" "$BACKUP_OC" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
-        _check_failpoint "move-state"
-        mv "$TMP_STATE" "$STATE_FILE"
-        chmod 600 "$STATE_FILE"
-        _check_failpoint "chmod-state"
-      fi
-
-      _clear_journal
-      summary="${MCP_ADDED} nuevos"
-      [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
-      [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
-      ok "Configuracion aplicada (${summary})"
-      info "Backup: $BACKUP_OC"
     fi
   else
     if (( ${#MANAGED_MCPS[@]} > 0 )); then
@@ -731,7 +763,7 @@ if [[ $DRY_RUN == false ]]; then
     if [[ -n "$summary" ]]; then
       ok "MCPs: ${summary}"
     else
-      ok "No hay MCPs nuevos que agregar"
+      ok "No hay cambios en la configuracion"
     fi
   fi
 fi
@@ -774,13 +806,13 @@ printf '\nPróximos pasos:\n'
 printf '  1. Autentica MCPs OAuth:\n'
 
 while IFS= read -r name; do
-  configured=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
-  [[ $configured == true ]] || continue
+  configured=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || printf 'false')
+  [[ "$configured" == "true" ]] || continue
   oauth=$(parse_mcp_field "$name" "oauth_required")
   if [[ "$oauth" == "true" ]]; then
     printf '     opencode mcp auth %s\n' "$name"
   fi
-done < <(parse_mcp_names)
+done < <(parse_mcp_names) || true
 
 printf '     Configura GITHUB_PERSONAL_ACCESS_TOKEN para el MCP de GitHub\n'
 printf '     https://github.com/settings/tokens (permisos: repo, read:org, read:user)\n'
