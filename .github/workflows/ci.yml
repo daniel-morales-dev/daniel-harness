@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    timeout-minutes: 10
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -25,6 +25,18 @@ jobs:
 
       - name: Install Python deps
         run: pip install -r requirements-dev.txt
+
+      - name: Install Bun
+        run: curl -fsSL https://bun.sh/install | bash -s -- "bun-v1.3.14"
+        env:
+          BUN_INSTALL: "${{ runner.temp }}/bun"
+
+      - name: TS typecheck + tool tests
+        run: |
+          export PATH="${{ runner.temp }}/bun/bin:$PATH"
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run test:tools
 
       - name: ShellCheck scripts
         run: shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2317 bin/dh scripts/*.sh
@@ -108,7 +120,7 @@ jobs:
         run: bash tests/data-e2e.test.sh
 
   e2e:
-    timeout-minutes: 15
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

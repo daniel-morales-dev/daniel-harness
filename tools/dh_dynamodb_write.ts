@@ -1,15 +1,16 @@
 import { tool } from "@opencode-ai/plugin"
+import { s, e, r, getLauncher, redact } from "./_helpers.js"
 
 export default tool({
   description: "DynamoDB PutItem/UpdateItem with 2-step confirmation via dh-data executor",
   args: {
-    profile: tool.schema.string().describe("AWS profile name"),
-    operation: tool.schema.enum(["PutItem", "UpdateItem"]).describe("DynamoDB write operation"),
-    tableName: tool.schema.string().describe("DynamoDB table name"),
-    keys: tool.schema.record(tool.schema.unknown()).describe("Primary key values"),
-    fields: tool.schema.record(tool.schema.unknown()).optional().describe("Attributes to write"),
-    condition: tool.schema.string().optional().describe("Optional condition expression"),
-    token: tool.schema.string().optional().describe("Confirmation token (confirm phase only)"),
+    profile: s().describe("AWS profile name"),
+    operation: e(["PutItem", "UpdateItem"]).describe("DynamoDB write operation"),
+    tableName: s().describe("DynamoDB table name"),
+    keys: r().describe("Primary key values"),
+    fields: r().optional().describe("Attributes to write"),
+    condition: s().optional().describe("Optional condition expression"),
+    token: s().optional().describe("Confirmation token (confirm phase only)"),
   },
   async execute(args) {
     const isConfirm = !!args.token
@@ -26,20 +27,31 @@ export default tool({
         token: args.token,
       },
     })
-    const launcher = process.env.HOME + "/.local/bin/dh-data-executor"
     try {
-      const proc = Bun.spawn([launcher], { input: payload, stdout: "pipe", stderr: "pipe" })
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 30_000)
+      const proc = Bun.spawn([getLauncher()], {
+        stdin: new Blob([payload]),
+        stdout: "pipe",
+        stderr: "pipe",
+        signal: ctrl.signal,
+      })
       const [stdout, stderr] = await Promise.all([
         Bun.readableStreamToText(proc.stdout),
         Bun.readableStreamToText(proc.stderr),
       ])
+      clearTimeout(timer)
       const exitCode = await proc.exited
-      if (exitCode !== 0) {
-        try { return JSON.stringify(JSON.parse(stdout)) } catch { return JSON.stringify({ error: stderr || "executor exited " + exitCode }) }
+      if (exitCode === 0) return stdout.trim()
+      try {
+        const parsed = JSON.parse(stdout.trim())
+        return JSON.stringify(parsed)
+      } catch {
+        const sanitised = redact(stderr.trim())
+        return JSON.stringify({ error: sanitised || `executor exited (${exitCode})` })
       }
-      return stdout.trim()
-    } catch (e) {
-      return JSON.stringify({ error: "executor failed: " + (e instanceof Error ? e.message : String(e)) })
+    } catch {
+      return JSON.stringify({ error: "executor failed" })
     }
   },
 })
