@@ -577,7 +577,14 @@ SERVICEEOF
 }
 
 verify_cmd() {
-  local ctx_info
+  local ctx_info ALLOW_HOST_PHP=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --allow-host-php) ALLOW_HOST_PHP=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
   ctx_info=$(detect_context)
   local ctx
   ctx=$(echo "$ctx_info" | grep '^contexto=' | sed 's/^contexto=//' || true)
@@ -588,16 +595,19 @@ verify_cmd() {
   case "$ctx" in
     alegra-monolith)
       local modified php_cmd
-      modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
+      modified=$( (git diff --name-only --diff-filter=AM HEAD && git ls-files --others --exclude-standard) 2>/dev/null || true)
       if [[ -z "$modified" ]]; then
-        printf 'No hay archivos modificados. Nada que verificar.\n'
+        printf 'No hay archivos modificados o untracked. Nada que verificar.\n'
       else
         if docker ps --format '{{.Names}}' 2>/dev/null | grep -qxF 'alegra-app-php-1'; then
           php_cmd="docker exec alegra-app-php-1 php"
           printf 'Usando PHP 7.0.9 del contenedor alegra-app-php-1\n'
-        elif command -v php >/dev/null 2>&1; then
+        elif [[ $ALLOW_HOST_PHP == true ]] && command -v php >/dev/null 2>&1; then
           php_cmd="php"
-          printf '  [aviso] PHP del host, no del contenedor alegra-app-php-1\n'
+          printf '  [aviso] PHP del host (--allow-host-php activo)\n'
+        elif command -v php >/dev/null 2>&1; then
+          printf '  [error] Contenedor alegra-app-php-1 no disponible. Usa --allow-host-php para usar PHP del host.\n'
+          failures=$((failures + 1))
         else
           printf '  [error] PHP no disponible (contenedor ni host)\n'
           failures=$((failures + 1))
@@ -612,9 +622,9 @@ verify_cmd() {
       ;;
     generic-php)
       local modified
-      modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
+      modified=$( (git diff --name-only --diff-filter=AM HEAD && git ls-files --others --exclude-standard) 2>/dev/null || true)
       if [[ -z "$modified" ]]; then
-        printf 'No hay archivos modificados. Nada que verificar.\n'
+        printf 'No hay archivos modificados o untracked. Nada que verificar.\n'
       else
         if command -v php >/dev/null 2>&1; then
           while IFS= read -r f; do
@@ -622,7 +632,8 @@ verify_cmd() {
             php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
           done <<< "$modified"
         else
-          printf '  [aviso] php no instalado, saltando lint\n'
+          printf '  [error] php no instalado\n'
+          failures=$((failures + 1))
         fi
       fi
       ;;
@@ -635,15 +646,19 @@ verify_cmd() {
           npm test -- --coverage 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
         fi
       else
-        printf 'node_modules no encontrado. Ejecuta npm install primero.\n'
+        printf '  [error] node_modules no encontrado. Ejecuta npm install primero.\n'
+        failures=$((failures + 1))
       fi
       ;;
     generic-node)
       if [[ -d "node_modules" ]] && grep -q '"test"' package.json 2>/dev/null; then
         printf 'Tests: npm test\n'
         npm test 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
+      elif [[ ! -d "node_modules" ]]; then
+        printf '  [error] node_modules no encontrado. Ejecuta npm install primero.\n'
+        failures=$((failures + 1))
       else
-        printf 'No hay test configurados o node_modules ausente.\n'
+        printf 'No hay test configurados en package.json.\n'
       fi
       ;;
     generic-go)
@@ -651,7 +666,8 @@ verify_cmd() {
         printf 'go vet ./...\n'
         go vet ./... 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
       else
-        printf 'Go no instalado.\n'
+        printf '  [error] Go no instalado\n'
+        failures=$((failures + 1))
       fi
       ;;
     freelance)
@@ -685,7 +701,7 @@ verify_cmd() {
 case "${1:-help}" in
   root) printf '%s\n' "$ROOT_DIR" ;;
   preflight) preflight ;;
-  verify) verify_cmd ;;
+  verify) shift; verify_cmd "$@" ;;
   doctor) shift; exec "$ROOT_DIR/scripts/doctor.sh" "$@" ;;
   install) shift; exec "$ROOT_DIR/scripts/install.sh" "$@" ;;
   bootstrap) shift; exec "$ROOT_DIR/scripts/bootstrap.sh" "$@" ;;
