@@ -101,6 +101,9 @@ jobs:
       - name: Clean runtime test
         run: bash tests/clean-runtime.test.sh
 
+      - name: NVM failure handling
+        run: bash tests/fail-nvm.test.sh
+
       - name: Data tools — MySQL
         run: python3 tests/test_data_mysql.py
 

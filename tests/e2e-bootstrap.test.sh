@@ -4,6 +4,7 @@ set -euo pipefail
 umask 077
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+source "$ROOT_DIR/tests/helpers/nvm-stub.sh"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -54,25 +55,7 @@ exit 0
 EOF
 chmod +x "$STUBS/dpkg"
 
-cat > "$STUBS/curl" <<'EOF'
-#!/bin/bash
-cat <<'NVMSCRIPT'
-#!/bin/bash
-NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-mkdir -p "$NVM_DIR"
-cat > "$NVM_DIR/nvm.sh" <<'NVMEOF'
-nvm() { case "$1" in --version) echo "0.40.4" ;; install) mkdir -p "$NVM_DIR/versions/node/v24.0.0/bin"
-cat > "$NVM_DIR/versions/node/v24.0.0/bin/node" <<'NODEEOF'
-#!/bin/bash
-echo "v24.0.0"
-NODEEOF
-chmod +x "$NVM_DIR/versions/node/v24.0.0/bin/node" ;;
-alias) ;; *) ;; esac; }
-NVMEOF
-chmod +x "$NVM_DIR/nvm.sh"
-NVMSCRIPT
-EOF
-chmod +x "$STUBS/curl"
+create_nvm_curl_stub "$STUBS"
 
 cat > "$STUBS/node" <<'NODE'
 #!/bin/bash
