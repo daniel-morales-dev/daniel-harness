@@ -1,11 +1,10 @@
 """Credential resolution for dh_data tools.
 
-resolve_credentials(ref, harness_dir) returns a string credential value.
+resolve_credentials(ref, harness_dir) returns a typed credential dict.
 Supports:
   - secrets/<type>/<file>    file-based, read from harness_dir, perms enforced
-  - aws-profile://<name>     unsupported (returns error)
   - env://<VAR>              environment variable
-  - keychain://<name>        unsupported (returns error)
+  - aws-profile://<name>     AWS profile (boto3 Session)
 """
 import os
 import stat
@@ -22,25 +21,31 @@ def _resolve_file(ref, harness_dir):
     if any(p == ".." for p in parts):
         raise CredentialError("path traversal rejected")
 
-    path = (harness_dir / ref).resolve()
+    raw = (harness_dir / ref)
     harness = harness_dir.resolve()
 
+    # Inspect symlink BEFORE resolve
+    try:
+        lst = os.lstat(raw)
+    except OSError:
+        raise CredentialError("credential file not accessible")
+
+    if stat.S_ISLNK(lst.st_mode):
+        raise CredentialError("symlinks not allowed")
+
+    path = raw.resolve()
     try:
         path.relative_to(harness)
     except ValueError:
         raise CredentialError("reference resolves outside harness directory")
 
-    if path.is_symlink():
-        raise CredentialError("symlinks not allowed")
-
-    if not path.is_file():
+    if not stat.S_ISREG(lst.st_mode):
         raise CredentialError("not a regular file")
 
-    mode = os.stat(path).st_mode
-    if mode & (stat.S_IRWXG | stat.S_IRWXO):
+    if lst.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         raise CredentialError("file permissions too permissive")
 
-    return path.read_text()
+    return {"kind": "file", "value": path.read_text()}
 
 
 def _resolve_env(ref):
@@ -51,18 +56,29 @@ def _resolve_env(ref):
     value = os.environ.get(var)
     if value is None:
         raise CredentialError("environment variable not set")
-    return value
+    return {"kind": "env", "value": value}
+
+
+def _resolve_aws_profile(ref):
+    """Read credentials from an AWS profile via boto3 Session."""
+    profile = ref.removeprefix("aws-profile://").strip()
+    if not profile:
+        raise CredentialError("empty AWS profile name")
+    return {"kind": "aws-profile", "profile": profile}
 
 
 def resolve_credentials(ref, harness_dir):
-    """Resolve a credentialsRef to a credential string.
+    """Resolve a credentialsRef to a credential dict.
 
     Args:
-        ref: credentialsRef string (e.g. "secrets/mysql/prod.cnf", "env://DB_PASS", "aws-profile://prod")
+        ref: credentialsRef string
         harness_dir: Path to harness config directory
 
     Returns:
-        str: credential content (file content, env var value, etc.)
+        dict with at least {"kind": str, ...}
+        - kind "file": {"kind": "file", "value": str}
+        - kind "env": {"kind": "env", "value": str}
+        - kind "aws-profile": {"kind": "aws-profile", "profile": str}
 
     Raises:
         CredentialError: if ref is invalid, unsupported, or fails security checks
@@ -75,7 +91,7 @@ def resolve_credentials(ref, harness_dir):
     elif ref.startswith("env://"):
         return _resolve_env(ref)
     elif ref.startswith("aws-profile://"):
-        raise CredentialError("aws-profile:// not yet implemented")
+        return _resolve_aws_profile(ref)
     elif ref.startswith("keychain://"):
         raise CredentialError("keychain:// not yet implemented")
     else:

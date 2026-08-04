@@ -132,10 +132,11 @@ STATE_VENV_HASH="$STATE_DIR/venv-hash.txt"
 
 _create_venv() {
   python3 -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
-  if [[ -f "$RQ_FILE" ]]; then
-    "$VENV_DIR/bin/python" -m pip install --quiet -r "$RQ_FILE"
-    sha256sum "$RQ_FILE" | cut -d' ' -f1 > "$STATE_VENV_HASH"
+      "$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
+    if [[ -f "$RQ_FILE" ]]; then
+      "$VENV_DIR/bin/python" -m pip install --quiet -r "$RQ_FILE"
+      mkdir -p "$(dirname "$STATE_VENV_HASH")"
+      sha256sum "$RQ_FILE" | cut -d' ' -f1 > "$STATE_VENV_HASH"
   fi
   ok "Venv creado en $VENV_DIR"
 }

@@ -36,13 +36,15 @@ def create_cred(path, content="password=test", mode=0o600):
 def test_valid_file():
     create_cred("secrets/mysql/prod.cnf")
     val = resolve_credentials("secrets/mysql/prod.cnf", _harness)
-    assert val == "password=test"
+    assert val["kind"] == "file"
+    assert val["value"] == "password=test"
 
 
 def test_env_var():
     os.environ["_DH_TEST_VAR"] = "secret-value"
     val = resolve_credentials("env://_DH_TEST_VAR", _harness)
-    assert val == "secret-value"
+    assert val["kind"] == "env"
+    assert val["value"] == "secret-value"
 
 
 def test_env_var_empty_name():
@@ -113,12 +115,10 @@ def test_group_readable_rejected():
         pass
 
 
-def test_aws_profile_unsupported():
-    try:
-        resolve_credentials("aws-profile://prod", _harness)
-        assert False, "should raise"
-    except CredentialError as e:
-        assert "not yet implemented" in str(e)
+def test_aws_profile():
+    val = resolve_credentials("aws-profile://prod", _harness)
+    assert val["kind"] == "aws-profile"
+    assert val["profile"] == "prod"
 
 
 def test_keychain_unsupported():
@@ -151,7 +151,8 @@ def test_error_does_not_leak_path():
 def test_mongodb_cred():
     create_cred("secrets/mongodb/uri.txt", content="MONGODB_URI=mongodb://localhost:27017")
     val = resolve_credentials("secrets/mongodb/uri.txt", _harness)
-    assert "MONGODB_URI" in val
+    assert val["kind"] == "file"
+    assert "MONGODB_URI" in val["value"]
 
 
 if __name__ == "__main__":
