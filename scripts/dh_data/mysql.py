@@ -1,31 +1,60 @@
-"""Read-only MySQL/MariaDB query backend."""
+"""Read-only MySQL/MariaDB query backend with sqlglot parser."""
 import json, subprocess, re, os, tempfile
 from dh_data.redaction import redact, truncate
 
-ALLOWED = ('SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN')
-BLOCKED_PATTERNS = [
-    (re.compile(r'\bINTO\s+OUTFILE\b', re.I), 'INTO OUTFILE'),
-    (re.compile(r'\bINTO\s+DUMPFILE\b', re.I), 'INTO DUMPFILE'),
-    (re.compile(r'\bLOAD_FILE\b', re.I), 'LOAD_FILE'),
-    (re.compile(r'\bFOR\s+UPDATE\b', re.I), 'FOR UPDATE'),
-    (re.compile(r'\bFOR\s+SHARE\b', re.I), 'FOR SHARE'),
-    (re.compile(r'\bSLEEP\s*\(', re.I), 'SLEEP()'),
-    (re.compile(r'\bBENCHMARK\s*\(', re.I), 'BENCHMARK()'),
-    (re.compile(r'\bINFORMATION_SCHEMA\b', re.I), 'INFORMATION_SCHEMA'),
+ALLOWED_COMMANDS = {'SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN'}
+BLOCKED_KEYWORDS = [
+    'INTO OUTFILE', 'INTO DUMPFILE', 'LOAD_FILE',
+    'FOR UPDATE', 'FOR SHARE', 'LOCK IN SHARE MODE',
+    'SLEEP', 'BENCHMARK',
 ]
 
 def validate_sql(sql):
+    import sqlglot
     stripped = sql.strip().rstrip(';')
     if not stripped:
         raise ValueError("empty SQL query")
-    if re.search(r';\s*\S', stripped):
+
+    try:
+        parsed = sqlglot.parse(stripped, dialect="mysql", error_level=sqlglot.ErrorLevel.RAISE)
+    except Exception as e:
+        raise ValueError(f"invalid SQL: {e}")
+
+    if not parsed or len(parsed) == 0:
+        raise ValueError("empty or unparseable SQL")
+    if len(parsed) > 1:
         raise ValueError("multi-statement not allowed")
-    first = stripped.split(None, 1)[0].upper()
-    if first not in ALLOWED:
-        raise ValueError(f"only SELECT/SHOW/DESCRIBE/EXPLAIN allowed, got '{first}'")
-    for pat, name in BLOCKED_PATTERNS:
-        if pat.search(stripped):
-            raise ValueError(f"blocked operation: {name}")
+
+    statement = parsed[0]
+    if statement is None:
+        raise ValueError("empty or unparseable SQL")
+
+    node_type = type(statement).__name__.upper()
+    if node_type == 'SELECT':
+        first = 'SELECT'
+    elif node_type == 'SHOW':
+        first = 'SHOW'
+    elif node_type in ('DESCRIBE', 'EXPLAIN'):
+        first = node_type
+    else:
+        actual = re.sub(r'(Statement)$', '', node_type).upper()
+        raise ValueError(f"only SELECT/SHOW/DESCRIBE/EXPLAIN allowed, got '{actual}'")
+
+    # Walk all nodes to block dangerous constructs
+    for node in statement.walk():
+        nn = type(node).__name__.upper()
+        if nn in ('DELETE', 'UPDATE', 'INSERT', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'REPLACE', 'CALL', 'MERGE'):
+            raise ValueError(f"write/DDL statement not allowed: {nn}")
+        if nn == 'FUNCTION' and str(node).upper() in ('SLEEP', 'BENCHMARK', 'LOAD_FILE'):
+            raise ValueError(f"blocked function: {node}")
+
+    # Secondary regex checks
+    upper = stripped.upper()
+    for kw in BLOCKED_KEYWORDS:
+        if kw in upper:
+            # SHOW FOR UPDATE is valid in some contexts but not others — block all
+            raise ValueError(f"blocked clause: {kw}")
+
     return stripped
 
 def handle(profile, credentials, operation, params):
@@ -41,13 +70,14 @@ def handle(profile, credentials, operation, params):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.cnf', delete=False) as f:
             f.write(credentials)
             conn_path = f.name
+        os.chmod(conn_path, 0o600)
         host = profile.get('host', '127.0.0.1')
         port = profile.get('port', 3306)
         cmd = ['mysql', f'--defaults-extra-file={conn_path}',
                '-h', str(host), '-P', str(port), '--batch', '--raw', '-e', sql]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
-            return {"error": result.stderr.strip()}, 1
+            return {"error": redact(result.stderr.strip())}, 1
         lines = result.stdout.strip().split('\n')
         if not lines or not lines[0]:
             return {"rows": []}, 0

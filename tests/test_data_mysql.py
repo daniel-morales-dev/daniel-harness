@@ -137,6 +137,85 @@ def test_handle_policy_violation():
     assert "error" in result
 
 
+def test_rejects_cte_with_update():
+    try:
+        validate_sql("WITH deleted AS (DELETE FROM t RETURNING *) SELECT * FROM deleted")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
+def test_rejects_cte_with_delete():
+    try:
+        validate_sql("WITH updated AS (UPDATE t SET a=1 RETURNING *) SELECT * FROM updated")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
+def test_accepts_cte_with_select():
+    result = validate_sql("WITH cte AS (SELECT 1 AS n) SELECT * FROM cte")
+    assert "WITH" in result
+
+
+def test_with_comments_and_casing():
+    result = validate_sql("/* comment */ select * from users where id = 1")
+    assert "select" in result
+
+
+def test_rejects_for_share():
+    try:
+        validate_sql("SELECT * FROM users WHERE id = 1 FOR SHARE")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
+def test_rejects_lock_in_share_mode():
+    try:
+        validate_sql("SELECT * FROM users LOCK IN SHARE MODE")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
+def test_accepts_subquery():
+    result = validate_sql("SELECT * FROM (SELECT id, name FROM users) AS sub")
+    assert "SELECT" in result
+
+
+def test_rejects_alter():
+    try:
+        validate_sql("ALTER TABLE users ADD COLUMN x INT")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
+def test_rejects_create():
+    try:
+        validate_sql("CREATE TABLE x (id INT)")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
+def test_rejects_truncate():
+    try:
+        validate_sql("TRUNCATE TABLE users")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
+def test_rejects_invalid_syntax():
+    try:
+        validate_sql("SELECT FROM WHERE")
+        assert False, "should raise"
+    except ValueError:
+        pass
+
+
 if __name__ == "__main__":
     test_rejects_insert()
     print("[ok] rejects INSERT")
@@ -176,4 +255,26 @@ if __name__ == "__main__":
     print("[ok] handle empty SQL")
     test_handle_policy_violation()
     print("[ok] handle policy violation")
+    test_rejects_cte_with_update()
+    print("[ok] rejects CTE with UPDATE")
+    test_rejects_cte_with_delete()
+    print("[ok] rejects CTE with DELETE")
+    test_accepts_cte_with_select()
+    print("[ok] accepts CTE with SELECT")
+    test_with_comments_and_casing()
+    print("[ok] accepts comments/casing")
+    test_rejects_for_share()
+    print("[ok] rejects FOR SHARE")
+    test_rejects_lock_in_share_mode()
+    print("[ok] rejects LOCK IN SHARE MODE")
+    test_accepts_subquery()
+    print("[ok] accepts subquery")
+    test_rejects_alter()
+    print("[ok] rejects ALTER")
+    test_rejects_create()
+    print("[ok] rejects CREATE")
+    test_rejects_truncate()
+    print("[ok] rejects TRUNCATE")
+    test_rejects_invalid_syntax()
+    print("[ok] rejects invalid syntax")
     print("\n=== Todos los tests pasaron ===")
