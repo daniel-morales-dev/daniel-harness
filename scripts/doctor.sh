@@ -12,16 +12,7 @@ PROFILE=
 WARNINGS=0
 CRITICAL=0
 
-# ponytail: hardcoded matrix, source of truth is bootstrap/manifest.yaml
-PROFILE_TOOLS_required="core:opencode gentle-ai engram codegraph rtk dh
-alegra:opencode gentle-ai engram codegraph rtk dh gh aws
-migration:opencode gentle-ai engram codegraph rtk dh gh aws docker
-full:opencode gentle-ai engram codegraph rtk dh gh aws docker"
-
-PROFILE_MCPS_required="core:codegraph engram
-alegra:codegraph engram linear context7 wiki-alegra github
-migration:codegraph engram linear context7 wiki-alegra github mcp-raia-lib
-full:codegraph engram linear context7 wiki-alegra github mcp-raia-lib sentry"
+MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,14 +28,28 @@ ok() { printf '[ok] %s\n' "$*"; }
 warn() { printf '[aviso] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
 critical() { printf '[crítico] %s\n' "$*"; CRITICAL=$((CRITICAL + 1)); }
 
+_parse_profile_list() {
+  local p=$1 field=$2
+  awk -v p="$p" -v f="$field" '
+    $0 ~ "^profiles:" { in_profiles=1; next }
+    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
+    in_profile && $0 ~ "^    " f ":" {
+      sub(/^[[:space:]]*[a-z_]+:[[:space:]]*/, "")
+      gsub(/^\[|\]$/, "")
+      gsub(/["\x27]/, "")
+      gsub(/,/, "\n")
+      print
+      exit
+    }
+  ' "$MANIFEST"
+}
+
 get_profile_tools() {
-  local p=$1
-  echo "$PROFILE_TOOLS_required" | awk -F: -v p="$p" '$1 == p { print $2 }'
+  _parse_profile_list "$1" "tools"
 }
 
 get_profile_mcps() {
-  local p=$1
-  echo "$PROFILE_MCPS_required" | awk -F: -v p="$p" '$1 == p { print $2 }'
+  _parse_profile_list "$1" "mcps"
 }
 
 tool_status() {
@@ -249,11 +254,14 @@ check_mcp_live() {
   fi
   local debug_out
   debug_out=$(opencode mcp debug "$name" 2>&1 || true)
-  if echo "$debug_out" | grep -qiE '(connected|healthy|ok|running)'; then
+  # negativos primero para evitar "not connected" como "connected"
+  if echo "$debug_out" | grep -qiE '(not connected|not.*found|error|failed)'; then
+    echo "inaccesible"
+  elif echo "$debug_out" | grep -qiE '(connected|healthy|ok|running)'; then
     echo "connected"
   elif echo "$debug_out" | grep -qi 'auth'; then
     echo "auth-required"
-  elif [[ -z "$debug_out" || "$debug_out" == *"not found"* ]]; then
+  elif [[ -z "$debug_out" ]]; then
     echo "desconocido"
   else
     echo "inaccesible"
@@ -456,6 +464,18 @@ else
         configured=$(jq --arg n "$mcp" '.mcp // {} | has($n)' "$OPENCODE_CONFIG_FILE" 2>/dev/null || false)
         if [[ $configured == false ]]; then
           critical "MCP $mcp no configurado (requerido por perfil $PROFILE)"
+        else
+          enabled=$(jq -r --arg n "$mcp" '.mcp[$n].enabled // true' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+          if [[ $enabled == false ]]; then
+            critical "MCP $mcp deshabilitado (requerido por perfil $PROFILE)"
+          else
+            live=$(check_mcp_live "$mcp")
+            case "$live" in
+              connected) ;;
+              auth-required) critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)" ;;
+              *) critical "MCP $mcp no accesible (estado: $live)" ;;
+            esac
+          fi
         fi
       done
     fi
