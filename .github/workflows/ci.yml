@@ -38,6 +38,9 @@ jobs:
       - name: Profile resolver
         run: bash tests/profile-resolver.test.sh
 
+      - name: Pytest discovery
+        run: pip install pytest && python3 -m pytest tests/ --co -q 2>&1 || true
+
       - name: Config security
         run: python3 tests/security-config.test.py
 
