@@ -564,21 +564,44 @@ verify_cmd() {
   printf 'Contexto: %s\n\n' "$ctx"
 
   case "$ctx" in
-    generic-php|alegra-monolith)
+    alegra-monolith)
+      local modified php_cmd
+      modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
+      if [[ -z "$modified" ]]; then
+        printf 'No hay archivos modificados. Nada que verificar.\n'
+      else
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qxF 'alegra-app-php-1'; then
+          php_cmd="docker exec alegra-app-php-1 php"
+          printf 'Usando PHP 7.0.9 del contenedor alegra-app-php-1\n'
+        elif command -v php >/dev/null 2>&1; then
+          php_cmd="php"
+          printf '  [aviso] PHP del host, no del contenedor alegra-app-php-1\n'
+        else
+          printf '  [error] PHP no disponible (contenedor ni host)\n'
+          failures=$((failures + 1))
+        fi
+        if [[ -n "$php_cmd" ]]; then
+          while IFS= read -r f; do
+            [[ "$f" == *.php ]] || continue
+            $php_cmd -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
+          done <<< "$modified"
+        fi
+      fi
+      ;;
+    generic-php)
       local modified
       modified=$(git diff --name-only --diff-filter=AM HEAD 2>/dev/null || true)
       if [[ -z "$modified" ]]; then
         printf 'No hay archivos modificados. Nada que verificar.\n'
       else
-        while IFS= read -r f; do
-          if [[ "$f" == *.php ]]; then
-            if command -v php >/dev/null 2>&1; then
-              php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
-            else
-              printf '  [aviso] php no instalado, saltando lint de %s\n' "$f"
-            fi
-          fi
-        done <<< "$modified"
+        if command -v php >/dev/null 2>&1; then
+          while IFS= read -r f; do
+            [[ "$f" == *.php ]] || continue
+            php -l "$f" 2>&1 | sed 's/^/  /' || failures=$((failures + 1))
+          done <<< "$modified"
+        else
+          printf '  [aviso] php no instalado, saltando lint\n'
+        fi
       fi
       ;;
     alegra-microservice|generic-typescript)
