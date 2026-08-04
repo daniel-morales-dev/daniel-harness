@@ -270,6 +270,9 @@ install_tool_if_in_profile() {
 }
 
 _ensure_tool_visible() {
+  if [[ $DRY_RUN == true ]]; then
+    return 0
+  fi
   local name=$1; shift
   if command -v "$name" >/dev/null 2>&1; then
     return 0
