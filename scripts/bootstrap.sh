@@ -315,12 +315,48 @@ phase "Servidores MCP"
 TMP_CANDIDATE=$(mktemp)
 cp "$OC_FILE" "$TMP_CANDIDATE"
 MCP_ADDED=0
-MCP_EXISTING=0
+MCP_UPDATED=0
+MCP_SKIPPED=0
 
 _mcp_jq() {
   local tmp_next
   tmp_next=$(mktemp)
   jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
+}
+
+# Build desired MCP config as JSON, compare with current, update if managed+different
+_reconcile_mcp() {
+  local name=$1 type=$2; shift 2
+  # remaining args are jq flags for the desired config
+  local managed
+  managed=$(jq --arg n "$name" '.mcp[$n]._managed // false' "$TMP_CANDIDATE" 2>/dev/null || false)
+
+  if [[ $managed == true ]]; then
+    # managed: compare desired vs current, update if different
+    local current desired tmp_cmp
+    current=$(jq --arg n "$name" '.mcp[$n]' "$TMP_CANDIDATE" 2>/dev/null || echo "null")
+    # build desired config (args + _managed: true)
+    tmp_cmp=$(mktemp)
+    jq "$@" --argjson m true '. + {_managed: $m}' <<<"{}" > "$tmp_cmp" 2>/dev/null || return 1
+    desired=$(cat "$tmp_cmp")
+    rm -f "$tmp_cmp"
+    if [[ "$current" != "$desired" ]]; then
+      _mcp_jq --arg n "$name" "$@" --argjson m true '.mcp[$n] = (. + {_managed: $m})'
+      info "MCP $name actualizado (configuración administrada diferente del manifest)"
+      MCP_UPDATED=$((MCP_UPDATED + 1))
+    else
+      ok "MCP $name configurado, idéntico al manifest"
+      MCP_UPDATED=$((MCP_UPDATED + 1)) # counts as handled
+    fi
+  elif [[ $managed == false ]]; then
+    # custom (not managed): skip with warning
+    warn "MCP $name personalizado, no administrado por bootstrap. Omite actualización."
+    MCP_SKIPPED=$((MCP_SKIPPED + 1))
+  else
+    # does not exist
+    return 1
+  fi
+  return 0
 }
 
 while IFS= read -r name; do
@@ -334,9 +370,8 @@ while IFS= read -r name; do
 
   exists=$(jq --arg n "$name" '.mcp // {} | has($n)' "$TMP_CANDIDATE" 2>/dev/null || false)
   if [[ $exists == true ]]; then
-    ok "MCP $name ya configurado"
-    MCP_EXISTING=$((MCP_EXISTING + 1))
-    continue
+    _reconcile_mcp "$name" "$type" && continue
+    # fall through to update if reconcile failed (null case)
   fi
 
   info "Agregando MCP $name..."
@@ -359,7 +394,7 @@ while IFS= read -r name; do
       warn "MCP $name requiere Docker — registrado como deshabilitado"
     fi
     _mcp_jq --arg n "$name" --argjson cmd "$cmd_array" --arg e "$cmd_enabled" \
-      '.mcp[$n] = {type: "local", command: $cmd, enabled: ($e == "true")}'
+      '.mcp[$n] = {type: "local", command: $cmd, enabled: ($e == "true"), _managed: true}'
   elif [[ $type == remote ]]; then
     url=$(parse_mcp_field "$name" "url")
     if [[ -n "$url" ]]; then
@@ -372,10 +407,10 @@ while IFS= read -r name; do
       headers_json=$(parse_mcp_headers_json "$name")
       if [[ "$headers_json" != "{}" ]]; then
         _mcp_jq --arg n "$name" --arg u "$url" --argjson o "$oauth_val" --argjson h "$headers_json" \
-          '.mcp[$n] = {type: "remote", url: $u, enabled: true, oauth: $o, headers: $h}'
+          '.mcp[$n] = {type: "remote", url: $u, enabled: true, oauth: $o, headers: $h, _managed: true}'
       else
         _mcp_jq --arg n "$name" --arg u "$url" --argjson o "$oauth_val" \
-          '.mcp[$n] = {type: "remote", url: $u, enabled: true, oauth: $o}'
+          '.mcp[$n] = {type: "remote", url: $u, enabled: true, oauth: $o, _managed: true}'
       fi
     else
       skip "MCP remoto $name: sin URL. Configúralo manualmente en opencode.json"
@@ -396,15 +431,25 @@ if [[ $DRY_RUN == false && $MCP_ADDED -gt 0 ]]; then
     chmod 600 "$BACKUP"
     mv "$TMP_CANDIDATE" "$OC_FILE"
     chmod 600 "$OC_FILE"
-    ok "Configuración aplicada transaccionalmente (${MCP_ADDED} nuevos, ${MCP_EXISTING} existentes)"
+    summary="${MCP_ADDED} nuevos"
+    [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
+    [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
+    ok "Configuración aplicada transaccionalmente (${summary})"
     info "Backup: $BACKUP"
   else
     critical "Candidato JSON inválido — cambios NO aplicados"
     rm -f "$TMP_CANDIDATE"
   fi
-elif [[ $DRY_RUN == false && $MCP_ADDED -eq 0 ]]; then
+elif [[ $DRY_RUN == false ]]; then
+  summary=""
+  [[ $MCP_UPDATED -gt 0 ]] && summary="${MCP_UPDATED} existentes verificados"
+  [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}${summary:+, }${MCP_SKIPPED} personalizados omitidos"
   rm -f "$TMP_CANDIDATE"
-  ok "No hay MCPs nuevos que agregar"
+  if [[ -n "$summary" ]]; then
+    ok "MCPs: ${summary}"
+  else
+    ok "No hay MCPs nuevos que agregar"
+  fi
 fi
 
 info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"
