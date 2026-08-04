@@ -253,14 +253,22 @@ for profile in core alegra migration full; do
   ' "$ROOT_DIR/bootstrap/manifest.yaml" && pass "profile $profile exists in manifest" || fail "profile $profile missing from manifest"
 done
 
-# --- Phase 7: Bootstrap --dry-run for alegra profile ---
-printf '\n=== Phase 7: bootstrap --dry-run alegra ===\n'
+# --- Phase 7: Bootstrap --profile core --connect (auth interactivo) ---
+printf '\n=== Phase 7: bootstrap --profile core --connect ===\n'
+bash "$ROOT_DIR/install" --profile core --connect > "$TMP_DIR/connect.out" 2>&1 || true
+grep -q 'autenticado\|no requiere OAuth' "$TMP_DIR/connect.out" && pass "--connect runs auth steps" || {
+  cat "$TMP_DIR/connect.out"
+  fail "--connect did not run auth"
+}
+grep -q 'GITHUB_PERSONAL_ACCESS_TOKEN' "$TMP_DIR/connect.out" && pass "--connect checks GH PAT" || fail "--connect did not check GH PAT"
+
+# --- Phase 8: Bootstrap --dry-run for alegra profile ---
+printf '\n=== Phase 8: bootstrap --dry-run alegra ===\n'
 bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile alegra > "$TMP_DIR/bootstrap-alegra.out" 2>&1 || true
 grep -q 'Bootstrap completado' "$TMP_DIR/bootstrap-alegra.out" && pass "alegra dry-run completes" || fail "alegra dry-run failed"
 grep -q 'disabledTools' "$TMP_DIR/bootstrap-alegra.out" && fail "alegra dry-run still has disabledTools" || pass "alegra dry-run has no disabledTools"
-
-# --- Phase 8: Doctor MCP live check (auth-required) ---
-printf '\n=== Phase 8: Doctor MCP live check ===\n'
+# --- Phase 9: Doctor MCP live check (auth-required) ---
+printf '\n=== Phase 9: Doctor MCP live check ===\n'
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
 if [[ "$1" == "mcp" && "$2" == "debug" ]]; then
@@ -278,7 +286,6 @@ grep -q 'requiere autenticacion' "$TMP_DIR/doctor-auth.out" && pass "doctor dete
 }
 grep -q 'crítico' "$TMP_DIR/doctor-auth.out" && pass "doctor reports criticals for auth-required" || fail "doctor should have criticals"
 
-# Restore opencode stub to connected for idempotence
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
 if [[ "$1" == "mcp" && "$2" == "debug" ]]; then

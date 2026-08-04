@@ -14,7 +14,7 @@ while [[ $# -gt 0 ]]; do
     --help|-h)
       printf 'Uso: ./install [--profile core|alegra|migration|full] [--connect]\n'
       printf '\n  --profile   Perfil a instalar (default: core)\n'
-      printf '  --connect   Ademas: doctor, autenticacion interactiva, resumen\n'
+      printf '  --connect   Autenticacion interactiva, doctor y resumen\n'
       exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
@@ -40,31 +40,89 @@ fi
 printf '\n==> Ejecutando bootstrap --profile %s...\n' "$PROFILE"
 bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$PROFILE"
 
-# Connect: doctor + resumen
+# Connect: auth interactivo + doctor + resumen
 if [[ $CONNECT == true ]]; then
+  printf '\n==> Autenticacion interactiva...\n'
+
+  MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
+  AUTH_OK=0
+  AUTH_PENDING=0
+  AUTH_SKIP=0
+
+  # Extraer MCPs del perfil desde el manifest
+  while IFS= read -r mcp_name; do
+    [[ -z "$mcp_name" ]] && continue
+
+    oauth_req=$(awk -v n="$mcp_name" '
+      /^mcp_servers:/{in_mcp=1; next}
+      in_mcp {
+        if ($0 ~ "^  " n ":" && !found) { found=1; next }
+        if (found && $0 ~ "^    oauth_required:") {
+          gsub(/^[[:space:]]*oauth_required:[[:space:]]*/, "")
+          gsub(/^["\x27]/, ""); gsub(/["\x27]$/, "")
+          print; exit
+        }
+        if (found && $0 ~ /^  [a-z]/) { found=0 }
+      }
+    ' "$MANIFEST")
+
+    if [[ "$oauth_req" != "true" ]]; then
+      printf '  [- ] MCP %s: no requiere OAuth\n' "$mcp_name"
+      AUTH_SKIP=$((AUTH_SKIP + 1))
+      continue
+    fi
+
+    if ! command -v opencode >/dev/null 2>&1; then
+      printf '  [aviso] opencode no instalado, salteando auth MCP %s\n' "$mcp_name"
+      AUTH_PENDING=$((AUTH_PENDING + 1))
+      continue
+    fi
+
+    printf '  [..] Autenticando MCP %s...\n' "$mcp_name"
+    if opencode mcp auth "$mcp_name" >/dev/null 2>&1; then
+      printf '  [ok] MCP %s autenticado\n' "$mcp_name"
+      AUTH_OK=$((AUTH_OK + 1))
+    else
+      printf '  [aviso] MCP %s: autenticacion pendiente (ejecuta: opencode mcp auth %s)\n' "$mcp_name" "$mcp_name"
+      AUTH_PENDING=$((AUTH_PENDING + 1))
+    fi
+  done < <(awk -v p="$PROFILE" '
+    $0 ~ "^profiles:" { in_profiles=1; next }
+    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
+    in_profile && $0 ~ "^    mcps:" {
+      sub(/^[[:space:]]*mcps:[[:space:]]*/, "")
+      gsub(/^\[|\]$/, "")
+      gsub(/["\x27]/, "")
+      gsub(/,/, "\n")
+      print
+      exit
+    }
+  ' "$MANIFEST")
+
+  # Verificar GitHub PAT sin imprimirlo
+  if [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+    printf '  [ok] GITHUB_PERSONAL_ACCESS_TOKEN configurado\n'
+  else
+    printf '  [aviso] GITHUB_PERSONAL_ACCESS_TOKEN no configurado (requerido para MCP GitHub)\n'
+  fi
+
+  # Doctor despues de auth
   printf '\n==> Verificando instalacion...\n'
   if bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict; then
     printf '\n========================================\n'
     printf '  Harness instalado y saludable\n'
     printf '  Perfil: %s\n' "$PROFILE"
+    printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "$AUTH_OK" "$AUTH_PENDING" "$AUTH_SKIP"
     printf '========================================\n'
-    printf '\nProximos pasos:\n'
-
-    OPENCODE_CONFIG_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}"
-    if [[ -f "$OPENCODE_CONFIG_FILE" ]] && command -v jq >/dev/null 2>&1; then
-      while IFS= read -r name; do
-        oauth=$(jq -r --arg n "$name" '.mcp[$n].oauth_required // false' "$OPENCODE_CONFIG_FILE" 2>/dev/null || false)
-        if [[ "$oauth" == "true" ]]; then
-          printf '  • Autenticar MCP: opencode mcp auth %s\n' "$name"
-        fi
-      done < <(jq -r '.mcp | to_entries[] | select(.value.oauth_required == true) | .key' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
-    fi
-
-    printf '  • Verificar: dh doctor\n'
-    printf '  • Ayuda: dh help\n'
   else
-    printf '\n[error] Harness instalado con acciones pendientes.\n'
-    printf '  Revisa: dh doctor\n'
-    exit 1
+    printf '\n========================================\n'
+    printf '  Harness instalado con acciones pendientes\n'
+    printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "$AUTH_OK" "$AUTH_PENDING" "$AUTH_SKIP"
+    printf '========================================\n'
+    if (( AUTH_PENDING > 0 )); then
+      printf '\nAutentica los MCPs pendientes manualmente:\n'
+      printf '  opencode mcp auth <nombre>\n'
+    fi
+    printf '\nRevisa: dh doctor\n'
   fi
 fi
