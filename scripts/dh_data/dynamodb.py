@@ -119,10 +119,8 @@ def _handle_write_prepare(profile, credentials, params):
                 preview['currentItem'] = item.get('Item', {})
             except Exception:
                 preview['currentItem'] = None
-    except ImportError:
+    except Exception:
         preview['currentItem'] = None
-    except Exception as e:
-        return {"error": str(e)}, 1
 
     store = _get_store()
     token = store.create(payload)
