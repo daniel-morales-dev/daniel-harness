@@ -199,7 +199,8 @@ self_update() {
       return
     fi
     printf 'Actualizando a release %s...\n' "$tag_ref"
-    git -C "$ROOT_DIR" checkout --quiet "$tag_ref" || {
+    # rama local trackeable para evitar detached HEAD
+    git -C "$ROOT_DIR" checkout -B "dh-stable/$tag_ref" "$tag_ref" || {
       printf '[error] Falló checkout del tag %s\n' "$tag_ref" >&2
       exit 1
     }
@@ -211,17 +212,18 @@ self_update() {
       return
     fi
     printf 'Actualizando a main...\n'
+    git -C "$ROOT_DIR" switch main 2>/dev/null || git -C "$ROOT_DIR" checkout main
     git -C "$ROOT_DIR" pull --ff-only origin main || {
       printf '[error] Falló la actualización. Revisa conflictos locales.\n' >&2
       exit 1
     }
   fi
 
-  if git -C "$ROOT_DIR" diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q '^bootstrap/manifest.yaml'; then
+  if git -C "$ROOT_DIR" diff --name-only "$local_ref..HEAD" 2>/dev/null | grep -q '^bootstrap/manifest.yaml'; then
     printf '[aviso] El manifest cambió. Ejecuta dh bootstrap para actualizar herramientas.\n'
   fi
 
-  if git -C "$ROOT_DIR" diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q '^scripts/install.sh'; then
+  if git -C "$ROOT_DIR" diff --name-only "$local_ref..HEAD" 2>/dev/null | grep -q '^scripts/install.sh'; then
     printf '[aviso] install.sh cambió. Ejecuta dh install para actualizar symlinks.\n'
   fi
 
@@ -257,10 +259,14 @@ result = {
     'context': os.environ.get('_DH_CONTEXT', 'generic') or 'generic',
     'family': None,
     'scope': 'single-repo',
+    'scopeReason': 'default: single-repo, related-repos when task explicitly requires it',
     'path': (os.environ.get('_DH_PATH', '') or '').strip() or None,
     'harnessRoot': '$ROOT_DIR',
     'readRepositories': [],
     'writeRepositories': [],
+    'availableRelatedRepositories': [],
+    'activeReadRepositories': [],
+    'activeWriteRepositories': [],
     'modelTrust': 'unknown',
     'mcpCapabilities': {},
     'tunnelStatus': {},
@@ -290,14 +296,21 @@ if os.path.exists(registry_path):
                 break
 
     if active_family:
-        result['scope'] = 'related-repos' if len(active_projects) > 1 else 'single-repo'
-        result['readRepositories'] = sorted(set(
+        result['availableRelatedRepositories'] = sorted(set(
             p['path'] for p in active_projects if p.get('path')
         ))
-        write_projects = [p for p in active_projects if p.get('git', {}).get('push', 'ask') not in ('never', 'deny')]
-        result['writeRepositories'] = sorted(set(
-            p['path'] for p in write_projects if p.get('path')
-        ))
+        # active repos limited to current project by default (single-repo)
+        current_path = result.get('path')
+        if current_path:
+            result['readRepositories'] = [current_path]
+            result['writeRepositories'] = [current_path]
+            result['activeReadRepositories'] = [current_path]
+            result['activeWriteRepositories'] = [current_path]
+        if len(active_projects) > 1:
+            proj_count = len(active_projects)
+            result['scopeReason'] = 'family has ' + str(proj_count) + ' projects, scope limited to current (' + str(result.get('project')) + ') by default'
+        else:
+            result['scopeReason'] = 'single project in family ' + active_family
 
     if data and 'relationships' in data:
         if active_family:
@@ -462,6 +475,12 @@ session_start() {
   if { [[ "$subcmd" == "scaffold" || "$subcmd" == "read" ]] && [[ -z "$issue_id" ]]; } || { [[ "$subcmd" == "close" ]] && [[ -z "$issue_id" ]]; }; then
     printf 'Uso: dh session %s <issue-id>\n' "$subcmd"
     printf '  Ej: dh session %s ENG-123\n' "$subcmd"
+    exit 1
+  fi
+
+  # pattern: PROJECT-123 (al menos un prefijo alfanumérico + guión + número)
+  if [[ -n "$issue_id" ]] && ! [[ "$issue_id" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]]; then
+    printf '[error] ID de issue inválido: %s (debe ser PROJECT-123)\n' "$issue_id" >&2
     exit 1
   fi
 

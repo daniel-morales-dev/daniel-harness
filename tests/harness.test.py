@@ -423,6 +423,10 @@ if __name__ == "__main__":
         assert "relationships" in parsed
         assert "readRepositories" in parsed
         assert "writeRepositories" in parsed
+        assert "availableRelatedRepositories" in parsed
+        assert "activeReadRepositories" in parsed
+        assert "activeWriteRepositories" in parsed
+        assert "scopeReason" in parsed
         assert "modelTrust" in parsed
         assert "mcpCapabilities" in parsed
         assert "tunnelStatus" in parsed
@@ -431,6 +435,9 @@ if __name__ == "__main__":
         assert isinstance(parsed.get("path"), (str, type(None)))
         assert isinstance(parsed.get("readRepositories"), list)
         assert isinstance(parsed.get("writeRepositories"), list)
+        assert isinstance(parsed.get("availableRelatedRepositories"), list)
+        assert isinstance(parsed.get("activeReadRepositories"), list)
+        assert isinstance(parsed.get("activeWriteRepositories"), list)
         assert isinstance(parsed.get("mcpCapabilities"), dict)
         assert isinstance(parsed.get("tunnelStatus"), dict)
         assert isinstance(parsed.get("policyFiles"), list)
