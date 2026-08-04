@@ -399,8 +399,9 @@ ensure_opencode_config() {
     else
       local backup
       backup="${OC_FILE}.bak.$(date +%s)"
-      cp "$OC_FILE" "$backup" 2>/dev/null || true
-      chmod 600 "$backup" 2>/dev/null || true
+      cp "$OC_FILE" "$backup" || { critical "No se pudo crear backup de opencode.json inválido"; return 1; }
+      chmod 600 "$backup" || { critical "No se pudo fijar permisos del backup"; return 1; }
+      ok "Backup creado: $backup"
       critical "opencode.json existe pero no es JSON válido"
       critical "  Backup creado: $backup"
       critical "  Corrige el JSON o elimina el archivo para regenerarlo."
@@ -413,37 +414,44 @@ ensure_opencode_config() {
     return 0
   fi
 
-  run mkdir -p "$config_dir"
-  local tmp
-  tmp=$(mktemp "$config_dir/opencode.json.XXXXXXXX")
-  printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "plugin": [],\n  "mcp": {}\n}\n' > "$tmp"
-
-  if ! jq empty "$tmp" >/dev/null 2>&1; then
-    critical "JSON generado no es válido"
-    rm -f "$tmp"
+  # Primer arranque: no crear archivo real — solo validar que podemos crearlo
+  if ! jq empty <<< '{"$schema":"https://opencode.ai/config.json","plugin":[],"mcp":{}}' >/dev/null 2>&1; then
+    critical "JSON base no es válido"
     return 1
   fi
-
-  mv "$tmp" "$OC_FILE"
-  chmod 600 "$OC_FILE"
-  ok "opencode.json creado en $OC_FILE"
+  ok "Directorio de configuración accesible"
 }
 
 ensure_opencode_config
 
 # Crear candidato temprano — plugins y MCPs comparten una transacción
-if [[ $DRY_RUN == true ]] && [[ ! -d "$(dirname "$OC_FILE")" ]]; then
-  TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
-  printf '{}' > "$TMP_CANDIDATE"
-else
-  mkdir -p "$(dirname "$OC_FILE")" 2>/dev/null || true
-  TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
-fi
-if [[ -f "$OC_FILE" ]]; then
-  cp "$OC_FILE" "$TMP_CANDIDATE"
-elif [[ $DRY_RUN == true ]]; then
-  : # TMP_CANDIDATE already has {}
-fi
+_determine_candidate() {
+  local cfg_dir
+  cfg_dir=$(dirname "$OC_FILE")
+  local base_json='{"$schema":"https://opencode.ai/config.json","plugin":[],"mcp":{}}'
+
+  if [[ $DRY_RUN == true ]] && [[ ! -d "$cfg_dir" ]]; then
+    TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
+    printf '{}' > "$TMP_CANDIDATE"
+    return
+  fi
+
+  run mkdir -p "$cfg_dir"
+  TMP_CANDIDATE=$(mktemp "$cfg_dir/.opencode.json.XXXXXXXX")
+
+  if [[ -f "$OC_FILE" ]]; then
+    cp "$OC_FILE" "$TMP_CANDIDATE"
+  else
+    # Primer arranque: candidato con JSON base, archivo real se crea en transacción
+    printf '%s\n' "$base_json" > "$TMP_CANDIDATE"
+    if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
+      critical "JSON base inválido en candidato"
+      rm -f "$TMP_CANDIDATE"
+      exit 1
+    fi
+  fi
+}
+_determine_candidate
 
 _candidate_jq() {
   local tmp_next
@@ -679,7 +687,7 @@ _build_state() {
 }
 
 if [[ $DRY_RUN == false ]]; then
-  OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
+  OC_SCHEMA="${DH_OC_SCHEMA:-$ROOT_DIR/tests/fixtures/opencode-config.schema.json}"
   TMP_STATE=$(mktemp "$STATE_DIR/.opencode-managed.json.XXXXXXXX")
 
   _check_failpoint "pre-validate"
@@ -692,26 +700,38 @@ if [[ $DRY_RUN == false ]]; then
   [[ "$original_hash" != "$candidate_hash" ]] && config_changed=true
 
   if $config_changed; then
+    if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "invalid-candidate" ]]; then
+      echo '}}}}INVALID' >> "$TMP_CANDIDATE"
+    fi
     if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
       critical "Candidato JSON invalido -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+      exit 1
     elif ! python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
          --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
       critical "Candidato no pasa validacion de schema -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+      exit 1
     else
       if (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
         critical "No se pudo construir state -- cambios NO aplicados"
         rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+        exit 1
       else
-        # Backups obligatorios (sin || true)
-        BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
-        cp "$OC_FILE" "$BACKUP_OC"
-        chmod 600 "$BACKUP_OC"
-        if (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
+        # Backups solo si el archivo existía antes de la transacción
+        BACKUP_OC=""
+        BACKUP_STATE=""
+        if $OC_EXISTED_BEFORE; then
+          BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
+          cp "$OC_FILE" "$BACKUP_OC" || { critical "No se pudo crear backup de configuración"; exit 1; }
+          chmod 600 "$BACKUP_OC" || { critical "No se pudo fijar permisos del backup de configuración"; exit 1; }
+          ok "Backup creado: $BACKUP_OC"
+        fi
+        if $STATE_EXISTED_BEFORE && (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
           BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-          cp "$STATE_FILE" "$BACKUP_STATE"
-          chmod 600 "$BACKUP_STATE"
+          cp "$STATE_FILE" "$BACKUP_STATE" || { critical "No se pudo crear backup de estado"; exit 1; }
+          chmod 600 "$BACKUP_STATE" || { critical "No se pudo fijar permisos del backup de estado"; exit 1; }
+          ok "Backup creado: $BACKUP_STATE"
         fi
 
         _check_failpoint "backup-config"
@@ -736,17 +756,19 @@ if [[ $DRY_RUN == false ]]; then
 
         _clear_journal
         info "Configuracion aplicada (plugins y/o MCPs actualizados)"
-        info "Backup: $BACKUP_OC"
+        $OC_EXISTED_BEFORE && info "Backup: $BACKUP_OC"
       fi
     fi
   else
     if (( ${#MANAGED_MCPS[@]} > 0 )); then
       if _build_state "$OC_FILE" "$TMP_STATE"; then
-        if [[ -f "$STATE_FILE" ]]; then
+        BACKUP_STATE=""
+        if $STATE_EXISTED_BEFORE && [[ -f "$STATE_FILE" ]]; then
           _check_failpoint "backup-state"
           BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-          cp "$STATE_FILE" "$BACKUP_STATE"
-          chmod 600 "$BACKUP_STATE"
+          cp "$STATE_FILE" "$BACKUP_STATE" || { critical "No se pudo crear backup de estado"; exit 1; }
+          chmod 600 "$BACKUP_STATE" || { critical "No se pudo fijar permisos del backup de estado"; exit 1; }
+          ok "Backup creado: $BACKUP_STATE"
         fi
 
         _write_journal "apply-state" "" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
@@ -779,6 +801,7 @@ if [[ -f "$ROOT_DIR/scripts/doctor.sh" ]]; then
   info 'Ejecutando doctor.sh...'
   doctor_args=(--profile "$PROFILE" --strict --skip-oauth)
   if $SKIP_DOCKER; then doctor_args+=(--skip-docker); fi
+  $EXPERIMENTAL_DATA_TOOLS && doctor_args+=(--experimental-data-tools)
   if run bash "$ROOT_DIR/scripts/doctor.sh" "${doctor_args[@]}"; then
     ok 'Bootstrap completado y saludable'
   else

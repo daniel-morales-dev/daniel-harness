@@ -125,6 +125,12 @@ jobs:
       - name: Data tools — E2E
         run: bash tests/data-e2e.test.sh
 
+      - name: Fail-closed validation
+        run: bash tests/fail-closed.test.sh
+
+      - name: First-run transactional
+        run: bash tests/first-run-transaction.test.sh
+
   e2e:
     timeout-minutes: 20
     runs-on: ubuntu-24.04

@@ -7,6 +7,7 @@ HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-"$OPENCODE_CONFIG_DIR/opencode.json"}
 REPOSITORY_DIR=${DANIEL_HARNESS_REPO:-"$ROOT_DIR"}
+LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 STRICT=false
 SKIP_OAUTH=false
 SKIP_DOCKER=false
@@ -372,31 +373,34 @@ fi
 
 if [[ $EXPERIMENTAL == true ]]; then
   printf '\nClosed Data Tools (experimental — beta)\n'
-  DATA_TOOLS_DIR="$ROOT_DIR/tools"
-  if [[ -d "$DATA_TOOLS_DIR" ]]; then
-    for tool_file in "$DATA_TOOLS_DIR"/dh_*.ts; do
-      [[ -f "$tool_file" ]] || continue
-      tool_name=$(basename "$tool_file" .ts)
-      ok "Custom tool $tool_name presente"
+  TOOLS_INSTALLED="$OPENCODE_CONFIG_DIR/tools"
+  if [[ -d "$TOOLS_INSTALLED" ]]; then
+    for tool in dh_mysql_query dh_mongodb_query dh_dynamodb_read dh_dynamodb_write dh_object_storage_read; do
+      if [[ -f "$TOOLS_INSTALLED/$tool.ts" || -L "$TOOLS_INSTALLED/$tool.ts" ]]; then
+        ok "Custom tool $tool.ts instalado"
+      else
+        critical "Custom tool $tool.ts no instalado en $TOOLS_INSTALLED"
+      fi
     done
   else
-    warn 'Directorio tools/ no encontrado'
+    critical "Directorio $TOOLS_INSTALLED no existe (data tools no instalados)"
   fi
-  if [[ -f "$ROOT_DIR/agents/data-access.md" ]]; then
-    ok 'Agente data-access.md presente'
-    if grep -qE 'mode: subagent' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+  AGENT_FILE="$OPENCODE_CONFIG_DIR/agents/data-access.md"
+  if [[ -f "$AGENT_FILE" || -L "$AGENT_FILE" ]]; then
+    ok 'Agente data-access.md instalado'
+    if grep -qE 'mode: subagent' "$AGENT_FILE" 2>/dev/null; then
       ok '  mode: subagent'
     else
       warn '  sin mode: subagent'
     fi
-    if grep -qE 'permission:' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+    if grep -qE 'permission:' "$AGENT_FILE" 2>/dev/null; then
       ok '  permission section'
-      if grep -qE '"\*":\s+deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+      if grep -qE '"\*":\s+deny' "$AGENT_FILE" 2>/dev/null; then
         ok '  wildcard deny'
       else
         warn '  sin wildcard deny'
       fi
-      TOOL_COUNT=$(grep -cE 'dh_\w+: allow' "$ROOT_DIR/agents/data-access.md" 2>/dev/null || echo 0)
+      TOOL_COUNT=$(grep -cE 'dh_\w+: allow' "$AGENT_FILE" 2>/dev/null || echo 0)
       if [[ "$TOOL_COUNT" -eq 5 ]]; then
         ok "  5 custom tools allow"
       else
@@ -406,7 +410,13 @@ if [[ $EXPERIMENTAL == true ]]; then
       warn '  sin permission section'
     fi
   else
-    warn 'Agente data-access.md no encontrado'
+    critical 'Agente data-access.md no instalado'
+  fi
+  EXECUTOR="$LOCAL_BIN/dh-data-executor"
+  if [[ -f "$EXECUTOR" || -L "$EXECUTOR" ]]; then
+    ok "Executor $EXECUTOR instalado"
+  else
+    critical "Executor $EXECUTOR no instalado"
   fi
 else
   printf '\nClosed Data Tools: deshabilitadas (usa --experimental-data-tools para activarlas)\n'

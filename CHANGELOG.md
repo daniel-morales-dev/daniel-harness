@@ -49,7 +49,7 @@
 
 - Closed data tools en beta, deshabilitadas por defecto
 - OAuth de MCPs requiere autenticación manual con `opencode mcp auth`
-- Ubuntu 24.04 es la plataforma soportada y verificada
+- Ubuntu 24.04 es la plataforma soportada
 - Túneles locales son manuales (SSH)
 - No se concede licencia pública
 - Las políticas de data tools (policy gate común, fail-closed) se

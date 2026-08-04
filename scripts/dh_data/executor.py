@@ -13,8 +13,16 @@ from pathlib import Path
 HARNESS_DIR = Path(os.environ.get("DANIEL_HARNESS_CONFIG_DIR", "~/.config/daniel-harness")).expanduser()
 
 def load_connections():
-    with open(HARNESS_DIR / "connections.yaml") as f:
-        return yaml.safe_load(f)
+    path = HARNESS_DIR / "connections.yaml"
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        print(json.dumps({"error": f"connections.yaml no encontrado en {HARNESS_DIR}"}))
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(json.dumps({"error": f"connections.yaml inválido: {e}"}))
+        sys.exit(1)
 
 def find_profile(connections, profile_id):
     for p in connections.get("profiles", []):

@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # bin/dh-data-executor — Launcher estable para dh_data Python executor
-# Invocado por las custom tools OpenCode via Bun.spawn.
-# Lee JSON por stdin, ejecuta dh_data.executor con PYTHONPATH controlado,
-# devuelve JSON por stdout. Stderr se redirige (errores se reportan en JSON).
 set -euo pipefail
 
 SCRIPT=$(readlink -f "$0")
 ROOT_DIR=$(cd "$(dirname "$SCRIPT")/.." && pwd)
 VENV="${DANIEL_HARNESS_RUNTIME_DIR:-$HOME/.local/share/daniel-harness/runtime-venv}"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$ROOT_DIR/scripts"
+
+PYTHON=""
 if [[ -x "$VENV/bin/python" ]]; then
-  exec "$VENV/bin/python" -m dh_data.executor 2>/dev/null
+  PYTHON="$VENV/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON="python3"
 fi
-exec python3 -m dh_data.executor 2>/dev/null
+if [[ -z "$PYTHON" ]]; then
+  echo '{"error":"Runtime Python no encontrado"}'
+  exit 1
+fi
+exec "$PYTHON" -m dh_data.executor 2>/dev/null
