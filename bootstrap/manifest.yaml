@@ -63,7 +63,7 @@ user_tools:
   gentle-ai:
     type: binary
     check: command -v gentle-ai
-    install: curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | sh
+    install: curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash
   engram:
     type: binary
     check: command -v engram
@@ -77,7 +77,7 @@ user_tools:
   rtk:
     type: binary
     check: command -v rtk
-    install: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+    install: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | bash
   gh:
     type: system_package
     package: gh
