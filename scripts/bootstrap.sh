@@ -122,7 +122,42 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 2: NVM + Node
+# Fase 2: Runtime Python (venv administrado)
+# ---------------------------------------------------------------------------
+phase "Runtime Python"
+
+VENV_DIR="${DANIEL_HARNESS_RUNTIME_DIR:-$HOME/.local/share/daniel-harness/runtime-venv}"
+RQ_FILE="$ROOT_DIR/requirements-runtime.txt"
+STATE_VENV_HASH="$STATE_DIR/venv-hash.txt"
+
+_create_venv() {
+  python3 -m venv "$VENV_DIR"
+  "$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
+  if [[ -f "$RQ_FILE" ]]; then
+    "$VENV_DIR/bin/python" -m pip install --quiet -r "$RQ_FILE"
+    sha256sum "$RQ_FILE" | cut -d' ' -f1 > "$STATE_VENV_HASH"
+  fi
+  ok "Venv creado en $VENV_DIR"
+}
+
+if [[ ! -f "$VENV_DIR/bin/python" ]]; then
+  info "Creando runtime venv..."
+  _create_venv
+elif [[ -f "$RQ_FILE" ]]; then
+  current_hash=$(sha256sum "$RQ_FILE" | cut -d' ' -f1)
+  applied_hash=$(cat "$STATE_VENV_HASH" 2>/dev/null || echo "")
+  if [[ "$current_hash" != "$applied_hash" ]]; then
+    info "requirements-runtime.txt changed, updating venv..."
+    _create_venv
+  else
+    ok "Runtime venv actualizado"
+  fi
+else
+  ok "Runtime venv presente"
+fi
+
+# ---------------------------------------------------------------------------
+# Fase 3: NVM + Node
 # ---------------------------------------------------------------------------
 phase "NVM + Node.js"
 
