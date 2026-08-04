@@ -407,6 +407,26 @@ ensure_opencode_config() {
 
 ensure_opencode_config
 
+# Crear candidato temprano — plugins y MCPs comparten una transacción
+if [[ $DRY_RUN == true ]] && [[ ! -d "$(dirname "$OC_FILE")" ]]; then
+  TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
+  printf '{}' > "$TMP_CANDIDATE"
+else
+  mkdir -p "$(dirname "$OC_FILE")" 2>/dev/null || true
+  TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
+fi
+if [[ -f "$OC_FILE" ]]; then
+  cp "$OC_FILE" "$TMP_CANDIDATE"
+elif [[ $DRY_RUN == true ]]; then
+  : # TMP_CANDIDATE already has {}
+fi
+
+_candidate_jq() {
+  local tmp_next
+  tmp_next=$(mktemp)
+  jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
+}
+
 # ---------------------------------------------------------------------------
 # Fase 5: Docker
 # ---------------------------------------------------------------------------
@@ -444,9 +464,7 @@ if profile_includes "$PROFILE" "plugins" "ponytail"; then
     if [[ $DRY_RUN == true ]]; then
       info "[simulado] Reemplazar $PLUGIN_BASE* por $PLUGIN_PACKAGE"
     else
-      TMP=$(mktemp)
-      jq --arg p "$PLUGIN_PACKAGE" --arg b "$PLUGIN_BASE" '.plugin = ((.plugin // []) | map(select(startswith($b) | not)) + [$p])' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-      chmod 600 "$OC_FILE"
+      _candidate_jq --arg p "$PLUGIN_PACKAGE" --arg b "$PLUGIN_BASE" '.plugin = ((.plugin // []) | map(select(startswith($b) | not)) + [$p])'
       ok "Ponytail reemplazado por versión exacta ($PLUGIN_PACKAGE)"
     fi
   else
@@ -454,9 +472,7 @@ if profile_includes "$PROFILE" "plugins" "ponytail"; then
     if [[ $DRY_RUN == true ]]; then
       info "[simulado] Agregar $PLUGIN_PACKAGE como plugin"
     else
-      TMP=$(mktemp)
-      jq --arg p "$PLUGIN_PACKAGE" '.plugin = ((.plugin // []) + [$p])' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-      chmod 600 "$OC_FILE"
+      _candidate_jq --arg p "$PLUGIN_PACKAGE" '.plugin = ((.plugin // []) + [$p])'
       ok "Ponytail registrado en opencode.json ($PLUGIN_PACKAGE)"
     fi
   fi
@@ -487,29 +503,12 @@ fi
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
 
-# En dry-run usar /tmp para evitar crear directorios de config
-if [[ $DRY_RUN == true ]] && [[ ! -d "$(dirname "$OC_FILE")" ]]; then
-  TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
-  printf '{}' > "$TMP_CANDIDATE"
-else
-  mkdir -p "$(dirname "$OC_FILE")" 2>/dev/null || true
-  TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
-fi
-if [[ -f "$OC_FILE" ]]; then
-  cp "$OC_FILE" "$TMP_CANDIDATE"
-elif [[ $DRY_RUN == true ]]; then
-  : # TMP_CANDIDATE already has {}
-fi
+# TMP_CANDIDATE ya fue creado en la fase de configuración de OpenCode
+# (plugins y MCPs comparten la misma transacción)
 TMP_STATE=""
 MCP_ADDED=0
 MCP_UPDATED=0
 MCP_SKIPPED=0
-
-_mcp_jq() {
-  local tmp_next
-  tmp_next=$(mktemp)
-  jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
-}
 
 # Estados explicitos de reconciliacion via variable (seguro bajo set -e)
 # RECONCILE_STATUS=unchanged|updated|drift-conflict
@@ -540,7 +539,7 @@ _reconcile_mcp() {
     fi
   fi
 
-  _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
+  _candidate_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
   info "MCP $name actualizado (configuracion administrada diferente del manifest)"
   MCP_UPDATED=$((MCP_UPDATED + 1))
   RECONCILE_STATUS=updated
@@ -632,7 +631,7 @@ while IFS= read -r name; do
       MCP_ADDED=$((MCP_ADDED + 1))
       continue
     fi
-    _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
+    _candidate_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
     ok "MCP $name registrado en candidato"
     MCP_ADDED=$((MCP_ADDED + 1))
   fi

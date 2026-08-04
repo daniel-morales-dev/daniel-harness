@@ -122,8 +122,8 @@ echo "=== Test failpoints (add branch: force MCP update) ==="
 # Para alcanzar MCP_ADDED>0, limpiamos state y borramos un MCP del config
 rm -f "$STATE_FILE"
 jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-reduced.json" && mv "$TMP_DIR/oc-reduced.json" "$OC_FILE"
-# Re-baseline hash (config cambiado no debe preservarse - queremos probar fallo)
 CONFIG_HASH_ADD=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+STATE_HASH_ADD="no-file"
 
 ADD_FAILPOINTS=("backup-config" "backup-state" "move-config" "move-state" "chmod-state")
 for fp in "${ADD_FAILPOINTS[@]}"; do
@@ -139,6 +139,7 @@ for fp in "${ADD_FAILPOINTS[@]}"; do
     fail "add-${fp}: exit 0 (expected failure)"
   fi
 
+  # v0.1.0: TODO los failpoints deben preservar hash exacto de config y state
   CONFIG_HASH_NOW=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
   if [[ -f "$STATE_FILE" ]]; then
     STATE_HASH_NOW=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
@@ -146,10 +147,9 @@ for fp in "${ADD_FAILPOINTS[@]}"; do
     STATE_HASH_NOW="no-file"
   fi
 
-  # For backup-config/backup-state/move-config: config should not change (with the new transaction,
-  # if backup fails before write, config stays at reduced version)
-  # But for move-state/chmod-state: config was already written, state fails later
-  # We accept the most important invariant: no corruption
+  [[ "$CONFIG_HASH_NOW" == "$CONFIG_HASH_ADD" ]] && pass "add-${fp}: config hash preserved" || fail "add-${fp}: config hash CHANGED"
+  [[ "$STATE_HASH_NOW" == "$STATE_HASH_ADD" ]] && pass "add-${fp}: state hash preserved" || fail "add-${fp}: state hash CHANGED"
+
   JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
   [[ ! -f "$JOURNAL" ]] && pass "add-${fp}: no journal" || fail "add-${fp}: journal present"
 done
