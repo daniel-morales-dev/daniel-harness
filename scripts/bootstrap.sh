@@ -302,7 +302,7 @@ _ensure_tool_visible() {
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
 _ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
 
-install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | sh"
+install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash"
 _ensure_tool_visible "gentle-ai" "$LOCAL_BIN/gentle-ai" || exit 1
 
 install_tool_if_in_profile "engram"    "Engram"    "command -v engram"    "npm install -g @engram-ai-memory/cli"
@@ -317,7 +317,7 @@ CG_INSTALL=$(parse_nested_value "user_tools" "codegraph" "install")
 install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "$CG_INSTALL"
 _ensure_tool_visible "codegraph" "${NPM_BIN:+$NPM_BIN/codegraph}" "$LOCAL_BIN/codegraph" || exit 1
 
-install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh"
+install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | bash"
 _ensure_tool_visible "rtk" "$LOCAL_BIN/rtk" || exit 1
 
 if profile_includes "$PROFILE" "tools" "gh"; then
