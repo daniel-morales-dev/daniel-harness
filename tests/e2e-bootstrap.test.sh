@@ -158,7 +158,10 @@ bootstrap_profile() {
   local profile=$1 _label=$2 home=$3 skip_docker=${4:-false}
   local extra=""
   [[ "$skip_docker" == "true" ]] && extra="--skip-docker"
+  # Navi env vars: dummy values for sandbox (stubs don't call Navi)
   env PATH="$STUBS:$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" NVM_DIR="$home/.nvm" \
+    NAVI_MCP_URL="https://navi.example.com/mcp" \
+    NAVI_OAUTH_CLIENT_ID="dummy-client-id" \
     bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$profile" $extra
 }
 
@@ -166,6 +169,8 @@ bootstrap_profile() {
 doctor_profile() {
   local profile=$1 _label=$2 home=$3
   env PATH="$STUBS:$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" NVM_DIR="$home/.nvm" \
+    NAVI_MCP_URL="https://navi.example.com/mcp" \
+    NAVI_OAUTH_CLIENT_ID="dummy-client-id" \
     bash "$ROOT_DIR/scripts/doctor.sh" --profile "$profile" --strict
 }
 
@@ -301,7 +306,7 @@ ALEGRA_MCPS=$(mcp_list "$HOME_ALEGRA")
 for mcp in codegraph engram linear context7 wiki-alegra github; do
   echo "$ALEGRA_MCPS" | grep -qxF "$mcp" && pass "alegra MCP $mcp" || fail "alegra MCP $mcp missing"
 done
-for mcp in sentry mcp-raia-lib; do
+for mcp in sentry navi; do
   echo "$ALEGRA_MCPS" | grep -qxF "$mcp" && fail "alegra should NOT have MCP $mcp" || pass "alegra correctly lacks MCP $mcp"
 done
 
@@ -332,10 +337,10 @@ grep -q 'Docker omitido' "$TMP_DIR/bootstrap-migration.out" && pass "migration -
 
 OC_MIGRATION="$HOME_MIGRATION/.config/opencode/opencode.json"
 
-# Verify exact MCP set for migration: heredados de alegra + mcp-raia-lib
+# Verify exact MCP set for migration: heredados de alegra + navi
 printf '\n=== Phase 8b: MCP set validation (migration) ===\n'
 MIGRATION_MCPS=$(mcp_list "$HOME_MIGRATION")
-for mcp in codegraph engram linear context7 wiki-alegra github mcp-raia-lib; do
+for mcp in codegraph engram linear context7 wiki-alegra github navi; do
   echo "$MIGRATION_MCPS" | grep -qxF "$mcp" && pass "migration MCP $mcp" || fail "migration MCP $mcp missing"
 done
 echo "$MIGRATION_MCPS" | grep -qxF "sentry" && fail "migration should NOT have MCP sentry" || pass "migration correctly lacks sentry"
@@ -351,14 +356,14 @@ grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-full.out" && pass
 
 OC_FULL="$HOME_FULL/.config/opencode/opencode.json"
 
-# Verify exact MCP set for full: heredados de alegra + mcp-raia-lib + sentry
+# Verify exact MCP set for full: heredados de alegra + navi + sentry
 printf '\n=== Phase 9b: MCP set validation (full) ===\n'
 FULL_MCPS=$(mcp_list "$HOME_FULL")
-for mcp in codegraph engram linear context7 wiki-alegra github mcp-raia-lib sentry; do
+for mcp in codegraph engram linear context7 wiki-alegra github navi sentry; do
   echo "$FULL_MCPS" | grep -qxF "$mcp" && pass "full MCP $mcp" || fail "full MCP $mcp missing"
 done
 # no extra MCPs beyond the expected set
-EXPECTED_FULL="codegraph engram linear context7 wiki-alegra github mcp-raia-lib sentry"
+EXPECTED_FULL="codegraph engram linear context7 wiki-alegra github navi sentry"
 for mcp in $FULL_MCPS; do
   echo "$EXPECTED_FULL" | grep -qwF "$mcp" && pass "full MCP $mcp is in expected set" || fail "full has unexpected MCP $mcp"
 done
