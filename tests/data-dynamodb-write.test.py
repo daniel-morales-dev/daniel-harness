@@ -1,76 +1,116 @@
-#!/usr/bin/env python3
-"""Tests for dh_data/dynamodb.py — Write 2-step confirmation."""
-import sys, os, time
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+"""Tests for dh_data/dynamodb.py — Write 2-step confirmation with persistent store."""
+import os
+import tempfile
+from pathlib import Path
 
-from dh_data.dynamodb import handle_write, TOKEN_STORE
+from dh_data.dynamodb import handle_write
+from dh_data.token_store import TokenStore
+
 
 def setup():
-    TOKEN_STORE.clear()
+    global _tmpdir, _store
+    _tmpdir = Path(tempfile.mkdtemp())
+    os.environ["DANIEL_HARNESS_CONFIG_DIR"] = str(_tmpdir)
+    _store = TokenStore(_tmpdir / "state")
 
-def test_handle_write_unknown_operation():
+
+def teardown():
+    import shutil
+    shutil.rmtree(str(_tmpdir), ignore_errors=True)
+
+
+def test_unknown_operation():
     result, code = handle_write({}, "", "unknown", {})
     assert code == 2
     assert "error" in result
+
 
 def test_prepare_rejects_write_op():
     result, code = handle_write({}, "", "prepare", {"operation": "DeleteItem"})
     assert code == 2
     assert "error" in result
 
+
 def test_prepare_no_tablename():
     result, code = handle_write({}, "", "prepare", {"operation": "PutItem"})
     assert code == 2
     assert "error" in result
+
+
+def test_prepare_deny_mode():
+    profile = {"writeConfirmation": {"mode": "deny"}}
+    result, code = handle_write(profile, "", "prepare", {"operation": "PutItem", "tableName": "x"})
+    assert code == 2
+    assert "error" in result
+
 
 def test_confirm_no_token():
     result, code = handle_write({}, "", "confirm", {})
     assert code == 4
     assert "error" in result
 
+
 def test_confirm_invalid_token():
-    result, code = handle_write({}, "", "confirm", {"token": "nonexistent"})
+    result, code = handle_write({}, "", "confirm", {"token": "nonexistent", "tableName": "x"})
     assert code == 4
     assert "error" in result
 
-def test_confirm_token_expired():
-    TOKEN_STORE["expired-token"] = {"payload": {"tableName": "x"}, "expires": time.time() - 10, "operation": "PutItem"}
-    result, code = handle_write({}, "", "confirm", {"token": "expired-token", "tableName": "x"})
+
+def test_confirm_expired():
+    token = _store.create({"tableName": "x"})
+    # Manually set expiry in the past
+    path = _store._path(token)
+    import json, time
+    path.write_text(json.dumps({"payload": {"tableName": "x"}, "expires_at": time.time() - 10}))
+    result, code = handle_write({}, "", "confirm", {"token": token, "tableName": "x"})
     assert code == 4
     assert "error" in result
+
 
 def test_confirm_payload_mismatch():
-    TOKEN_STORE["mismatch-token"] = {"payload": {"tableName": "original-table", "keys": {"id": "1"}}, "expires": time.time() + 60, "operation": "PutItem"}
-    result, code = handle_write({}, "", "confirm", {"token": "mismatch-token", "tableName": "different-table", "keys": {"id": "2"}})
+    token = _store.create({"tableName": "original", "keys": {"id": "1"}})
+    result, code = handle_write({}, "", "confirm", {"token": token, "tableName": "different", "keys": {"id": "2"}})
     assert code == 4
     assert "error" in result
 
+
 def test_confirm_replay():
-    TOKEN_STORE["replay-token"] = {"payload": {"tableName": "x"}, "expires": time.time() + 60, "operation": "PutItem"}
-    # First confirm — will fail at boto3 import (no error path check for tableName), 
-    # but that's fine — what matters is the token gets popped
-    handle_write({}, "", "confirm", {"token": "replay-token", "tableName": "x"})
-    # Second confirm — should fail because token is gone
-    result, code = handle_write({}, "", "confirm", {"token": "replay-token", "tableName": "x"})
+    token = _store.create({"tableName": "x"})
+    handle_write({}, "", "confirm", {"token": token, "tableName": "x"})
+    result, code = handle_write({}, "", "confirm", {"token": token, "tableName": "x"})
     assert code == 4
     assert "error" in result
+
+
+def test_prepare_create_token():
+    profile = {"writeConfirmation": {"mode": "exact-operation"}, "region": "us-east-1"}
+    result, code = handle_write(profile, "default", "prepare", {"operation": "PutItem", "tableName": "test-table", "keys": {"pk": {"S": "test"}}})
+    assert code == 3
+    assert "token" in result
+    assert result["confirmationRequired"] is True
+
 
 if __name__ == "__main__":
     setup()
-    test_handle_write_unknown_operation()
-    print("[ok] handle_write operation desconocido")
+    test_unknown_operation()
+    print("[ok] unknown operation")
     test_prepare_rejects_write_op()
-    print("[ok] prepare rechaza write_op no permitida")
+    print("[ok] prepare rejects bad write_op")
     test_prepare_no_tablename()
-    print("[ok] prepare sin tableName")
+    print("[ok] prepare no tableName")
+    test_prepare_deny_mode()
+    print("[ok] prepare deny mode")
     test_confirm_no_token()
-    print("[ok] confirm sin token")
+    print("[ok] confirm no token")
     test_confirm_invalid_token()
-    print("[ok] confirm token inválido")
-    test_confirm_token_expired()
-    print("[ok] confirm token expirado")
+    print("[ok] confirm invalid token")
+    test_confirm_expired()
+    print("[ok] confirm expired")
     test_confirm_payload_mismatch()
-    print("[ok] confirm payload no coincide")
+    print("[ok] confirm payload mismatch")
     test_confirm_replay()
-    print("[ok] confirm replay rechazado")
+    print("[ok] confirm replay rejected")
+    test_prepare_create_token()
+    print("[ok] prepare creates token")
+    teardown()
     print("\n=== Todos los tests pasaron ===")

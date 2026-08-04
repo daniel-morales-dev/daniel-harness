@@ -1,13 +1,31 @@
-# scripts/dh_data/dynamodb.py — DynamoDB read/write backend
-import json, hashlib, time, random
+"""DynamoDB read/write backend with persistent 2-step confirmation."""
+import json
+from pathlib import Path
+
+from dh_data.config import get_harness_dir
+from dh_data.token_store import TokenStore
 
 READ_OPS = ('GetItem', 'Query', 'Scan')
 WRITE_OPS = ('PutItem', 'UpdateItem')
-TOKEN_STORE = {}  # nonce -> {"payload": dict, "expires": float}
+
+_store = None
+
+def _get_store():
+    global _store
+    if _store is None:
+        state_dir = get_harness_dir() / "state"
+        _store = TokenStore(state_dir)
+    return _store
+
 
 def validate_read_operation(operation):
     if operation not in READ_OPS:
-        raise ValueError(f"Operación de solo lectura no permitida: {operation}")
+        raise ValueError(f"read-only operation required: {operation}")
+
+
+def _build_payload(params):
+    return {k: v for k, v in params.items() if k in ('tableName', 'keys', 'fields', 'condition', 'operation')}
+
 
 def handle_read(profile, credentials, operation, params):
     try:
@@ -17,7 +35,7 @@ def handle_read(profile, credentials, operation, params):
 
     table_name = params.get("tableName", "")
     if not table_name:
-        return {"error": "tableName requerido"}, 2
+        return {"error": "tableName required"}, 2
 
     import boto3
 
@@ -28,23 +46,20 @@ def handle_read(profile, credentials, operation, params):
         session = boto3.Session(profile_name=profile_name, region_name=region)
         client = session.client('dynamodb')
 
-        kwargs = {'TableName': table_name}
-        key = params.get('key') or params.get('keys') or {}
-
         if operation == 'GetItem':
-            kwargs['Key'] = key
-            resp = client.get_item(**kwargs)
+            key = params.get('key') or params.get('keys') or {}
+            resp = client.get_item(TableName=table_name, Key=key)
             items = [resp.get('Item', {})]
         elif operation == 'Query':
-            kwargs.update(params)
-            kwargs.pop('tableName', None)
-            kwargs.pop('operation', None)
-            resp = client.query(**kwargs)
+            qparams = {k: v for k, v in params.items() if k not in ('tableName', 'operation')}
+            qparams['TableName'] = table_name
+            resp = client.query(**qparams)
             items = resp.get('Items', [])
         elif operation == 'Scan':
-            kwargs.update({k: v for k, v in params.items() if k != 'tableName'})
-            kwargs.setdefault('Limit', 100)
-            resp = client.scan(**kwargs)
+            sparams = {k: v for k, v in params.items() if k not in ('tableName', 'operation')}
+            sparams.setdefault('Limit', 100)
+            sparams['TableName'] = table_name
+            resp = client.scan(**sparams)
             items = resp.get('Items', [])
 
         return {"items": items, "count": len(items)}, 0
@@ -53,64 +68,77 @@ def handle_read(profile, credentials, operation, params):
         return {"error": str(e)}, 1
 
 
-def _build_payload(params):
-    return {k: v for k, v in params.items() if k in ('tableName', 'keys', 'fields', 'condition')}
-
 def handle_write(profile, credentials, operation, params):
     if operation == "prepare":
         return _handle_write_prepare(profile, credentials, params)
     elif operation == "confirm":
         return _handle_write_confirm(profile, credentials, params)
-    return {"error": f"Operación no soportada: {operation}"}, 2
+    return {"error": f"unknown operation: {operation}"}, 2
+
 
 def _handle_write_prepare(profile, credentials, params):
     write_op = params.get("operation", "")
     if write_op not in WRITE_OPS:
-        return {"error": f"Operación de escritura no permitida: {write_op}"}, 2
+        return {"error": f"write operation not allowed: {write_op}"}, 2
 
     payload = _build_payload(params)
     if not payload.get("tableName"):
-        return {"error": "tableName requerido"}, 2
+        return {"error": "tableName required"}, 2
 
-    import boto3
-    # Ejecutar dry-run preview via GetItem
-    profile_name = credentials.strip()
-    region = profile.get('region', 'us-east-1')
+    # Validate writeConfirmation.mode
+    wc = profile.get("writeConfirmation", {})
+    if wc.get("mode") in ("deny", None):
+        return {"error": "writes not allowed for this profile"}, 2
+    if wc.get("mode") not in ("exact-operation",):
+        return {"error": f"unsupported writeConfirmation mode: {wc.get('mode')}"}, 2
+
+    # Validate required fields
+    required = wc.get("requiredFields", [])
+    for field in required:
+        if field not in params:
+            return {"error": f"required field missing: {field}"}, 2
+
+    preview = {"operation": write_op, **payload}
 
     try:
+        import boto3
+        profile_name = credentials.strip()
+        region = profile.get('region', 'us-east-1')
         session = boto3.Session(profile_name=profile_name, region_name=region)
         client = session.client('dynamodb')
-
-        preview = {"operation": write_op, **payload}
-        if write_op in ('PutItem', 'UpdateItem') and payload.get('keys'):
+        if payload.get('keys'):
             try:
                 item = client.get_item(TableName=payload['tableName'], Key=payload['keys'])
                 preview['currentItem'] = item.get('Item', {})
             except Exception:
                 preview['currentItem'] = None
-
-        raw = json.dumps(payload, sort_keys=True)
-        token = hashlib.sha256(f"{raw}{time.time()}{random.random()}".encode()).hexdigest()
-        TOKEN_STORE[token] = {"payload": payload, "expires": time.time() + 60, "operation": write_op}
-
-        return {"confirmationRequired": True, "preview": preview, "token": token}, 3
-
+    except ImportError:
+        preview['currentItem'] = None
     except Exception as e:
         return {"error": str(e)}, 1
 
+    store = _get_store()
+    token = store.create(payload)
+
+    return {"confirmationRequired": True, "preview": preview, "token": token}, 3
+
+
 def _handle_write_confirm(profile, credentials, params):
     token = params.get("token", "")
-    if not token or token not in TOKEN_STORE:
-        return {"error": "Token inválido o expirado"}, 4
-
-    entry = TOKEN_STORE.pop(token)
-    if time.time() > entry["expires"]:
-        return {"error": "Token expirado"}, 4
+    if not token:
+        return {"error": "token required"}, 4
 
     payload = _build_payload(params)
-    stored = entry["payload"]
-    if payload != stored:
-        return {"error": "Payload no coincide con el preview"}, 4
+
+    store = _get_store()
+    try:
+        store.consume(token, payload)
+    except Exception as e:
+        return {"error": str(e)}, 4
+
+    write_op = params.get("operation", "")
+    if write_op not in WRITE_OPS:
+        return {"error": f"write operation not allowed: {write_op}"}, 2
 
     try:
         import boto3
@@ -119,26 +147,26 @@ def _handle_write_confirm(profile, credentials, params):
         session = boto3.Session(profile_name=profile_name, region_name=region)
         client = session.client('dynamodb')
 
-        write_op = entry["operation"]
         kwargs = {'TableName': payload['tableName']}
-        if payload.get('keys'):
-            kwargs['Key'] = payload['keys']
-        if payload.get('fields'):
-            if write_op == 'PutItem':
-                kwargs['Item'] = payload['fields']
-            else:
-                kwargs['ExpressionAttributeValues'] = {f":v{k}": v for k, v in payload['fields'].items()}
-                kwargs['UpdateExpression'] = "SET " + ", ".join(f"#{k} = :v{k}" for k in payload['fields'])
-                kwargs['ExpressionAttributeNames'] = {f"#{k}": k for k in payload['fields']}
-        if payload.get('condition'):
-            kwargs['ConditionExpression'] = payload['condition']
-
         if write_op == 'PutItem':
+            kwargs['Item'] = payload.get('fields', {})
+            if payload.get('condition'):
+                kwargs['ConditionExpression'] = payload['condition']
             client.put_item(**kwargs)
-        else:
+        elif write_op == 'UpdateItem':
+            kwargs['Key'] = payload.get('keys', {})
+            fields = payload.get('fields', {})
+            if fields:
+                kwargs['ExpressionAttributeValues'] = {f":v{k}": v for k, v in fields.items()}
+                kwargs['UpdateExpression'] = "SET " + ", ".join(f"#{k} = :v{k}" for k in fields)
+                kwargs['ExpressionAttributeNames'] = {f"#{k}": k for k in fields}
+            if payload.get('condition'):
+                kwargs['ConditionExpression'] = payload['condition']
             client.update_item(**kwargs)
 
         return {"attributes": {}}, 0
 
+    except ImportError:
+        return {"error": "boto3 not installed"}, 1
     except Exception as e:
         return {"error": str(e)}, 1
