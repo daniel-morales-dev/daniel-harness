@@ -51,9 +51,8 @@ def main():
 
     cred_ref = profile.get("credentialsRef", "")
 
-    from dh_data.security import validate_credential_ref, read_credentials
-    validate_credential_ref(cred_ref, HARNESS_DIR)
-    credentials = read_credentials(HARNESS_DIR / cred_ref)
+    from dh_data.security import resolve_credentials
+    credentials = resolve_credentials(cred_ref, HARNESS_DIR)
 
     if tool == "mysql-query":
         from dh_data.mysql import handle

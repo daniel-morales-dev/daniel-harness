@@ -41,6 +41,9 @@ jobs:
       - name: Config security
         run: python3 tests/security-config.test.py
 
+      - name: Credential security
+        run: python3 tests/security-credentials.test.py
+
       - name: Agents and skills
         run: python3 tests/harness.test.py
 

@@ -1,28 +1,26 @@
-# Security validation for credential access
-import os, stat
+"""Credential resolution for dh_data tools.
+
+resolve_credentials(ref, harness_dir) returns a string credential value.
+Supports:
+  - secrets/<type>/<file>    file-based, read from harness_dir, perms enforced
+  - aws-profile://<name>     unsupported (returns error)
+  - env://<VAR>              environment variable
+  - keychain://<name>        unsupported (returns error)
+"""
+import os
+import stat
 from pathlib import Path
 
 
-ALLOWED_SECRET_PREFIXES = (
-    "secrets/mysql/",
-    "secrets/mongodb/",
-    "secrets/tunnels/",
-    "secrets/tokens/",
-)
+class CredentialError(PermissionError):
+    """Credential resolution failed. Message never includes paths or secret values."""
 
 
-def validate_credential_ref(ref, harness_dir):
-    """Validate credentialsRef is within allowed paths. Reject traversal, symlinks, open perms."""
-    if not isinstance(ref, str) or not ref:
-        raise PermissionError("credentialsRef must be a non-empty string")
-
-    allowed = False
-    for prefix in ALLOWED_SECRET_PREFIXES:
-        if ref.startswith(prefix):
-            allowed = True
-            break
-    if not allowed:
-        raise PermissionError(f"credentialsRef '{ref}' outside allowed paths")
+def _resolve_file(ref, harness_dir):
+    """Read a credential file under harness_dir with security checks."""
+    parts = Path(ref).parts
+    if any(p == ".." for p in parts):
+        raise CredentialError("path traversal rejected")
 
     path = (harness_dir / ref).resolve()
     harness = harness_dir.resolve()
@@ -30,26 +28,55 @@ def validate_credential_ref(ref, harness_dir):
     try:
         path.relative_to(harness)
     except ValueError:
-        raise PermissionError(f"credentialsRef '{ref}' resolves outside harness dir")
+        raise CredentialError("reference resolves outside harness directory")
 
     if path.is_symlink():
-        link_target = path.resolve()
-        try:
-            link_target.relative_to(harness)
-        except ValueError:
-            raise PermissionError(f"Symmetric credential ref '{ref}' points outside harness")
+        raise CredentialError("symlinks not allowed")
 
-    try:
-        mode = os.stat(path).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            raise PermissionError(f"Credentials file '{ref}' has group/other permissions")
-    except FileNotFoundError:
-        raise PermissionError(f"Credentials file '{ref}' not found")
+    if not path.is_file():
+        raise CredentialError("not a regular file")
 
+    mode = os.stat(path).st_mode
+    if mode & (stat.S_IRWXG | stat.S_IRWXO):
+        raise CredentialError("file permissions too permissive")
 
-def read_credentials(path):
-    """Read credential file, return content as string.
-    Validation was already performed by executor.py before calling this."""
-    if not path.exists():
-        raise FileNotFoundError(f"Credentials file not found: {path}")
     return path.read_text()
+
+
+def _resolve_env(ref):
+    """Read a credential from an environment variable."""
+    var = ref.removeprefix("env://").strip()
+    if not var:
+        raise CredentialError("empty environment variable name")
+    value = os.environ.get(var)
+    if value is None:
+        raise CredentialError("environment variable not set")
+    return value
+
+
+def resolve_credentials(ref, harness_dir):
+    """Resolve a credentialsRef to a credential string.
+
+    Args:
+        ref: credentialsRef string (e.g. "secrets/mysql/prod.cnf", "env://DB_PASS", "aws-profile://prod")
+        harness_dir: Path to harness config directory
+
+    Returns:
+        str: credential content (file content, env var value, etc.)
+
+    Raises:
+        CredentialError: if ref is invalid, unsupported, or fails security checks
+    """
+    if not isinstance(ref, str) or not ref.strip():
+        raise CredentialError("credentialsRef must be a non-empty string")
+
+    if ref.startswith("secrets/"):
+        return _resolve_file(ref, harness_dir)
+    elif ref.startswith("env://"):
+        return _resolve_env(ref)
+    elif ref.startswith("aws-profile://"):
+        raise CredentialError("aws-profile:// not yet implemented")
+    elif ref.startswith("keychain://"):
+        raise CredentialError("keychain:// not yet implemented")
+    else:
+        raise CredentialError("unsupported credentialsRef scheme")
