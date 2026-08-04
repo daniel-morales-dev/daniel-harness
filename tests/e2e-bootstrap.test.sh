@@ -267,6 +267,34 @@ printf '\n=== Phase 8: bootstrap --dry-run alegra ===\n'
 bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile alegra > "$TMP_DIR/bootstrap-alegra.out" 2>&1 || true
 grep -q 'Bootstrap completado' "$TMP_DIR/bootstrap-alegra.out" && pass "alegra dry-run completes" || fail "alegra dry-run failed"
 grep -q 'disabledTools' "$TMP_DIR/bootstrap-alegra.out" && fail "alegra dry-run still has disabledTools" || pass "alegra dry-run has no disabledTools"
+# --- Phase 9: Doctor MCP live check (auth-required) ---
+printf '\n=== Phase 9: Doctor MCP live check ===\n'
+cat > "$STUBS/opencode" <<'OPENCODE'
+#!/bin/bash
+if [[ "$1" == "mcp" && "$2" == "debug" ]]; then
+  echo "auth-required"
+  exit 0
+fi
+exit 0
+OPENCODE
+chmod +x "$STUBS/opencode"
+
+bash "$ROOT_DIR/scripts/doctor.sh" --profile core --strict > "$TMP_DIR/doctor-auth.out" 2>&1 || true
+grep -q 'requiere autenticacion' "$TMP_DIR/doctor-auth.out" && pass "doctor detects auth-required MCP" || {
+  cat "$TMP_DIR/doctor-auth.out"
+  fail "doctor did not flag auth-required MCP"
+}
+grep -q 'crítico' "$TMP_DIR/doctor-auth.out" && pass "doctor reports criticals for auth-required" || fail "doctor should have criticals"
+
+cat > "$STUBS/opencode" <<'OPENCODE'
+#!/bin/bash
+if [[ "$1" == "mcp" && "$2" == "debug" ]]; then
+  echo "connected"
+  exit 0
+fi
+exit 0
+OPENCODE
+chmod +x "$STUBS/opencode"
 
 # --- Summary ---
 printf '\n========================================\n'
