@@ -7,33 +7,19 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+source "$ROOT_DIR/scripts/lib/mcp-health.sh"
+
 PASS=0
 FAIL=0
 
 pass() { printf '  [ok] %s\n' "$*"; PASS=$((PASS + 1)); }
 fail() { printf '  [FAIL] %s\n' "$*"; FAIL=$((FAIL + 1)); }
 
-# Inline the classification logic from check_mcp_live for testing
-classify() {
-  local output=$1
-  if echo "$output" | grep -qiE '(authentication required|auth-required|auth.*failed|missing credentials|401 unauthorized|auth.*required)'; then
-    echo "auth-required"
-  elif echo "$output" | grep -qiE '^connected$|^healthy$'; then
-    echo "connected"
-  elif echo "$output" | grep -qiE '(not connected|not.*found|connection refused|broken pipe|error|failed)'; then
-    echo "inaccesible"
-  elif [[ -z "$output" ]]; then
-    echo "desconocido"
-  else
-    echo "inaccesible"
-  fi
-}
-
 printf '=== Doctor MCP status classification ===\n'
 check() {
   local name=$1 output=$2 expected=$3
   local actual
-  actual=$(classify "$output")
+  actual=$(classify_mcp_debug_output "$output")
   if [[ "$actual" == "$expected" ]]; then
     pass "status $name (got: $actual)"
   else

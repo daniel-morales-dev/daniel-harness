@@ -17,6 +17,7 @@ CRITICAL=0
 # shellcheck disable=SC2034 # usado por profile-resolver.sh via source
 MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
 source "$ROOT_DIR/scripts/profile-resolver.sh"
+source "$ROOT_DIR/scripts/lib/mcp-health.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -239,18 +240,7 @@ check_mcp_live() {
   fi
   local debug_out
   debug_out=$(opencode mcp debug "$name" 2>&1 || true)
-  # auth primero para evitar clasificar "authentication failed" como inaccesible
-  if echo "$debug_out" | grep -qiE '(authentication required|auth-required|auth.*failed|missing credentials|401 unauthorized|auth.*required)'; then
-    echo "auth-required"
-  elif echo "$debug_out" | grep -qiE '^connected$|^healthy$'; then
-    echo "connected"
-  elif echo "$debug_out" | grep -qiE '(not connected|not.*found|connection refused|broken pipe|error|failed)'; then
-    echo "inaccesible"
-  elif [[ -z "$debug_out" ]]; then
-    echo "desconocido"
-  else
-    echo "inaccesible"
-  fi
+  classify_mcp_debug_output "$debug_out"
 }
 
 print_mcp_status() {
