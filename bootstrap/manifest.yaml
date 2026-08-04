@@ -16,14 +16,14 @@ profiles:
   migration:
     description: Migración monolito → microservicios
     extends: alegra
-    mcps: ["mcp-raia-lib"]
+    mcps: ["navi"]
     tools: ["docker"]
     optional_packages: ["mariadb-client", "unzip"]
     plugins: ["ponytail"]
   full:
     description: Todos los MCPs y herramientas
     extends: alegra
-    mcps: ["mcp-raia-lib", "sentry"]
+    mcps: ["navi", "sentry"]
     tools: ["docker"]
     optional_packages: ["mariadb-client", "unzip"]
     plugins: ["ponytail"]
@@ -126,10 +126,13 @@ mcp_servers:
     type: remote
     url: https://wiki.alegra.com/mcp
     oauth_required: true
-  mcp-raia-lib:
-    # ponytail: pin tag when a stable version is identified; :latest depends on push cadence
-    command: ["docker", "run", "--rm", "-i", "ghcr.io/alegradev/mcp-raia-lib:latest"]
-    type: local
+  navi:
+    type: remote
+    url: "https://bedrock-agentcore.us-east-1.amazonaws.com/runtimes/arn%3Aaws%3Abedrock-agentcore%3Aus-east-1%3A664923676010%3Aruntime%2FBrain2Mcp_Brain2Mcp-kkINiIBm2p/invocations?qualifier=DEFAULT"
+    oauth_required: true
+    headers:
+      Authorization: "Bearer {env:AWS_BEDROCK_MCP_TOKEN}"
+      x-api-key: "Bearer {env:AWS_BEDROCK_API_KEY}"
 
 incompatible:
   alegra-test: "Solo funciona en Claude Code y ChatGPT; no en OpenCode"
