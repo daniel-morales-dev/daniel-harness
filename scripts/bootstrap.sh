@@ -417,21 +417,20 @@ _mcp_jq() {
   jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
 }
 
-# Estados explicitos de reconciliacion
-# 0=unchanged 1=updated 2=drift-conflict
+# Estados explicitos de reconciliacion via variable (seguro bajo set -e)
+# RECONCILE_STATUS=unchanged|updated|drift-conflict
 _reconcile_mcp() {
   local name=$1 desired=$2
   local current
   current=$(jq --arg n "$name" '.mcp[$n]' "$TMP_CANDIDATE" 2>/dev/null || echo "null")
 
-  # Hash canonico (jq -S -c elimina diferencias de orden/formato)
-  local desired_canonical
+  local desired_canonical current_canonical
   desired_canonical=$(echo "$desired" | jq -S -c . 2>/dev/null || echo "$desired")
-  local current_canonical
   current_canonical=$(echo "$current" | jq -S -c . 2>/dev/null || echo "$current")
 
   if [[ "$current_canonical" == "$desired_canonical" ]]; then
     ok "MCP $name configurado, identico al manifest"
+    RECONCILE_STATUS=unchanged
     return 0
   fi
 
@@ -442,14 +441,16 @@ _reconcile_mcp() {
     if [[ -n "$last_hash" && "$current_hash" != "$last_hash" ]]; then
       warn "MCP $name modificado externamente desde la ultima aplicacion. Conservando configuracion personalizada."
       MCP_SKIPPED=$((MCP_SKIPPED + 1))
-      return 2
+      RECONCILE_STATUS=drift-conflict
+      return 0
     fi
   fi
 
   _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
   info "MCP $name actualizado (configuracion administrada diferente del manifest)"
   MCP_UPDATED=$((MCP_UPDATED + 1))
-  return 1
+  RECONCILE_STATUS=updated
+  return 0
 }
 
 MANAGED_MCPS=()
@@ -521,10 +522,10 @@ while IFS= read -r name; do
         continue
       fi
     fi
+    RECONCILE_STATUS=
     _reconcile_mcp "$name" "$desired"
-    _rc=$?
-    # drift-conflict (2): no trackear en state, preservar hash anterior
-    [[ $_rc -eq 2 ]] && continue
+    # drift-conflict: no trackear en state, preservar hash anterior
+    [[ "$RECONCILE_STATUS" == "drift-conflict" ]] && continue
   else
     if [[ $DRY_RUN == true ]]; then
       info "[simulado] jq inyectaria MCP $name"
