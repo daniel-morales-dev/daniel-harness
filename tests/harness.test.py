@@ -90,6 +90,14 @@ def test_bootstrap_nvm_uses_direct_curl():
     assert "user_tools" not in bootstrap.split("Instalando NVM")[1].split("\n")[0]
 
 
+def test_manifest_no_disabled_tools():
+    """Verify no MCP in manifest uses disabled_tools."""
+    manifest = yaml.safe_load((ROOT_DIR / "bootstrap" / "manifest.yaml").read_text())
+    mcps = manifest.get("mcp_servers", {})
+    for name, cfg in mcps.items():
+        assert "disabled_tools" not in cfg, f"MCP {name} still has disabled_tools; use X-MCP-Toolsets header instead"
+
+
 def test_bootstrap_plugin_uses_singular():
     """Verify bootstrap.sh uses .plugin (singular), not .plugins."""
     bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()

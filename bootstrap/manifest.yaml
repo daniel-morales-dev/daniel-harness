@@ -107,9 +107,7 @@ mcp_servers:
     oauth_required: false
     headers:
       Authorization: "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}"
-    disabled_tools:
-      - search_users
-      - search_commits
+      X-MCP-Toolsets: "repos,pull_requests,issues"
   linear:
     type: remote
     url: https://mcp.linear.app/mcp
