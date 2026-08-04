@@ -23,6 +23,12 @@ DRY_RUN=false
 SKIP_DOCKER=false
 PROFILE=core
 EXPERIMENTAL_DATA_TOOLS=false
+LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
+
+if [[ $DRY_RUN == false ]]; then
+  mkdir -p "$LOCAL_BIN"
+fi
+export PATH="$LOCAL_BIN:$PATH"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -263,9 +269,36 @@ install_tool_if_in_profile() {
   fi
 }
 
+_ensure_tool_visible() {
+  local name=$1; shift
+  if command -v "$name" >/dev/null 2>&1; then
+    return 0
+  fi
+  local candidate
+  for candidate in "$@"; do
+    [[ -x "$candidate" ]] || continue
+    if [[ -e "$LOCAL_BIN/$name" ]]; then
+      command -v "$name" >/dev/null 2>&1 && return 0
+      continue
+    fi
+    ln -s "$candidate" "$LOCAL_BIN/$name" 2>/dev/null || continue
+    if command -v "$name" >/dev/null 2>&1; then
+      return 0
+    fi
+    rm -f "$LOCAL_BIN/$name"
+  done
+  critical "$name no encontrado en PATH tras la instalacion"
+  return 1
+}
+
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
-install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://gentle-ai.dev/install.sh | sh"
-install_tool_if_in_profile "engram"    "Engram"    "command -v engram"    "curl -fsSL https://engram.sh/install.sh | sh"
+_ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
+
+install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | sh"
+_ensure_tool_visible "gentle-ai" "$LOCAL_BIN/gentle-ai" "$HOME/.local/bin/gentle-ai" || exit 1
+
+install_tool_if_in_profile "engram"    "Engram"    "command -v engram"    "npm install -g @engram-ai-memory/cli"
+_ensure_tool_visible "engram" "$(npm prefix -g 2>/dev/null)/bin/engram" "$LOCAL_BIN/engram" || exit 1
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   . "$NVM_DIR/nvm.sh"
@@ -274,7 +307,10 @@ elif [[ $DRY_RUN == true ]]; then
 fi
 CG_INSTALL=$(parse_nested_value "user_tools" "codegraph" "install")
 install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "$CG_INSTALL"
-install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
+_ensure_tool_visible "codegraph" "$(npm prefix -g 2>/dev/null)/bin/codegraph" "$LOCAL_BIN/codegraph" || exit 1
+
+install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh"
+_ensure_tool_visible "rtk" "$LOCAL_BIN/rtk" "$HOME/.local/bin/rtk" || exit 1
 
 if profile_includes "$PROFILE" "tools" "gh"; then
   if dpkg -s gh >/dev/null 2>&1; then
@@ -549,6 +585,7 @@ if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
 else
   info 'install.sh no encontrado'
 fi
+_ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
 
 if command -v gentle-ai >/dev/null 2>&1; then
   info 'Sincronizando skills con Gentle AI...'

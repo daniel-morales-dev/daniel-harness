@@ -134,6 +134,9 @@ jobs:
       - name: First-run transactional
         run: bash tests/first-run-transaction.test.sh
 
+      - name: Tool path exposure
+        run: bash tests/tool-path-exposure.test.sh --stubs
+
   e2e:
     timeout-minutes: 20
     runs-on: ubuntu-24.04
