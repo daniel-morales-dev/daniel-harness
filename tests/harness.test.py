@@ -363,32 +363,20 @@ def test_sc2168_local_outside_function():
     for script in scripts:
         if not script.exists():
             continue
-        # Build list of function body line ranges using column-0 signals
+        # Build function ranges using a stack (handles one-liners: `func() { ...; }`)
         lines = script.read_text().splitlines()
-        func_starts = []  # (start_line, name)
-        func_ends = set()
+        fn_stack = []
+        ranges = []
         for lineno, line in enumerate(lines, 1):
             m = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)\s*{', line)
             if m:
-                func_starts.append((lineno, m.group(1)))
-            # } at column 0 closes the innermost open function
-            if line.strip() == "}" and line == line.rstrip() and func_starts:
-                # Only if line IS all at column 0 (no leading whitespace)
-                if not line.startswith(" "):
-                    start_line, name = func_starts.pop()
-                    func_ends.add(start_line)
-                    func_ends.add(lineno)
-
-        # Now check every 'local' usage
-        in_function = False
-        function_end = -1
-        func_idx = 0
-        # Rebuild sorted range list from paired func_starts/func_ends
-        collected = sorted(func_ends)
-        ranges = []
-        for i in range(0, len(collected), 2):
-            if i + 1 < len(collected):
-                ranges.append((collected[i], collected[i + 1]))
+                fn_stack.append(lineno)
+                # One-liner: `}` on the same line as `{`
+                if '}' in line:
+                    ranges.append((fn_stack.pop(), lineno))
+            elif line.strip() == '}' and not line.startswith(' '):
+                if fn_stack:
+                    ranges.append((fn_stack.pop(), lineno))
 
         for lineno, line in enumerate(lines, 1):
             stripped = line.strip()
