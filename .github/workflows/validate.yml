@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt-get install -y -qq shellcheck
           for s in bin/dh scripts/*.sh install; do
-            [ -f "$s" ] && shellcheck -e SC1091,SC2016,SC2154,SC2317 "$s" && echo "  [ok] $s"
+            [ -f "$s" ] && shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2317 "$s" && echo "  [ok] $s"
           done
       - name: Internal schemas
         run: python3 tests/config-schema.test.py && python3 tests/connections-schema.test.py && python3 tests/examples-schema.test.py

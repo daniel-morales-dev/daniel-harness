@@ -454,53 +454,86 @@ while IFS= read -r name; do
   MANAGED_MCPS+=("$name")
 done < <(parse_mcp_names)
 
-OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
+_build_state() {
+  local src=$1 dst=$2
+  mkdir -p "$(dirname "$dst")" "$STATE_DIR"
+  existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
+  new_state="{}"
+  for m in "${MANAGED_MCPS[@]}"; do
+    val=$(jq --arg n "$m" '.mcp[$n]' "$src" 2>/dev/null || echo "null")
+    hash=$(echo "$val" | sha256sum | cut -d' ' -f1)
+    new_state=$(echo "$new_state" | jq --arg n "$m" --arg h "$hash" '.mcps[$n] = {lastAppliedHash: $h}')
+  done
+  echo "$existing" "$new_state" | jq -s '.[0] * .[1]' > "$dst"
+  chmod 600 "$dst"
+}
+
 if [[ $DRY_RUN == false ]]; then
+  OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
+  TMP_STATE=$(mktemp)
+
   if (( MCP_ADDED > 0 || MCP_UPDATED > 0 )); then
-    if jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
-      if python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
-           --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
-        BACKUP="${OC_FILE}.bak.$(date +%s)"
-        cp "$OC_FILE" "$BACKUP"
-        chmod 600 "$BACKUP"
-        mv "$TMP_CANDIDATE" "$OC_FILE"
-        chmod 600 "$OC_FILE"
+    if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
+      critical "Candidato JSON inválido — cambios NO aplicados"
+      rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+    elif ! python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
+         --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
+      critical "Candidato no pasa validación de schema — cambios NO aplicados"
+      rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+    elif (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
+      critical "No se pudo construir state — cambios NO aplicados"
+      rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+    else
+      BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
+      cp "$OC_FILE" "$BACKUP_OC" 2>/dev/null || true
+      chmod 600 "$BACKUP_OC" 2>/dev/null || true
+      if (( ${#MANAGED_MCPS[@]} > 0 )); then
+        BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
+        cp "$STATE_FILE" "$BACKUP_STATE" 2>/dev/null || true
+        chmod 600 "$BACKUP_STATE" 2>/dev/null || true
+      fi
+
+      mv "$TMP_CANDIDATE" "$OC_FILE" && chmod 600 "$OC_FILE"
+      OC_MOVED=$?
+      STATE_MOVED=0
+      if (( ${#MANAGED_MCPS[@]} > 0 )); then
+        mv "$TMP_STATE" "$STATE_FILE" && chmod 600 "$STATE_FILE"
+        STATE_MOVED=$?
+      fi
+
+      if (( OC_MOVED == 0 && STATE_MOVED == 0 )); then
         summary="${MCP_ADDED} nuevos"
         [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
         [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
         ok "Configuración aplicada (${summary})"
-        info "Backup: $BACKUP"
+        [[ -f "$BACKUP_OC" ]] && info "Backup: $BACKUP_OC"
       else
-        critical "Candidato no pasa validación de schema — cambios NO aplicados"
-        rm -f "$TMP_CANDIDATE"
+        critical "Fallo al escribir configuración o state — restaurando backups"
+        [[ -f "$BACKUP_OC" ]] && cp "$BACKUP_OC" "$OC_FILE" 2>/dev/null || true
+        [[ -f "$BACKUP_STATE" ]] && cp "$BACKUP_STATE" "$STATE_FILE" 2>/dev/null || true
+        rm -f "$TMP_CANDIDATE" "$TMP_STATE"
       fi
-    else
-      critical "Candidato JSON inválido — cambios NO aplicados"
-      rm -f "$TMP_CANDIDATE"
     fi
   else
+    if (( ${#MANAGED_MCPS[@]} > 0 )); then
+      if _build_state "$OC_FILE" "$TMP_STATE"; then
+        BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
+        cp "$STATE_FILE" "$BACKUP_STATE" 2>/dev/null || true
+        chmod 600 "$BACKUP_STATE" 2>/dev/null || true
+        mv "$TMP_STATE" "$STATE_FILE" && chmod 600 "$STATE_FILE" || {
+          critical "Fallo al escribir state — restaurando backup"
+          [[ -f "$BACKUP_STATE" ]] && cp "$BACKUP_STATE" "$STATE_FILE" 2>/dev/null || true
+        }
+      fi
+    fi
     summary=""
     [[ $MCP_SKIPPED -gt 0 ]] && summary="${MCP_SKIPPED} personalizados omitidos"
-    rm -f "$TMP_CANDIDATE"
+    rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     if [[ -n "$summary" ]]; then
       ok "MCPs: ${summary}"
     else
       ok "No hay MCPs nuevos que agregar"
     fi
-  fi
-
-  if (( ${#MANAGED_MCPS[@]} > 0 )); then
-    run mkdir -p "$STATE_DIR"
-    existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
-    new_state="{}"
-    for m in "${MANAGED_MCPS[@]}"; do
-      val=$(jq --arg n "$m" '.mcp[$n]' "$OC_FILE" 2>/dev/null || echo "null")
-      hash=$(echo "$val" | sha256sum | cut -d' ' -f1)
-      new_state=$(echo "$new_state" | jq --arg n "$m" --arg h "$hash" '.mcps[$n] = {lastAppliedHash: $h}')
-    done
-    merged=$(echo "$existing" "$new_state" | jq -s '.[0] * .[1]')
-    echo "$merged" > "$STATE_FILE" 2>/dev/null || true
-    chmod 600 "$STATE_FILE" 2>/dev/null || true
   fi
 fi
 

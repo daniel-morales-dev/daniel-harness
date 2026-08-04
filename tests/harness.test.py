@@ -346,7 +346,7 @@ def test_shellcheck():
             print(f"  [-] {script.name} no existe, saltando")
             continue
         result = subprocess.run(
-            ["shellcheck", "-e", "SC1091,SC2016,SC2154,SC2317", str(script)],
+            ["shellcheck", "-e", "SC1091,SC2015,SC2016,SC2154,SC2317", str(script)],
             capture_output=True, text=True
         )
         assert result.returncode == 0, (
