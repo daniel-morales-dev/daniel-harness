@@ -178,18 +178,18 @@ has_hardcoded_sensitive_values() {
       ascii_downcase | gsub("[-_]"; "");
     def sensitive_key:
       normalized_key |
-      test("^(header|headers|authorization|bearer|env|environment|.*(token|tokens|secret|secrets|password|passwords|passwd|credential|credentials|apikey|apikeys|accesskey|accesskeys|accesskeyid|privatekey|privatekeys))$");
+      test("^(authorization|bearer|env|environment|.*(token|tokens|secret|secrets|password|passwords|passwd|credential|credentials|apikey|apikeys|accesskey|accesskeys|accesskeyid|privatekey|privatekeys))$");
     def sensitive_command_argument:
       type == "string" and
       test("(^|[-_/])(authorization|auth[-_]?token|token|secret|password|api[-_]?key|credential)(=|:|$)"; "i");
     def embedded_credentials:
       type == "string" and
       test("^[a-z][a-z0-9+.-]*://[^/@[:space:]]+:[^/@[:space:]]+@"; "i");
-    def external_reference:
-      type == "string" and test("^\\{(env|file):[^}]+\\}$"; "i");
+    def contains_env_ref:
+      type == "string" and test("\\{(env|file):[^}]+\\}"; "i");
     def contains_literal:
       if type == "string" then
-        length > 0 and (external_reference | not)
+        length > 0 and (contains_env_ref | not)
       elif type == "object" or type == "array" then
         any(.[]; contains_literal)
       elif type == "null" then

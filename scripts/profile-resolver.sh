@@ -160,27 +160,12 @@ parse_nested_value() {
 
 parse_mcp_headers_json() {
   local name=$1
-  awk -v n="$name" '
-    /^mcp_servers:/{in_mcp=1; next}
-    in_mcp {
-      if ($0 ~ "^  " n ":" && !found) { found=1; next }
-      if (found && $0 ~ "^    headers:") { in_headers=1; next }
-      if (in_headers && $0 ~ /^      [a-z]/) {
-        gsub(/^      /, "")
-        split($0, parts, ": ")
-        key = parts[1]
-        sub(/^"/, "", parts[2]); sub(/"$/, "", parts[2])
-        val = parts[2]
-        for(i=3; i<=length(parts); i++) val = val ": " parts[i]
-        if (first) printf ","
-        printf "\"%s\": \"%s\"", key, val
-        first=1
-        next
-      }
-      if (found && $0 ~ /^  [a-z]/) { found=0; in_headers=0 }
-      if (in_headers && $0 !~ /^      / && $0 !~ /^[[:space:]]*$/) { in_headers=0 }
-    }
-    BEGIN { printf "{" }
-    END { printf "}" }
-  ' "$MANIFEST"
+  python3 -c "
+import json, sys, yaml
+with open('$MANIFEST') as f:
+    data = yaml.safe_load(f)
+mcp = data.get('mcp_servers', {}).get('$name', {})
+headers = mcp.get('headers', {})
+print(json.dumps(headers))
+" 2>/dev/null || echo "{}"
 }
