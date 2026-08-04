@@ -199,6 +199,10 @@ jq -e '.plugin[] | startswith("@dietrichgebert/ponytail")' "$OC_CORE" >/dev/null
 jq -e '.mcp.codegraph.type == "local"' "$OC_CORE" >/dev/null && pass "codegraph is local" || fail "codegraph type mismatch"
 jq -e '.mcp.engram.type == "local"' "$OC_CORE" >/dev/null && pass "engram is local" || fail "engram type mismatch"
 
+# Schema compliance: no _managed, no oauth: true
+jq -e '[.mcp[] | has("_managed")] | any | not' "$OC_CORE" >/dev/null && pass "no MCP has _managed field" || fail "some MCP still has _managed"
+jq -e '[.mcp[] | select(.type == "remote") | .oauth == true] | any | not' "$OC_CORE" >/dev/null && pass "no remote MCP has oauth: true" || fail "some remote MCP has oauth: true"
+
 # --- Phase 3: Agents and skills ---
 printf '\n=== Phase 3: Agents and skills ===\n'
 for a in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
@@ -221,16 +225,58 @@ grep -q 'Resumen: 0 crítico(s)' "$TMP_DIR/doctor-core.out" && pass "doctor --pr
 
 # --- Phase 5: Idempotence (second core bootstrap) ---
 printf '\n=== Phase 5: Idempotence ===\n'
-CORE_CONFIG="$HOME_CORE/.config/daniel-harness/config.yaml"
-FIRST_HASH=$(sha256sum "$CORE_CONFIG" 2>/dev/null | cut -d' ' -f1 || echo none)
+CORE_OC="$HOME_CORE/.config/opencode/opencode.json"
+FIRST_HASH=$(sha256sum "$CORE_OC" 2>/dev/null | cut -d' ' -f1 || echo none)
 BACKUPS_BEFORE=$(find "$HOME_CORE/.config/opencode/" -name 'opencode.json.bak.*' 2>/dev/null | wc -l)
 rc=$(run_check "bootstrap-idempotent" bootstrap_profile core core "$HOME_CORE")
 [[ $rc -eq 0 ]] && pass "second bootstrap exit code 0" || fail "second bootstrap exit code $rc"
-SECOND_HASH=$(sha256sum "$CORE_CONFIG" 2>/dev/null | cut -d' ' -f1 || echo none)
-[[ "$FIRST_HASH" == "$SECOND_HASH" ]] && pass "second bootstrap is idempotent (config unchanged)" || fail "second bootstrap modified config"
+SECOND_HASH=$(sha256sum "$CORE_OC" 2>/dev/null | cut -d' ' -f1 || echo none)
+[[ "$FIRST_HASH" == "$SECOND_HASH" ]] && pass "second bootstrap is idempotent (opencode.json unchanged)" || fail "second bootstrap modified opencode.json"
 BACKUPS_AFTER=$(find "$HOME_CORE/.config/opencode/" -name 'opencode.json.bak.*' 2>/dev/null | wc -l)
 [[ "$BACKUPS_AFTER" -eq "$BACKUPS_BEFORE" ]] && pass "no new backups created on second run" || fail "second bootstrap created unnecessary backups"
 grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-idempotent.out" && pass "second bootstrap healthy" || fail "second bootstrap failed"
+
+# --- Phase 5b: Schema validation for alegra MCPs ---
+printf '\n=== Phase 5b: Schema validation (alegra MCPs) ===\n'
+ALEGRA_OC="$HOME_ALEGRA/.config/opencode/opencode.json"
+if [[ -f "$ALEGRA_OC" ]]; then
+  jq -e '[.mcp[] | has("_managed")] | any | not' "$ALEGRA_OC" >/dev/null && pass "alegra: no MCP has _managed" || fail "alegra: some MCP has _managed"
+  jq -e '[.mcp[] | select(.type == "remote") | .oauth == true] | any | not' "$ALEGRA_OC" >/dev/null && pass "alegra: no remote MCP has oauth: true" || fail "alegra: some remote MCP has oauth: true"
+  jq -e '.mcp.github.oauth == false' "$ALEGRA_OC" >/dev/null && pass "alegra: github oauth is false" || fail "alegra: github oauth not false"
+  jq -e '.mcp.github.headers.Authorization != null' "$ALEGRA_OC" >/dev/null && pass "alegra: github has Authorization header" || fail "alegra: github missing Authorization"
+  jq -e '.mcp.linear.oauth == {}' "$ALEGRA_OC" >/dev/null && pass "alegra: linear oauth is empty object" || fail "alegra: linear oauth not empty"
+  jq -e '.mcp.context7.oauth | not' "$ALEGRA_OC" >/dev/null && pass "alegra: context7 has no oauth field" || fail "alegra: context7 has unexpected oauth"
+else
+  pass "alegra OC not available yet (will validate after Phase 7)"
+fi
+
+# --- Phase 5c: Core → alegra transition on same HOME ---
+printf '\n=== Phase 5c: Core → alegra transition ===\n'
+TRANSITION_HOME="$TMP_DIR/home-transition"
+mkdir -p "$TRANSITION_HOME/.config/daniel-harness/secrets/tunnels" "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin"
+echo 'version: "1"' > "$TRANSITION_HOME/.config/daniel-harness/config.yaml"
+echo 'nvm() { :; }' > "$TRANSITION_HOME/.nvm/nvm.sh"
+echo '#!/bin/bash; echo v24.0.0' > "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
+chmod +x "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
+# Bootstrap core first
+bootstrap_profile core core "$TRANSITION_HOME" > /dev/null 2>&1 && pass "transition: core bootstrap ok" || fail "transition: core bootstrap failed"
+# Pre-compute alegra MCPs (we'll validate after transition)
+TRANSITION_OC="$TRANSITION_HOME/.config/opencode/opencode.json"
+# Bootstrap alegra on same HOME
+bootstrap_profile alegra alegra "$TRANSITION_HOME" > /dev/null 2>&1 && pass "transition: alegra bootstrap ok" || fail "transition: alegra bootstrap failed"
+# Verify alegra MCPs present (more than core)
+TRANSITION_MCPS=$(jq -r '.mcp | keys[]' "$TRANSITION_OC" 2>/dev/null | sort)
+for mcp in codegraph engram linear context7 wiki-alegra github; do
+  echo "$TRANSITION_MCPS" | grep -qxF "$mcp" && pass "transition: MCP $mcp present" || fail "transition: MCP $mcp missing"
+done
+# Verify state file tracks all alegra MCPs
+STATE_FILE="$TRANSITION_HOME/.config/daniel-harness/state/opencode-managed.json"
+for mcp in codegraph engram linear context7 wiki-alegra github; do
+  jq -e --arg n "$mcp" '.mcps | index($n) != null' "$STATE_FILE" >/dev/null && pass "transition: state has $mcp" || fail "transition: state missing $mcp"
+done
+# Verify doctor --profile alegra --strict passes
+doctor_profile alegra alegra "$TRANSITION_HOME" > /dev/null 2>&1 && pass "transition: doctor alegra passes" || fail "transition: doctor alegra failed"
+rm -rf "$TRANSITION_HOME"
 
 # --- Phase 6: Profile manifest validation ---
 printf '\n=== Phase 6: Profile manifest validation ===\n'

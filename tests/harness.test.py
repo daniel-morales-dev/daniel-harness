@@ -230,6 +230,13 @@ def test_uninstall_removes_global_link():
     assert "global/AGENTS.md" in content
 
 
+def test_generated_mcp_schema():
+    """Verify bootstrap.sh does not generate invalid MCP fields (_managed, oauth: true)."""
+    bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()
+    assert "_managed: true" not in bootstrap, "bootstrap should not generate _managed field"
+    assert "oauth: $o" not in bootstrap, "bootstrap should not use bare oauth value"
+    assert '".mcp[$n] = (. +' not in bootstrap, "bootstrap should not reference root in jq"
+
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
     scripts = [

@@ -296,8 +296,9 @@ if os.path.exists(registry_path):
                 break
 
     if active_family:
+        current_path = result.get('path')
         result['availableRelatedRepositories'] = sorted(set(
-            p['path'] for p in active_projects if p.get('path')
+            p['path'] for p in active_projects if p.get('path') and p['path'] != current_path
         ))
         # active repos limited to current project by default (single-repo)
         current_path = result.get('path')
@@ -359,10 +360,20 @@ if os.path.exists(connections_path):
                 pid = profile.get('id', 'unknown')
                 tunnel = profile.get('tunnel', {})
                 if tunnel.get('required'):
+                    host = profile.get('host', '')
+                    port = profile.get('port', 0)
+                    open_state = False
+                    if host and port:
+                        import socket
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        s.settimeout(1)
+                        open_state = s.connect_ex((host, port)) == 0
+                        s.close()
                     result['tunnelStatus'][pid] = {
                         'required': True,
-                        'host': profile.get('host', ''),
-                        'port': profile.get('port', 0),
+                        'host': host,
+                        'port': port,
+                        'open': open_state,
                     }
         except Exception:
             pass
