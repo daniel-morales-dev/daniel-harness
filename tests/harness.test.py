@@ -287,6 +287,17 @@ def test_codegraph_pin_from_manifest():
     assert "@codegraph/cli@1.2.0" in manifest, \
         "manifest must have pinned codegraph version"
 
+def test_aws_pin_from_manifest():
+    """Verify bootstrap reads AWS version/url/sha256 from manifest."""
+    bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()
+    manifest = (ROOT_DIR / "bootstrap" / "manifest.yaml").read_text()
+    assert 'parse_nested_value "user_tools" "aws" "version"' in bootstrap
+    assert 'parse_nested_value "user_tools" "aws" "url"' in bootstrap
+    assert 'parse_nested_value "user_tools" "aws" "sha256"' in bootstrap
+    assert "2.36.15" in manifest
+    assert "awscli-exe-linux-x86_64-2.36.15.zip" in manifest
+    assert "02a8eb2fe985be8ebcc284aaa5bae206ee8668872d6369e66a5c7d49d8671a08" in manifest
+
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
     scripts = [
@@ -510,6 +521,9 @@ if __name__ == "__main__":
 
     test_codegraph_pin_from_manifest()
     print("[ok] codegraph pin desde manifest, no hardcode")
+
+    test_aws_pin_from_manifest()
+    print("[ok] AWS version/url/sha256 desde manifest")
 
     test_data_tools_exist()
     print("[ok] data tools: existencia, frontmatter basico")

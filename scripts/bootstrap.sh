@@ -190,16 +190,22 @@ else
   skip "GitHub CLI (no incluido en perfil $PROFILE)"
 fi
 
+AWS_VERSION=$(parse_nested_value "user_tools" "aws" "version")
+AWS_URL=$(parse_nested_value "user_tools" "aws" "url")
+AWS_SHA256=$(parse_nested_value "user_tools" "aws" "sha256")
+
 if profile_includes "$PROFILE" "tools" "aws"; then
   if command -v aws >/dev/null 2>&1; then
-    ok "AWS CLI ya instalado"
+    ok "AWS CLI ya instalado ($(aws --version 2>/dev/null || true))"
   else
-    info 'Instalando AWS CLI...'
-    # ponytail: checksum for known-good version, update when AWS releases new v2
+    info 'Instalando AWS CLI v'"$AWS_VERSION"'...'
     run bash -c '
-      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip &&
-      echo "02a8eb2fe985be8ebcc284aaa5bae206ee8668872d6369e66a5c7d49d8671a08  /tmp/awscliv2.zip" | sha256sum -c - &&
-      unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip
+      tmp_dir=$(mktemp -d) && trap "rm -rf \"$tmp_dir\"" EXIT &&
+      cd "$tmp_dir" &&
+      curl -fsSL "'"$AWS_URL"'" -o awscliv2.zip &&
+      echo "'"$AWS_SHA256"'  awscliv2.zip" | sha256sum -c - &&
+      unzip -q awscliv2.zip &&
+      sudo ./aws/install
     '
   fi
 else

@@ -83,7 +83,9 @@ user_tools:
   aws:
     type: binary
     check: command -v aws
-    install: 'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip'
+    version: "2.36.15"
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.36.15.zip"
+    sha256: "02a8eb2fe985be8ebcc284aaa5bae206ee8668872d6369e66a5c7d49d8671a08"
     depends: unzip
   dh:
     type: binary
