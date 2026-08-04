@@ -319,11 +319,13 @@ _recover_incomplete_transaction() {
     cp "$b_st" "$j_st" || { critical "No se pudo restaurar backup de state"; return 1; }
     chmod 600 "$j_st" || { critical "No se pudo fijar permiso de state"; return 1; }
   elif [[ "$e_st" == "false" && -n "$j_st" ]]; then
-    rm -f "$j_st" || true
+    rm -f "$j_st" || { critical "No se pudo eliminar state creado en transaccion fallida"; return 1; }
   fi
   rm -f "$JOURNAL_FILE"
 }
-if [[ -f "$JOURNAL_FILE" ]]; then _recover_incomplete_transaction; fi
+if [[ -f "$JOURNAL_FILE" ]]; then
+  _recover_incomplete_transaction || { critical "Recuperación fallida — journal conservado en $JOURNAL_FILE"; exit 1; }
+fi
 
 # Trap para transacción actual
 trap _rollback EXIT
@@ -345,13 +347,13 @@ _rollback() {
       cp "$b_oc" "$j_oc" || { critical "Rollback: no se pudo restaurar config"; restore_failed=true; }
       chmod 600 "$j_oc" || { critical "Rollback: no se pudo fijar permiso de config"; restore_failed=true; }
     elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then
-      rm -f "$j_oc" || true
+      rm -f "$j_oc" || { critical "Rollback: no se pudo eliminar config"; restore_failed=true; }
     fi
     if [[ -n "$b_st" && -f "$b_st" ]]; then
       cp "$b_st" "$j_st" || { critical "Rollback: no se pudo restaurar state"; restore_failed=true; }
       chmod 600 "$j_st" || { critical "Rollback: no se pudo fijar permiso de state"; restore_failed=true; }
     elif [[ "$e_st" == "false" && -n "$j_st" ]]; then
-      rm -f "$j_st" || true
+      rm -f "$j_st" || { critical "Rollback: no se pudo eliminar state"; restore_failed=true; }
     fi
     $restore_failed && critical "Rollback: journal conservado para reintento manual" || _clear_journal
   fi
@@ -389,9 +391,6 @@ STATE_EXISTED_BEFORE=false
 [[ -f "$STATE_FILE" ]] && STATE_EXISTED_BEFORE=true
 
 ensure_opencode_config() {
-  local config_dir
-  config_dir=$(dirname "$OC_FILE")
-
   if [[ -f "$OC_FILE" ]]; then
     if jq empty "$OC_FILE" >/dev/null 2>&1; then
       ok "opencode.json existe y es JSON válido"
@@ -401,7 +400,6 @@ ensure_opencode_config() {
       backup="${OC_FILE}.bak.$(date +%s)"
       cp "$OC_FILE" "$backup" || { critical "No se pudo crear backup de opencode.json inválido"; return 1; }
       chmod 600 "$backup" || { critical "No se pudo fijar permisos del backup"; return 1; }
-      ok "Backup creado: $backup"
       critical "opencode.json existe pero no es JSON válido"
       critical "  Backup creado: $backup"
       critical "  Corrige el JSON o elimina el archivo para regenerarlo."
@@ -674,6 +672,7 @@ done < <(parse_mcp_names)
 
 _build_state() {
   local src=$1 dst=$2
+  _check_failpoint "build-state"
   mkdir -p "$(dirname "$dst")" "$STATE_DIR"
   existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
   new_state="{}"

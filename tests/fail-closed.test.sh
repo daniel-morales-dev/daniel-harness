@@ -119,15 +119,18 @@ jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-t2.json" && mv "$TMP_DIR/oc-t
 _run_and_check "t2" env DH_TEST_MODE=1 DH_FAIL_AT=invalid-candidate \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra
 
-# --- Test 3: State builder falla (STATE_DIR no escribible) ---
+# --- Test 3: State builder falla (failpoint build-state) ---
 echo "=== Test 3: state builder failed ==="
 # Full baseline restore so state file is valid
 bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > /dev/null 2>&1
-STATE_DIR="$HOME_DIR/.config/daniel-harness/state"
-chmod 444 "$STATE_DIR"  # make state dir read-only so jq > "$dst" fails
 jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-t3.json" && mv "$TMP_DIR/oc-t3.json" "$OC_FILE"
-_run_and_check "t3" bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra
-chmod 755 "$STATE_DIR" 2>/dev/null || true
+_run_and_check "t3" env DH_TEST_MODE=1 DH_FAIL_AT=build-state \
+  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra
+grep -q 'Failpoint alcanzado: build-state' "$TMP_DIR/t3.out" 2>/dev/null && \
+  pass "t3: alcanzó failpoint build-state" || \
+  fail "t3: no alcanzó failpoint build-state"
+JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
+[[ ! -f "$JOURNAL" ]] && pass "t3: no journal" || fail "t3: journal presente"
 
 echo ""
 echo "=== Resultados: $PASS pasaron, $FAIL fallaron ==="
