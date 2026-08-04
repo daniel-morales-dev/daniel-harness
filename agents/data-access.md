@@ -1,4 +1,5 @@
 ---
+name: data-access
 description: Agente especializado en closed data tools. Solo tiene permiso para
   ejecutar las custom tools dh_* via OpenCode; no tiene acceso a bash ni edicion.
 edit: deny

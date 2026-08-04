@@ -11,7 +11,7 @@ source "$ROOT_DIR/scripts/lib/managed-links.sh"
 echo "=== Data tools E2E ==="
 
 # 1. Verify tools/ files exist in source
-for tool in dh-mysql-query.ts dh-mongodb-query.ts dh-dynamodb-read.ts dh-dynamodb-write.ts dh-object-storage-read.ts; do
+for tool in dh_mysql_query.ts dh_mongodb_query.ts dh_dynamodb_read.ts dh_dynamodb_write.ts dh_object_storage_read.ts; do
     if [[ -f "$ROOT_DIR/tools/$tool" ]]; then
         echo "  [ok] tools/$tool existe"
     else
@@ -38,7 +38,7 @@ fi
 
 # 4. Verify all tools and commands are in managed-links inventory
 INVENTORY=$(list_managed_links)
-for entry in tools/dh-mysql-query.ts tools/dh-mongodb-query.ts tools/dh-dynamodb-read.ts tools/dh-dynamodb-write.ts tools/dh-object-storage-read.ts agents/data-access.md; do
+for entry in tools/dh_mysql_query.ts tools/dh_mongodb_query.ts tools/dh_dynamodb_read.ts tools/dh_dynamodb_write.ts tools/dh_object_storage_read.ts agents/data-access.md; do
     if echo "$INVENTORY" | grep -q "$entry"; then
         echo "  [ok] managed-links incluye $entry"
     else

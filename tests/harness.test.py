@@ -535,6 +535,10 @@ if __name__ == "__main__":
     test_no_duplicate_ci_workflows()
     print("[ok] no workflows duplicados")
 
+    test_agent_name_matches_filename()
+    print("[ok] agent name matches filename")
+    test_generated_mcp_schema()
+    print("[ok] generated MCP schema no invalido")
     test_data_tools_exist()
     print("[ok] data tools: existencia, frontmatter basico")
     test_data_tools_readonly()
