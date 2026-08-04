@@ -429,6 +429,9 @@ if [[ -n "$PROFILE" ]]; then
   profile_tools=$(get_profile_tools "$PROFILE")
   if [[ -n "$profile_tools" ]]; then
     for tool in $profile_tools; do
+      if [[ "$tool" == "docker" ]] && $SKIP_DOCKER; then
+        continue
+      fi
       tool_status "$tool" "$tool" critical
     done
   fi
