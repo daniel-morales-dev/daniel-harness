@@ -1,9 +1,8 @@
 ---
-description: Lee un objeto de object storage (S3-compatible) via tunel local. Lee el
-  perfil de conexion desde connections.yaml, usa AWS CLI con endpoint configurable.
-  Rechaza escrituras. Devuelve el contenido del objeto como texto o JSON.
+description: Lee un objeto de object storage (S3-compatible) via custom tool dh_object_storage_read.
+  La validacion y enforcement ocurren en el backend Python, no en el prompt.
 mode: read
-agent: alegra-microservice-engineer
+agent: data-access
 subtask: true
 argument-hint: "<profile> <bucket> <key>"
 ---
@@ -16,14 +15,14 @@ Lee un objeto de object storage para el perfil: $ARGUMENTS
 
 1. Lee `~/.config/daniel-harness/connections.yaml`, busca profile cuyo `id` coincida.
 2. Valida: `type` debe ser `object-storage`, `readOnly` debe ser `true`.
-3. Verifica el tunel: `host` debe ser `127.0.0.1`, el puerto debe responder.
-4. Lee credenciales del archivo en `credentialsRef` (formato: `AWS_ACCESS_KEY_ID=...\nAWS_SECRET_ACCESS_KEY=...`).
-5. Ejecuta: `AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret> aws s3api get-object --bucket <bucket> --key <key> --endpoint-url http://127.0.0.1:<port> /tmp/dh-output && cat /tmp/dh-output`.
-6. Detecta el tipo de contenido por extension o Content-Type. Para JSON, CSV y texto plano devuelve el contenido. Para binario, devuelve metadata (tamano, tipo, etag).
+3. Construye JSON con `profile`, `bucket`, `key`.
+4. Invoca `dh_object_storage_read` con el JSON.
+5. Devuelve el resultado JSON (contenido o metadata).
 
 ## Restricciones
 
-- READ ONLY. Rechazar PutObject, DeleteObject, CopyObject.
-- No listar buckets enteros ni hacer list-objects sin filtro.
-- No exponer credenciales en la respuesta.
-- Archivos binarios grandes (>10MB): devolver solo metadata, no el contenido.
+- READ ONLY. La validacion se aplica en el backend (`validate_key` en `scripts/dh_data/object_storage.py`).
+- Path traversal en key es bloqueado.
+- Archivos >10MB: solo metadata, no contenido.
+- Archivos temporales se limpian automaticamente.
+- No exponer credenciales.

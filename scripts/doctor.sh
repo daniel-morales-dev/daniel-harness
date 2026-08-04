@@ -368,6 +368,28 @@ else
   warn 'Cliente MariaDB/MySQL no encontrado'
 fi
 
+printf '\nClosed Data Tools\n'
+DATA_TOOLS_DIR="$ROOT_DIR/tools"
+if [[ -d "$DATA_TOOLS_DIR" ]]; then
+  for tool_file in "$DATA_TOOLS_DIR"/dh-*.ts; do
+    [[ -f "$tool_file" ]] || continue
+    tool_name=$(basename "$tool_file" .ts)
+    ok "Custom tool $tool_name presente"
+  done
+else
+  warn 'Directorio tools/ no encontrado'
+fi
+if [[ -f "$ROOT_DIR/agents/data-access.md" ]]; then
+  ok 'Agente data-access.md presente'
+  if grep -qE '^\s+"\*":\s+deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+    ok '  bash: deny configurado'
+  else
+    warn '  bash sin wildcard deny'
+  fi
+else
+  warn 'Agente data-access.md no encontrado'
+fi
+
 if [[ -n "$PROFILE" ]]; then
   printf '\nValidación de perfil %s\n' "$PROFILE"
   profile_tools=$(get_profile_tools "$PROFILE")

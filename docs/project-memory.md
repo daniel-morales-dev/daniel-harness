@@ -59,6 +59,22 @@ No modificar estos assets salvo tarea explícita. `migration-gap.md` solo fue no
 - `commands/dynamodb-write-confirmed.md`: DynamoDB write with confirmation.
 - `commands/object-storage-read.md`: read-only S3-compatible object storage.
 
+## Closed Data Tools
+
+Los data tools son herramientas cerradas con enforcement ejecutable:
+
+- `scripts/dh_data/executor.py` — entry point JSON stdin → backend dispatch
+- `scripts/dh_data/mysql.py` — validación SQL (solo SELECT/SHOW/DESCRIBE/EXPLAIN, bloquea multi-statement, INTO OUTFILE, LOAD_FILE), timeout 30s, limit 1000 filas
+- `scripts/dh_data/mongodb.py` — validación pipeline (bloquea $out/$merge/$where/$function/mapReduce), limit 1000 docs
+- `scripts/dh_data/dynamodb.py` — handle_read (solo GetItem/Query/Scan), handle_write (2-step con nonce token 60s, payload match, sin replay)
+- `scripts/dh_data/object_storage.py` — validación key (anti-traversal), 10MB limit, streaming, cleanup
+- `scripts/dh_data/security.py` — validate_credential_ref (anti-traversal, permisos 600), read_credentials
+- `scripts/dh_data/redaction.py` — redact() + truncate() para output sanitizado
+- `tools/dh-mysql-query.ts`, `dh-mongodb-query.ts`, `dh-dynamodb-read.ts`, `dh-dynamodb-write.ts`, `dh-object-storage-read.ts` — custom tools OpenCode con Zod
+- `agents/data-access.md` — agente con `edit: deny`, `bash: "*": deny`
+
+Los secretos se leen dentro del executor y nunca se entregan al modelo.
+
 ## Seguridad
 
 - El token GitHub previamente hardcodeado debe rotarse y externalizarse.

@@ -1,9 +1,8 @@
 ---
-description: Ejecuta una consulta read-only sobre MongoDB (find o aggregate) via tunel
-  local. Lee el perfil de conexion desde connections.yaml y usa mongosh. Rechaza mutaciones.
-  Devuelve documentos como array JSON.
+description: Ejecuta una consulta read-only sobre MongoDB (find o aggregate) via custom tool
+  dh_mongodb_query. La validacion y enforcement ocurren en el backend Python, no en el prompt.
 mode: read
-agent: alegra-microservice-engineer
+agent: data-access
 subtask: true
 argument-hint: "<profile> <collection> <filter-json> [projection-json]"
 ---
@@ -16,15 +15,13 @@ Ejecuta find/aggregate para el perfil: $ARGUMENTS
 
 1. Lee `~/.config/daniel-harness/connections.yaml`, busca profile cuyo `id` coincida.
 2. Valida: `type` debe ser `mongodb`, `readOnly` debe ser `true`.
-3. Lee credenciales del archivo en `credentialsRef` (formato: `MONGODB_URI=mongodb://...`).
-4. Conecta via: `mongosh "<uri>" --eval 'db.getSiblingDB("<db>").getCollection("<collection>").find(<filter>).limit(1000).toArray()' --quiet`.
-5. Para `aggregate`: usa `db.getCollection("<collection>").aggregate(<pipeline>).toArray()`.
-6. Devuelve documentos como array JSON. Si se excede el tamano, incluir `"truncated": true`.
+3. Construye JSON con `profile`, `collection`, `filter`, `projection` (find) o `pipeline` (aggregate).
+4. Invoca `dh_mongodb_query` con el JSON.
+5. Devuelve el resultado JSON.
 
 ## Restricciones
 
-- READ ONLY. Rechazar insert, update, delete, drop, createIndex, mapReduce, bulkWrite.
-- Un solo comando por llamada.
+- READ ONLY. La validacion se aplica en el backend (`validate_pipeline` en `scripts/dh_data/mongodb.py`).
+- Pipeline con `$out`, `$merge`, `$where`, `$function`, `mapReduce` son bloqueados.
 - Maximo 1000 documentos.
-- No exponer credenciales en la respuesta.
-- Preferir `find()` con filtro sobre `aggregate()` sin `$match`.
+- No exponer credenciales.

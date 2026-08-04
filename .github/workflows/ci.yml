@@ -75,6 +75,24 @@ jobs:
       - name: Clean runtime test
         run: bash tests/clean-runtime.test.sh
 
+      - name: Data tools — MySQL
+        run: python3 tests/data-mysql.test.py
+
+      - name: Data tools — MongoDB
+        run: python3 tests/data-mongodb.test.py
+
+      - name: Data tools — DynamoDB read
+        run: python3 tests/data-dynamodb-read.test.py
+
+      - name: Data tools — DynamoDB write
+        run: python3 tests/data-dynamodb-write.test.py
+
+      - name: Data tools — Object storage
+        run: python3 tests/data-object-storage.test.py
+
+      - name: Data tools — E2E
+        run: bash tests/data-e2e.test.sh
+
   e2e:
     timeout-minutes: 15
     runs-on: ubuntu-24.04

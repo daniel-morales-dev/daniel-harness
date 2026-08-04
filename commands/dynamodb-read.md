@@ -1,11 +1,10 @@
 ---
-description: Ejecuta operaciones read-only sobre DynamoDB (GetItem, Query, Scan
-  limitado). Lee el perfil de conexion desde connections.yaml y usa AWS CLI.
-  Rechaza mutaciones. Devuelve items como JSON.
+description: Ejecuta operaciones read-only sobre DynamoDB (GetItem, Query, Scan) via custom tool
+  dh_dynamodb_read. La validacion y enforcement ocurren en el backend Python, no en el prompt.
 mode: read
-agent: alegra-microservice-engineer
+agent: data-access
 subtask: true
-argument-hint: "<profile> <GetItem|Query> <params-json>"
+argument-hint: "<profile> <operation> <params-json>"
 ---
 
 # DynamoDB Read
@@ -16,17 +15,13 @@ Ejecuta operacion de lectura para el perfil: $ARGUMENTS
 
 1. Lee `~/.config/daniel-harness/connections.yaml`, busca profile cuyo `id` coincida.
 2. Valida: `type` debe ser `dynamodb`.
-3. Lee `region` y `credentialsRef` (formato: `aws-profile://<profile>`).
-4. Configura: `AWS_PROFILE=<profile> AWS_REGION=<region>`.
-5. Ejecuta segun la operacion:
-   - `GetItem`: `aws dynamodb get-item --table-name <resource> --key '<keys>'`
-   - `Query`: `aws dynamodb query --table-name <resource> --key-condition-expression '<condition>' [--filter-expression]`
-   - `Scan`: solo si no existe `GetItem` ni `Query`, con `--max-items 100`
-6. Devuelve `Item` o `Items` como JSON.
+3. Construye JSON con `profile`, `operation` (GetItem|Query|Scan), `tableName`, `params`.
+4. Invoca `dh_dynamodb_read` con el JSON.
+5. Devuelve el resultado JSON.
 
 ## Restricciones
 
-- READ ONLY. Rechazar PutItem, UpdateItem, DeleteItem, BatchWriteItem, TransactWriteItems.
-- Preferir GetItem > Query > Scan (Scan solo como ultimo recurso).
-- Limitar Scan a 100 items maximo.
-- No exponer credenciales AWS en la respuesta.
+- READ ONLY. La validacion se aplica en el backend (`handle_read` en `scripts/dh_data/dynamodb.py`).
+- Solo GetItem, Query, Scan. PutItem, UpdateItem, DeleteItem, BatchWriteItem son bloqueados.
+- Scan limitado a 100 items.
+- No exponer credenciales.
