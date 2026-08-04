@@ -1,0 +1,81 @@
+name: compatibility
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Schema validation (local vs fetched)
+        run: |
+          echo "[..] Verificando reachability del schema oficial..."
+          OFFICIAL=$(curl -sS -o /tmp/opencode-schema-official.json -w "%{http_code}" \
+            "https://opencode.ai/config.json" 2>/dev/null || echo "000")
+          if [[ "$OFFICIAL" == "200" ]]; then
+            echo "[ok] Schema oficial reachable (HTTP $OFFICIAL)"
+            if [[ -f tests/fixtures/opencode-config.schema.json ]]; then
+              DIFF=$(diff <(jq --sort-keys . /tmp/opencode-schema-official.json 2>/dev/null) \
+                <(jq --sort-keys . tests/fixtures/opencode-config.schema.json 2>/dev/null) || true)
+              if [[ -z "$DIFF" ]]; then
+                echo "[ok] Schema versionado coincide con schema oficial"
+              else
+                echo "[aviso] Schema versionado DIFIERE del oficial"
+                echo "$DIFF" | head -20
+              fi
+            fi
+          else
+            echo "[aviso] Schema oficial no reachable (HTTP $OFFICIAL)"
+          fi
+
+      - name: MCP endpoint DNS/HTTP reachability
+        run: |
+          python3 -c "
+import urllib.request, json
+from pathlib import Path
+manifest = json.loads((Path('bootstrap/manifest.yaml')).read_text()) if False else {}
+# Parse YAML manually since pyyaml may not be installed
+import re, sys
+with open('bootstrap/manifest.yaml') as f:
+    content = f.read()
+mcps = re.findall(r'^  (\w[-.\w]*):\n    type: remote\n    url: (.+)', content, re.MULTILINE)
+for name, url in mcps:
+    import urllib.parse
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+    import socket
+    try:
+        socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        print(f'  [ok] {name}: DNS resolution {host}:{port}')
+    except Exception as e:
+        print(f'  [aviso] {name}: DNS failed {host}:{port} — {e}')
+print()
+print('[ok] Endpoint reachability check complete')
+" 2>&1
+
+      - name: Package availability
+        run: |
+          echo "[..] Verificando disponibilidad de packages..."
+          # npm
+          if command -v npm >/dev/null 2>&1; then
+            npm view @codegraph/cli version 2>/dev/null && echo "  [ok] @codegraph/cli disponible en npm" \
+              || echo "  [aviso] @codegraph/cli no encontrado en npm"
+          fi
+          # pip
+          pip index versions pyyaml jsonschema 2>/dev/null | head -5 && echo "  [ok] pyyaml/jsonschema en PyPI" \
+            || echo "  [aviso] no se pudo verificar PyPI"
+
+      - name: NVM version
+        run: |
+          NVM_VERSION=$(curl -sS "https://raw.githubusercontent.com/nvm-sh/nvm/refs/heads/master/package.json" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
+          echo "[..] Ultima version NVM disponible: $NVM_VERSION"
+
+      - name: Summary
+        run: |
+          echo "=== Compatibility check complete ==="
+          echo "No blocking failures — informational only."
