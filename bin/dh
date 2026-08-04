@@ -14,7 +14,7 @@ show_help() {
   printf '  bootstrap        Instalación completa de herramientas (--profile core|alegra|migration|full)\n'
   printf '  mcp-status       Estado de conexión y autenticación MCP\n'
   printf '  tunnel list      Lista túneles configurados\n'
-  printf '  update           Actualiza el harness (tags o main)\n'
+  printf '  update [--channel stable|edge]  Actualiza el harness (stable: tags, edge: main)\n'
 printf '  version          Muestra la versión actual del harness\n'
   printf '  project init     Asistente para nuevo proyecto\n'
 printf '  session scaffold <issue>  Crea plantilla de brief\n'
@@ -163,37 +163,59 @@ detect_context() {
 }
 
 self_update() {
-  printf 'Actualizando Daniel Harness...\n'
+  local channel="stable"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --channel) channel=$2; shift 2 ;;
+      --channel=*) channel=${1#*=}; shift ;;
+      *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
+    esac
+  done
+
+  case "$channel" in
+    stable|edge) ;;
+    *) printf 'Canal invalido: %s (stable|edge)\n' "$channel" >&2; exit 1 ;;
+  esac
+
+  printf 'Actualizando Daniel Harness (canal: %s)...\n' "$channel"
   git -C "$ROOT_DIR" fetch origin --prune --tags 2>/dev/null || {
     printf '[error] No se pudo contactar el remoto\n' >&2
     exit 1
   }
 
-  local local_ref tag_ref target label
+  local local_ref
   local_ref=$(git -C "$ROOT_DIR" rev-parse HEAD)
-  tag_ref=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
 
-  if [[ -n "$tag_ref" ]]; then
-    target="$tag_ref"
-    label="$tag_ref"
+  if [[ "$channel" == "stable" ]]; then
+    local tag_ref remote_ref
+    tag_ref=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
+    if [[ -z "$tag_ref" ]]; then
+      printf '[error] No hay tags de release\n' >&2
+      exit 1
+    fi
+    remote_ref=$(git -C "$ROOT_DIR" rev-parse "$tag_ref" 2>/dev/null || echo "")
+    if [[ "$local_ref" == "$remote_ref" ]]; then
+      printf '[ok] Ya estás en el último release (%s)\n' "$tag_ref"
+      return
+    fi
+    printf 'Actualizando a release %s...\n' "$tag_ref"
+    git -C "$ROOT_DIR" checkout --quiet "$tag_ref" || {
+      printf '[error] Falló checkout del tag %s\n' "$tag_ref" >&2
+      exit 1
+    }
   else
-    target="origin/main"
-    label="main"
+    local remote_ref
+    remote_ref=$(git -C "$ROOT_DIR" rev-parse "origin/main" 2>/dev/null || echo "")
+    if [[ "$local_ref" == "$remote_ref" ]]; then
+      printf '[ok] Ya estás en la última versión de main\n'
+      return
+    fi
+    printf 'Actualizando a main...\n'
+    git -C "$ROOT_DIR" pull --ff-only origin main || {
+      printf '[error] Falló la actualización. Revisa conflictos locales.\n' >&2
+      exit 1
+    }
   fi
-
-  local remote_ref
-  remote_ref=$(git -C "$ROOT_DIR" rev-parse "$target" 2>/dev/null || echo "")
-
-  if [[ "$local_ref" == "$remote_ref" ]]; then
-    printf '[ok] Ya estás en la última versión (%s)\n' "${label}"
-    return
-  fi
-
-  printf 'Actualizando a %s...\n' "$label"
-  git -C "$ROOT_DIR" pull --ff-only origin main || {
-    printf '[error] Falló la actualización. Revisa conflictos locales.\n' >&2
-    exit 1
-  }
 
   if git -C "$ROOT_DIR" diff --name-only HEAD~1..HEAD 2>/dev/null | grep -q '^bootstrap/manifest.yaml'; then
     printf '[aviso] El manifest cambió. Ejecuta dh bootstrap para actualizar herramientas.\n'
@@ -203,7 +225,7 @@ self_update() {
     printf '[aviso] install.sh cambió. Ejecuta dh install para actualizar symlinks.\n'
   fi
 
-  printf '[ok] Harness actualizado (%s)\n' "${label}"
+  printf '[ok] Harness actualizado (%s)\n' "$channel"
 }
 
 preflight() {
@@ -648,10 +670,15 @@ case "${1:-help}" in
   tunnel) shift; tunnel_cmd "$@" ;;
   context) shift; detect_context "$@" ;;
   version)
-    _dh_tag=$(git -C "$ROOT_DIR" tag -l 'v*' --sort=-v:refname | head -1)
-    printf '%s\n' "${_dh_tag:-0.0.0-dev}"
+    _dh_tag=$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null || true)
+    if [[ -z "$_dh_tag" ]]; then
+      _dh_sha=$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+      printf '%s-dev\n' "$_dh_sha"
+    else
+      printf '%s\n' "$_dh_tag"
+    fi
     ;;
-  update) self_update ;;
+  update) shift; self_update "$@" ;;
   project) shift; project_init "$@" ;;
   session) shift; session_start "$@" ;;
   engram-service) shift; engram_service "$@" ;;
