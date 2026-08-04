@@ -371,7 +371,7 @@ fi
 printf '\nClosed Data Tools\n'
 DATA_TOOLS_DIR="$ROOT_DIR/tools"
 if [[ -d "$DATA_TOOLS_DIR" ]]; then
-  for tool_file in "$DATA_TOOLS_DIR"/dh-*.ts; do
+  for tool_file in "$DATA_TOOLS_DIR"/dh_*.ts; do
     [[ -f "$tool_file" ]] || continue
     tool_name=$(basename "$tool_file" .ts)
     ok "Custom tool $tool_name presente"
@@ -381,10 +381,26 @@ else
 fi
 if [[ -f "$ROOT_DIR/agents/data-access.md" ]]; then
   ok 'Agente data-access.md presente'
-  if grep -qE '^\s+"\*":\s+deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-    ok '  bash: deny configurado'
+  if grep -qE 'mode: subagent' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+    ok '  mode: subagent'
   else
-    warn '  bash sin wildcard deny'
+    warn '  sin mode: subagent'
+  fi
+  if grep -qE 'permission:' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+    ok '  permission section'
+    if grep -qE '"\*":\s+deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+      ok '  wildcard deny'
+    else
+      warn '  sin wildcard deny'
+    fi
+    TOOL_COUNT=$(grep -cE 'dh_\w+: allow' "$ROOT_DIR/agents/data-access.md" 2>/dev/null || echo 0)
+    if [[ "$TOOL_COUNT" -eq 5 ]]; then
+      ok "  5 custom tools allow"
+    else
+      warn "  solo $TOOL_COUNT/5 tools allow"
+    fi
+  else
+    warn '  sin permission section'
   fi
 else
   warn 'Agente data-access.md no encontrado'

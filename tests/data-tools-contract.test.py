@@ -86,6 +86,44 @@ def test_unexpected_tool_files():
         assert f.stem in EXPECTED_TOOLS, f"Unexpected tool file: {f.name}"
 
 
+# --- Agent permission tests ---
+
+
+def test_data_access_agent_exists():
+    path = ROOT_DIR / "agents" / "data-access.md"
+    assert path.exists(), "agents/data-access.md missing"
+
+
+def test_data_access_agent_mode():
+    content = (ROOT_DIR / "agents" / "data-access.md").read_text()
+    assert "mode: subagent" in content, "data-access must be mode: subagent"
+
+
+def test_data_access_agent_permission_exists():
+    content = (ROOT_DIR / "agents" / "data-access.md").read_text()
+    assert "permission:" in content, "data-access must have permission section"
+
+
+def test_data_access_agent_wildcard_deny():
+    content = (ROOT_DIR / "agents" / "data-access.md").read_text()
+    assert '"*": deny' in content, "data-access must have wildcard deny"
+
+ALLOWED_TOOLS_IN_AGENT = ["dh_mysql_query", "dh_mongodb_query", "dh_dynamodb_read", "dh_dynamodb_write", "dh_object_storage_read"]
+
+def test_data_access_agent_allowed_tools():
+    content = (ROOT_DIR / "agents" / "data-access.md").read_text()
+    for tool in ALLOWED_TOOLS_IN_AGENT:
+        assert f"{tool}: allow" in content, f"data-access missing allow for {tool}"
+
+
+def test_data_access_agent_no_extra_allowed_tools():
+    content = (ROOT_DIR / "agents" / "data-access.md").read_text()
+    import re
+    allowed = re.findall(r'(\w+): allow', content)
+    tool_allows = [t for t in allowed if t.startswith("dh_")]
+    assert len(tool_allows) == 5, f"data-access should allow exactly 5 tools, got {len(tool_allows)}: {tool_allows}"
+
+
 if __name__ == "__main__":
     test_all_tool_files_exist()
     print("[ok] all tool files exist")
@@ -99,4 +137,16 @@ if __name__ == "__main__":
     print("[ok] no unexpected tool files")
     test_ts_syntax()
     print("[ok] TypeScript syntax check")
+    test_data_access_agent_exists()
+    print("[ok] data-access agent exists")
+    test_data_access_agent_mode()
+    print("[ok] data-access mode: subagent")
+    test_data_access_agent_permission_exists()
+    print("[ok] data-access permission section")
+    test_data_access_agent_wildcard_deny()
+    print("[ok] data-access wildcard deny")
+    test_data_access_agent_allowed_tools()
+    print("[ok] data-access 5 tools allow")
+    test_data_access_agent_no_extra_allowed_tools()
+    print("[ok] data-access no extra tools")
     print("\n=== Todos los tests pasaron ===")

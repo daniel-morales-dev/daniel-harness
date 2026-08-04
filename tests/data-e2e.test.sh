@@ -28,11 +28,24 @@ else
     FAIL=1
 fi
 
-# 3. Verify agent has bash: deny
-if grep -qE 'deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-    echo "  [ok] data-access.md tiene deny configurado"
+# 3. Verify agent has mode: subagent and permission wildcard
+if grep -qE 'mode: subagent' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+    echo "  [ok] data-access.md mode: subagent"
 else
-    echo "  [FAIL] data-access.md no tiene deny"
+    echo "  [FAIL] data-access.md sin mode: subagent"
+    FAIL=1
+fi
+if grep -qE '"*": deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+    echo "  [ok] data-access.md wildcard deny"
+else
+    echo "  [FAIL] data-access.md sin wildcard deny"
+    FAIL=1
+fi
+ALLOW_COUNT=$(grep -cE 'dh_\w+: allow' "$ROOT_DIR/agents/data-access.md" 2>/dev/null || echo 0)
+if [[ "$ALLOW_COUNT" -eq 5 ]]; then
+    echo "  [ok] data-access.md: 5 custom tools allow"
+else
+    echo "  [FAIL] data-access.md: expected 5 tools allow, got $ALLOW_COUNT"
     FAIL=1
 fi
 
