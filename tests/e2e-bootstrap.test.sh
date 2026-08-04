@@ -213,6 +213,9 @@ jq -e '.plugin | index("@dietrichgebert/ponytail@latest") != null' "$OC_FILE" >/
 jq -e '.mcp.codegraph.type == "local"' "$OC_FILE" >/dev/null && pass "codegraph is local" || fail "codegraph type mismatch"
 jq -e '.mcp.engram.type == "local"' "$OC_FILE" >/dev/null && pass "engram is local" || fail "engram type mismatch"
 
+# Validate no disabledTools anywhere in MCP config
+jq -e '[.mcp[] | has("disabledTools")] | any | not' "$OC_FILE" >/dev/null && pass "no MCP has disabledTools" || fail "some MCP still has disabledTools"
+
 # --- Phase 3: Validate agents and skills installed ---
 printf '\n=== Phase 3: Agents and skills ===\n'
 [[ -L "$CONFIG_TMP/opencode/agents/alegra-microservice-engineer.md" ]] && pass "agent alegra-microservice-engineer" || fail "agent alegra-microservice-engineer missing"
@@ -254,6 +257,7 @@ done
 printf '\n=== Phase 7: bootstrap --dry-run alegra ===\n'
 bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile alegra > "$TMP_DIR/bootstrap-alegra.out" 2>&1 || true
 grep -q 'Bootstrap completado' "$TMP_DIR/bootstrap-alegra.out" && pass "alegra dry-run completes" || fail "alegra dry-run failed"
+grep -q 'disabledTools' "$TMP_DIR/bootstrap-alegra.out" && fail "alegra dry-run still has disabledTools" || pass "alegra dry-run has no disabledTools"
 
 # --- Summary ---
 printf '\n========================================\n'
