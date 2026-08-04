@@ -225,9 +225,11 @@ def test_mcp_status_uninitialized():
 
 
 def test_uninstall_removes_global_link():
-    """Verify uninstall.sh removes the global AGENTS.md link."""
-    content = (ROOT_DIR / "scripts" / "uninstall.sh").read_text()
-    assert "global/AGENTS.md" in content
+    """Verify uninstall.sh removes the global AGENTS.md link via managed-links.sh."""
+    uninstall = (ROOT_DIR / "scripts" / "uninstall.sh").read_text()
+    inventory = (ROOT_DIR / "scripts" / "lib" / "managed-links.sh").read_text()
+    assert "list_managed_links" in uninstall, "uninstall.sh must consume managed inventory"
+    assert "global/AGENTS.md" in inventory
 
 
 def test_generated_mcp_schema():
@@ -271,8 +273,10 @@ def test_data_tools_write_has_confirmation():
 
 def test_data_tools_installed():
     install = (ROOT_DIR / "scripts" / "install.sh").read_text()
+    inventory = (ROOT_DIR / "scripts" / "lib" / "managed-links.sh").read_text()
+    assert "list_managed_links" in install, "install.sh must consume managed inventory"
     for name in DATA_TOOLS:
-        assert f"{name}.md" in install, f"install.sh must link {name}"
+        assert f"{name}.md" in inventory, f"{name}.md must be in managed-links.sh"
 
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
@@ -283,6 +287,7 @@ def test_bash_syntax():
         ROOT_DIR / "scripts" / "uninstall.sh",
         ROOT_DIR / "scripts" / "doctor.sh",
         ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "scripts" / "lib" / "managed-links.sh",
         ROOT_DIR / "install",
     ]
     failures = []
@@ -316,6 +321,7 @@ def test_sc2168_local_outside_function():
         ROOT_DIR / "scripts" / "uninstall.sh",
         ROOT_DIR / "scripts" / "doctor.sh",
         ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "scripts" / "lib" / "managed-links.sh",
         ROOT_DIR / "install",
     ]
     for script in scripts:
