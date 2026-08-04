@@ -355,31 +355,39 @@ _mcp_jq() {
   jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
 }
 
-# Compare desired vs current for a managed MCP, apply with drift check
+# Estados explicitos de reconciliacion
+# 0=unchanged 1=updated 2=drift-conflict
 _reconcile_mcp() {
   local name=$1 desired=$2
   local current
   current=$(jq --arg n "$name" '.mcp[$n]' "$TMP_CANDIDATE" 2>/dev/null || echo "null")
 
-  if [[ "$current" == "$desired" ]]; then
-    ok "MCP $name configurado, idéntico al manifest"
-    return
+  # Hash canonico (jq -S -c elimina diferencias de orden/formato)
+  local desired_canonical
+  desired_canonical=$(echo "$desired" | jq -S -c . 2>/dev/null || echo "$desired")
+  local current_canonical
+  current_canonical=$(echo "$current" | jq -S -c . 2>/dev/null || echo "$current")
+
+  if [[ "$current_canonical" == "$desired_canonical" ]]; then
+    ok "MCP $name configurado, identico al manifest"
+    return 0
   fi
 
   if [[ -f "$STATE_FILE" ]]; then
     local current_hash last_hash
-    current_hash=$(echo "$current" | sha256sum | cut -d' ' -f1)
+    current_hash=$(echo "$current_canonical" | sha256sum | cut -d' ' -f1)
     last_hash=$(jq -r --arg n "$name" '.mcps[$n].lastAppliedHash // ""' "$STATE_FILE" 2>/dev/null || echo "")
     if [[ -n "$last_hash" && "$current_hash" != "$last_hash" ]]; then
-      warn "MCP $name modificado externamente desde la última aplicación. Conservando configuración personalizada."
+      warn "MCP $name modificado externamente desde la ultima aplicacion. Conservando configuracion personalizada."
       MCP_SKIPPED=$((MCP_SKIPPED + 1))
-      return
+      return 2
     fi
   fi
 
   _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
-  info "MCP $name actualizado (configuración administrada diferente del manifest)"
+  info "MCP $name actualizado (configuracion administrada diferente del manifest)"
   MCP_UPDATED=$((MCP_UPDATED + 1))
+  return 1
 }
 
 MANAGED_MCPS=()
@@ -452,9 +460,12 @@ while IFS= read -r name; do
       fi
     fi
     _reconcile_mcp "$name" "$desired"
+    _rc=$?
+    # drift-conflict (2): no trackear en state, preservar hash anterior
+    [[ $_rc -eq 2 ]] && continue
   else
     if [[ $DRY_RUN == true ]]; then
-      info "[simulado] jq injectaría MCP $name"
+      info "[simulado] jq inyectaria MCP $name"
       MCP_ADDED=$((MCP_ADDED + 1))
       continue
     fi
@@ -471,7 +482,7 @@ _build_state() {
   existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
   new_state="{}"
   for m in "${MANAGED_MCPS[@]}"; do
-    val=$(jq --arg n "$m" '.mcp[$n]' "$src" 2>/dev/null || echo "null")
+    val=$(jq -S -c --arg n "$m" '.mcp[$n]' "$src" 2>/dev/null || echo "null")
     hash=$(echo "$val" | sha256sum | cut -d' ' -f1)
     new_state=$(echo "$new_state" | jq --arg n "$m" --arg h "$hash" '.mcps[$n] = {lastAppliedHash: $h}')
   done
