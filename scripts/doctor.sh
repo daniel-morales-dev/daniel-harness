@@ -11,6 +11,7 @@ STRICT=false
 SKIP_OAUTH=false
 SKIP_DOCKER=false
 PROFILE=
+EXPERIMENTAL=false
 WARNINGS=0
 CRITICAL=0
 
@@ -26,7 +27,8 @@ while [[ $# -gt 0 ]]; do
     --skip-docker) SKIP_DOCKER=true; shift ;;
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
-    --help|-h) printf 'Uso: doctor.sh [--strict] [--skip-oauth] [--profile core|alegra|migration|full]\n'; exit 0 ;;
+    --experimental-data-tools) EXPERIMENTAL=true; shift ;;
+    --help|-h) printf 'Uso: doctor.sh [--strict] [--skip-oauth] [--profile core|alegra|migration|full] [--experimental-data-tools]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -368,42 +370,46 @@ else
   warn 'Cliente MariaDB/MySQL no encontrado'
 fi
 
-printf '\nClosed Data Tools\n'
-DATA_TOOLS_DIR="$ROOT_DIR/tools"
-if [[ -d "$DATA_TOOLS_DIR" ]]; then
-  for tool_file in "$DATA_TOOLS_DIR"/dh_*.ts; do
-    [[ -f "$tool_file" ]] || continue
-    tool_name=$(basename "$tool_file" .ts)
-    ok "Custom tool $tool_name presente"
-  done
-else
-  warn 'Directorio tools/ no encontrado'
-fi
-if [[ -f "$ROOT_DIR/agents/data-access.md" ]]; then
-  ok 'Agente data-access.md presente'
-  if grep -qE 'mode: subagent' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-    ok '  mode: subagent'
+if [[ $EXPERIMENTAL == true ]]; then
+  printf '\nClosed Data Tools (experimental — beta)\n'
+  DATA_TOOLS_DIR="$ROOT_DIR/tools"
+  if [[ -d "$DATA_TOOLS_DIR" ]]; then
+    for tool_file in "$DATA_TOOLS_DIR"/dh_*.ts; do
+      [[ -f "$tool_file" ]] || continue
+      tool_name=$(basename "$tool_file" .ts)
+      ok "Custom tool $tool_name presente"
+    done
   else
-    warn '  sin mode: subagent'
+    warn 'Directorio tools/ no encontrado'
   fi
-  if grep -qE 'permission:' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-    ok '  permission section'
-    if grep -qE '"\*":\s+deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-      ok '  wildcard deny'
+  if [[ -f "$ROOT_DIR/agents/data-access.md" ]]; then
+    ok 'Agente data-access.md presente'
+    if grep -qE 'mode: subagent' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+      ok '  mode: subagent'
     else
-      warn '  sin wildcard deny'
+      warn '  sin mode: subagent'
     fi
-    TOOL_COUNT=$(grep -cE 'dh_\w+: allow' "$ROOT_DIR/agents/data-access.md" 2>/dev/null || echo 0)
-    if [[ "$TOOL_COUNT" -eq 5 ]]; then
-      ok "  5 custom tools allow"
+    if grep -qE 'permission:' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+      ok '  permission section'
+      if grep -qE '"\*":\s+deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
+        ok '  wildcard deny'
+      else
+        warn '  sin wildcard deny'
+      fi
+      TOOL_COUNT=$(grep -cE 'dh_\w+: allow' "$ROOT_DIR/agents/data-access.md" 2>/dev/null || echo 0)
+      if [[ "$TOOL_COUNT" -eq 5 ]]; then
+        ok "  5 custom tools allow"
+      else
+        warn "  solo $TOOL_COUNT/5 tools allow"
+      fi
     else
-      warn "  solo $TOOL_COUNT/5 tools allow"
+      warn '  sin permission section'
     fi
   else
-    warn '  sin permission section'
+    warn 'Agente data-access.md no encontrado'
   fi
 else
-  warn 'Agente data-access.md no encontrado'
+  printf '\nClosed Data Tools: deshabilitadas (usa --experimental-data-tools para activarlas)\n'
 fi
 
 if [[ -n "$PROFILE" ]]; then

@@ -6,6 +6,14 @@ CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
 HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
+EXPERIMENTAL=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --experimental-data-tools) EXPERIMENTAL=true; shift ;;
+    *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
 
 source "$ROOT_DIR/scripts/lib/managed-links.sh"
 
@@ -42,7 +50,6 @@ link_if_missing() {
     return 1
   fi
 
-  # -L también protege enlaces rotos, que -e no detecta.
   if [[ -e "$target" || -L "$target" ]]; then
     printf 'omitido: %s ya existe\n' "$target"
     return
@@ -68,16 +75,27 @@ install -d -m 700 "$OPENCODE_CONFIG_DIR/agents" "$OPENCODE_CONFIG_DIR/skills" "$
 
 install -d -m 700 "$HARNESS_CONFIG_DIR/policies" "$HARNESS_CONFIG_DIR/policies.local"
 for policy in "$ROOT_DIR/policies/"*.md; do
-  # ponytail: symlinks = git pull propaga cambios, policies.local para overrides
   link_if_missing "$policy" "$HARNESS_CONFIG_DIR/policies/$(basename "$policy")"
 done
 
-# Managed links desde inventario compartido (scripts/lib/managed-links.sh)
+# Managed links desde inventario compartido
 install -d -m 700 "$LOCAL_BIN"
 while IFS='|' read -r source_rel dest_var dest_rel; do
   dest_dir=$(dirname "${!dest_var}/$dest_rel")
   [[ -d "$dest_dir" ]] || mkdir -p "$dest_dir"
   link_if_missing "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel"
 done < <(list_managed_links)
+
+# Recursos experimentales (closed data tools)
+if $EXPERIMENTAL; then
+  printf '\n[aviso] Instalando closed data tools experimentales (beta)\n'
+  printf '  Estas herramientas no son estables en v0.1.0.\n'
+  printf '  Reporta errores en https://github.com/daniel-morales-dev/daniel-harness/issues\n\n'
+  while IFS='|' read -r source_rel dest_var dest_rel; do
+    dest_dir=$(dirname "${!dest_var}/$dest_rel")
+    [[ -d "$dest_dir" ]] || mkdir -p "$dest_dir"
+    link_if_missing "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel"
+  done < <(list_experimental_links)
+fi
 
 printf '\nInstalación completada. Ejecuta dh doctor para verificar.\n'

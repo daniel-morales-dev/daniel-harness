@@ -14,7 +14,7 @@ MANAGED_MCPS=()
 # --help debe ejecutarse antes de crear cualquier estado o lock
 for arg in "$@"; do
   if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
-    printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker]\n'
+    printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--experimental-data-tools]\n'
     exit 0
   fi
 done
@@ -22,6 +22,7 @@ done
 DRY_RUN=false
 SKIP_DOCKER=false
 PROFILE=core
+EXPERIMENTAL_DATA_TOOLS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,7 +30,8 @@ while [[ $# -gt 0 ]]; do
     --skip-docker) SKIP_DOCKER=true; shift ;;
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
-    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker]\n'; exit 0 ;;
+    --experimental-data-tools) EXPERIMENTAL_DATA_TOOLS=true; shift ;;
+    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--experimental-data-tools]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -486,8 +488,10 @@ fi
 phase "Configuración del harness"
 
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
+  INSTALL_ARGS=()
+  $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
   info 'Ejecutando install.sh...'
-  run bash "$ROOT_DIR/scripts/install.sh"
+  run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
 else
   info 'install.sh no encontrado'
 fi
