@@ -198,11 +198,37 @@ fi
 phase "NVM + Node.js"
 
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+_install_nvm() {
+  local tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/daniel-harness-nvm.XXXXXXXX") || {
+    critical "No se pudo crear temporal para NVM"
+    return 1
+  }
+  mkdir -p "$NVM_DIR" || { rm -f "$tmp"; critical "No se pudo crear $NVM_DIR"; return 1; }
+  if ! curl -fsSL \
+    "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh" \
+    -o "$tmp"; then
+    rm -f "$tmp"
+    critical "No se pudo descargar el instalador de NVM"
+    return 1
+  fi
+  if ! bash "$tmp"; then
+    rm -f "$tmp"
+    critical "El instalador de NVM terminó con error"
+    return 1
+  fi
+  rm -f "$tmp"
+  if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+    critical "NVM no quedó instalado en $NVM_DIR"
+    return 1
+  fi
+}
+
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   ok "NVM ya instalado ($(source "$NVM_DIR/nvm.sh" && nvm --version 2>/dev/null))"
 else
   info 'Instalando NVM...'
-  run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh -o /tmp/nvm-install.sh && bash /tmp/nvm-install.sh; rm -f /tmp/nvm-install.sh'
+  run _install_nvm || exit 1
 fi
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
