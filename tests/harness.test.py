@@ -225,9 +225,11 @@ def test_mcp_status_uninitialized():
 
 
 def test_uninstall_removes_global_link():
-    """Verify uninstall.sh removes the global AGENTS.md link."""
-    content = (ROOT_DIR / "scripts" / "uninstall.sh").read_text()
-    assert "global/AGENTS.md" in content
+    """Verify uninstall.sh removes the global AGENTS.md link via managed-links.sh."""
+    uninstall = (ROOT_DIR / "scripts" / "uninstall.sh").read_text()
+    inventory = (ROOT_DIR / "scripts" / "lib" / "managed-links.sh").read_text()
+    assert "list_managed_links" in uninstall, "uninstall.sh must consume managed inventory"
+    assert "global/AGENTS.md" in inventory
 
 
 def test_generated_mcp_schema():
@@ -271,8 +273,46 @@ def test_data_tools_write_has_confirmation():
 
 def test_data_tools_installed():
     install = (ROOT_DIR / "scripts" / "install.sh").read_text()
+    inventory = (ROOT_DIR / "scripts" / "lib" / "managed-links.sh").read_text()
+    assert "list_managed_links" in install, "install.sh must consume managed inventory"
     for name in DATA_TOOLS:
-        assert f"{name}.md" in install, f"install.sh must link {name}"
+        assert f"{name}.md" in inventory, f"{name}.md must be in managed-links.sh"
+
+def test_codegraph_pin_from_manifest():
+    """Verify bootstrap reads codegraph install from manifest via parse_nested_value."""
+    bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()
+    manifest = (ROOT_DIR / "bootstrap" / "manifest.yaml").read_text()
+    assert 'parse_nested_value "user_tools" "codegraph" "install"' in bootstrap, \
+        "bootstrap must read codegraph install from manifest, not hardcode"
+    assert "@codegraph/cli@1.2.0" in manifest, \
+        "manifest must have pinned codegraph version"
+
+def test_aws_pin_from_manifest():
+    """Verify bootstrap reads AWS version/url/sha256 from manifest."""
+    bootstrap = (ROOT_DIR / "scripts" / "bootstrap.sh").read_text()
+    manifest = (ROOT_DIR / "bootstrap" / "manifest.yaml").read_text()
+    assert 'parse_nested_value "user_tools" "aws" "version"' in bootstrap
+    assert 'parse_nested_value "user_tools" "aws" "url"' in bootstrap
+    assert 'parse_nested_value "user_tools" "aws" "sha256"' in bootstrap
+    assert "2.36.15" in manifest
+    assert "awscli-exe-linux-x86_64-2.36.15.zip" in manifest
+    assert "02a8eb2fe985be8ebcc284aaa5bae206ee8668872d6369e66a5c7d49d8671a08" in manifest
+
+def test_doctor_uses_root_dir_for_harness_components():
+    """Verify doctor resolves schema/validator from ROOT_DIR, not REPOSITORY_DIR."""
+    doctor = (ROOT_DIR / "scripts" / "doctor.sh").read_text()
+    # Schema path must use ROOT_DIR, not REPOSITORY_DIR
+    assert '$ROOT_DIR/tests/fixtures/opencode-config.schema.json' in doctor
+    assert '$ROOT_DIR/scripts/validate-opencode-config.py' in doctor
+
+def test_no_duplicate_ci_workflows():
+    """Only ci.yml should trigger on push/PR (no validate.yml or e2e.yml)."""
+    for wf in sorted((ROOT_DIR / ".github" / "workflows").glob("*.yml")):
+        if wf.name == "ci.yml":
+            continue
+        content = wf.read_text()
+        assert "pull_request:" not in content, f"{wf.name} should not trigger on pull_request"
+        assert "  push:" not in content, f"{wf.name} should not trigger on push"
 
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
@@ -283,6 +323,7 @@ def test_bash_syntax():
         ROOT_DIR / "scripts" / "uninstall.sh",
         ROOT_DIR / "scripts" / "doctor.sh",
         ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "scripts" / "lib" / "managed-links.sh",
         ROOT_DIR / "install",
     ]
     failures = []
@@ -316,37 +357,26 @@ def test_sc2168_local_outside_function():
         ROOT_DIR / "scripts" / "uninstall.sh",
         ROOT_DIR / "scripts" / "doctor.sh",
         ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "scripts" / "lib" / "managed-links.sh",
         ROOT_DIR / "install",
     ]
     for script in scripts:
         if not script.exists():
             continue
-        # Build list of function body line ranges using column-0 signals
+        # Build function ranges using a stack (handles one-liners: `func() { ...; }`)
         lines = script.read_text().splitlines()
-        func_starts = []  # (start_line, name)
-        func_ends = set()
+        fn_stack = []
+        ranges = []
         for lineno, line in enumerate(lines, 1):
             m = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)\s*{', line)
             if m:
-                func_starts.append((lineno, m.group(1)))
-            # } at column 0 closes the innermost open function
-            if line.strip() == "}" and line == line.rstrip() and func_starts:
-                # Only if line IS all at column 0 (no leading whitespace)
-                if not line.startswith(" "):
-                    start_line, name = func_starts.pop()
-                    func_ends.add(start_line)
-                    func_ends.add(lineno)
-
-        # Now check every 'local' usage
-        in_function = False
-        function_end = -1
-        func_idx = 0
-        # Rebuild sorted range list from paired func_starts/func_ends
-        collected = sorted(func_ends)
-        ranges = []
-        for i in range(0, len(collected), 2):
-            if i + 1 < len(collected):
-                ranges.append((collected[i], collected[i + 1]))
+                fn_stack.append(lineno)
+                # One-liner: `}` on the same line as `{`
+                if '}' in line:
+                    ranges.append((fn_stack.pop(), lineno))
+            elif line.strip() == '}' and not line.startswith(' '):
+                if fn_stack:
+                    ranges.append((fn_stack.pop(), lineno))
 
         for lineno, line in enumerate(lines, 1):
             stripped = line.strip()
@@ -492,6 +522,18 @@ if __name__ == "__main__":
 
     test_uninstall_removes_global_link()
     print("[ok] uninstall.sh elimina enlace global")
+
+    test_codegraph_pin_from_manifest()
+    print("[ok] codegraph pin desde manifest, no hardcode")
+
+    test_aws_pin_from_manifest()
+    print("[ok] AWS version/url/sha256 desde manifest")
+
+    test_doctor_uses_root_dir_for_harness_components()
+    print("[ok] doctor usa ROOT_DIR para schema/validator")
+
+    test_no_duplicate_ci_workflows()
+    print("[ok] no workflows duplicados")
 
     test_data_tools_exist()
     print("[ok] data tools: existencia, frontmatter basico")

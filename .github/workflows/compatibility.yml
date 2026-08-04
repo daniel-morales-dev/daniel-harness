@@ -5,77 +5,156 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   compatibility:
+    timeout-minutes: 10
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Schema validation (local vs fetched)
-        run: |
-          echo "[..] Verificando reachability del schema oficial..."
-          OFFICIAL=$(curl -sS -o /tmp/opencode-schema-official.json -w "%{http_code}" \
-            "https://opencode.ai/config.json" 2>/dev/null || echo "000")
-          if [[ "$OFFICIAL" == "200" ]]; then
-            echo "[ok] Schema oficial reachable (HTTP $OFFICIAL)"
-            if [[ -f tests/fixtures/opencode-config.schema.json ]]; then
-              DIFF=$(diff <(jq --sort-keys . /tmp/opencode-schema-official.json 2>/dev/null) \
-                <(jq --sort-keys . tests/fixtures/opencode-config.schema.json 2>/dev/null) || true)
-              if [[ -z "$DIFF" ]]; then
-                echo "[ok] Schema versionado coincide con schema oficial"
-              else
-                echo "[aviso] Schema versionado DIFIERE del oficial"
-                echo "$DIFF" | head -20
-              fi
-            fi
-          else
-            echo "[aviso] Schema oficial no reachable (HTTP $OFFICIAL)"
-          fi
+      - name: Install deps
+        run: pip install pyyaml jsonschema
 
-      - name: MCP endpoint DNS/HTTP reachability
+      - name: Schema drift
+        id: schema-drift
         run: |
-          python3 -c "
-import urllib.request, json
-from pathlib import Path
-manifest = json.loads((Path('bootstrap/manifest.yaml')).read_text()) if False else {}
-# Parse YAML manually since pyyaml may not be installed
-import re, sys
-with open('bootstrap/manifest.yaml') as f:
-    content = f.read()
-mcps = re.findall(r'^  (\w[-.\w]*):\n    type: remote\n    url: (.+)', content, re.MULTILINE)
-for name, url in mcps:
-    import urllib.parse
-    parsed = urllib.parse.urlparse(url)
-    host = parsed.hostname
-    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
-    import socket
-    try:
-        socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
-        print(f'  [ok] {name}: DNS resolution {host}:{port}')
-    except Exception as e:
-        print(f'  [aviso] {name}: DNS failed {host}:{port} — {e}')
-print()
-print('[ok] Endpoint reachability check complete')
-" 2>&1
+          python3 << 'PYEOF'
+          import json, urllib.request
+          from pathlib import Path
+          schema_file = Path('tests/fixtures/opencode-config.schema.json')
+          local = json.loads(schema_file.read_text()) if schema_file.exists() else {}
+          try:
+              resp = urllib.request.urlopen('https://opencode.ai/config.json', timeout=10)
+              official = json.loads(resp.read())
+          except Exception as e:
+              print(f'::warning title=schema-unreachable::Official schema not reachable: {e}')
+              exit(0)
+          if local == official:
+              print('[ok] Local schema matches official')
+          else:
+              msg = 'Local schema differs from official'
+              print(f'::warning title=schema-drift::{msg}')
+          PYEOF
 
-      - name: Package availability
+      - name: Package versions
+        id: package-versions
         run: |
-          echo "[..] Verificando disponibilidad de packages..."
-          # npm
-          if command -v npm >/dev/null 2>&1; then
-            npm view @codegraph/cli version 2>/dev/null && echo "  [ok] @codegraph/cli disponible en npm" \
-              || echo "  [aviso] @codegraph/cli no encontrado en npm"
-          fi
-          # pip
-          pip index versions pyyaml jsonschema 2>/dev/null | head -5 && echo "  [ok] pyyaml/jsonschema en PyPI" \
-            || echo "  [aviso] no se pudo verificar PyPI"
+          python3 << 'PYEOF'
+          import json, yaml, urllib.request, hashlib
+          from pathlib import Path
+          manifest = yaml.safe_load(Path('bootstrap/manifest.yaml').read_text())
+          failed = False
 
-      - name: NVM version
+          # CodeGraph exact version
+          cg = manifest.get('user_tools', {}).get('codegraph', {}).get('install', '')
+          if '@codegraph/cli@1.2.0' in cg:
+              print('[ok] CodeGraph pinned: @codegraph/cli@1.2.0')
+          else:
+              print(f'::error title=codegraph-pin::CodeGraph not pinned to 1.2.0')
+              failed = True
+
+          # AWS CLI version + artifact + checksum
+          aws = manifest.get('user_tools', {}).get('aws', {})
+          aws_version = aws.get('version', '')
+          aws_url = aws.get('url', '')
+          aws_sha256 = aws.get('sha256', '')
+          if aws_version:
+              print(f'[ok] AWS CLI version: {aws_version}')
+          else:
+              print(f'::error title=aws-version::AWS CLI version missing from manifest')
+              failed = True
+          if aws_url and aws_sha256:
+              try:
+                  resp = urllib.request.urlopen(aws_url, timeout=15)
+                  data = resp.read()
+                  actual = hashlib.sha256(data).hexdigest()
+                  if actual == aws_sha256:
+                      print(f'[ok] AWS artifact sha256 matches manifest')
+                  else:
+                      print(f'::error title=aws-checksum::AWS artifact sha256 mismatch: expected {aws_sha256}, got {actual}')
+                      failed = True
+              except Exception as e:
+                  print(f'::error title=aws-unreachable::AWS artifact not reachable: {e}')
+                  failed = True
+
+          # NVM version check
+          nvm_ver = manifest.get('user_tools', {}).get('nvm', {}).get('version', '')
+          if nvm_ver:
+              try:
+                  nvm_url = f'https://raw.githubusercontent.com/nvm-sh/nvm/v{nvm_ver}/package.json'
+                  resp = urllib.request.urlopen(nvm_url, timeout=10)
+                  remote = json.loads(resp.read())
+                  if remote.get('version') == nvm_ver:
+                      print(f'[ok] NVM v{nvm_ver} available')
+                  else:
+                      print(f'::warning title=nvm-version::NVM v{nvm_ver} tag exists but version field differs')
+              except Exception as e:
+                  print(f'::warning title=nvm-unreachable::NVM v{nvm_ver} not reachable: {e}')
+
+          if failed:
+              exit(1)
+          PYEOF
+
+      - name: MCP endpoint reachability
+        id: mcp-reachability
         run: |
-          NVM_VERSION=$(curl -sS "https://raw.githubusercontent.com/nvm-sh/nvm/refs/heads/master/package.json" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
-          echo "[..] Ultima version NVM disponible: $NVM_VERSION"
+          python3 << 'PYEOF'
+          import yaml, urllib.request, urllib.parse, socket
+          from pathlib import Path
+          manifest = yaml.safe_load(Path('bootstrap/manifest.yaml').read_text())
+          mcps = manifest.get('mcp_servers', {})
+          warnings = 0
+          for name, cfg in mcps.items():
+              if cfg.get('type') != 'remote':
+                  continue
+              url = cfg.get('url', '')
+              if not url:
+                  continue
+              parsed = urllib.parse.urlparse(url)
+              host = parsed.hostname
+              port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+
+              dns_ok = False
+              try:
+                  socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+                  print(f'[ok] {name}: DNS resolves {host}:{port}')
+                  dns_ok = True
+              except Exception as e:
+                  print(f'::warning title=mcp-dns::{name}: DNS failed {host}:{port} — {e}')
+                  warnings += 1
+
+              if dns_ok:
+                  try:
+                      req = urllib.request.Request(url, method='HEAD')
+                      resp = urllib.request.urlopen(req, timeout=10)
+                      print(f'[ok] {name}: HTTP {resp.status}')
+                  except urllib.error.HTTPError as e:
+                      status = e.code
+                      if status in (400, 401, 403, 404, 405):
+                          print(f'[ok] {name}: HTTP {status} (expected for auth-required)')
+                      else:
+                          print(f'::warning title=mcp-http::{name}: unexpected HTTP {status}')
+                          warnings += 1
+                  except Exception as e:
+                      print(f'::warning title=mcp-connect::{name}: connection failed — {e}')
+                      warnings += 1
+
+          if warnings:
+              print(f'::warning title=mcp-summary::{warnings} MCP endpoint(s) with issues')
+          PYEOF
 
       - name: Summary
+        if: always()
         run: |
-          echo "=== Compatibility check complete ==="
-          echo "No blocking failures — informational only."
+          cat <<'SUMMARY' >> "$GITHUB_STEP_SUMMARY"
+          ## Weekly Compatibility Report
+
+          | Check | Status |
+          |-------|--------|
+          | Schema drift | ${{ steps.schema-drift.outcome }}
+          | Package versions | ${{ steps.package-versions.outcome }}
+          | MCP endpoints | ${{ steps.mcp-reachability.outcome }}
+          SUMMARY

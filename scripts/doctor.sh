@@ -439,9 +439,10 @@ else
   fi
 
   # Full schema validation against versioned OpenCode schema
-  OC_SCHEMA="$REPOSITORY_DIR/tests/fixtures/opencode-config.schema.json"
+  # Schema y validator son del harness (ROOT_DIR), no del proyecto inspeccionado
+  OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
   if [[ -f "$OC_SCHEMA" ]]; then
-    if python3 "$REPOSITORY_DIR/scripts/validate-opencode-config.py" \
+    if python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
          --config "$OPENCODE_CONFIG_FILE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
       ok 'Schema de OpenCode válido'
     else

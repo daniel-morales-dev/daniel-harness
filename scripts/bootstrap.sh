@@ -175,7 +175,8 @@ if [[ -s "$NVM_DIR/nvm.sh" ]]; then
 elif [[ $DRY_RUN == true ]]; then
   info "[simulado] NVM estaría disponible después de la instalación. CodeGraph puede fallar sin Node."
 fi
-install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "npm install -g @codegraph/cli"
+CG_INSTALL=$(parse_nested_value "user_tools" "codegraph" "install")
+install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "$CG_INSTALL"
 install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
 
 if profile_includes "$PROFILE" "tools" "gh"; then
@@ -189,16 +190,22 @@ else
   skip "GitHub CLI (no incluido en perfil $PROFILE)"
 fi
 
+AWS_VERSION=$(parse_nested_value "user_tools" "aws" "version")
+AWS_URL=$(parse_nested_value "user_tools" "aws" "url")
+AWS_SHA256=$(parse_nested_value "user_tools" "aws" "sha256")
+
 if profile_includes "$PROFILE" "tools" "aws"; then
   if command -v aws >/dev/null 2>&1; then
-    ok "AWS CLI ya instalado"
+    ok "AWS CLI ya instalado ($(aws --version 2>/dev/null || true))"
   else
-    info 'Instalando AWS CLI...'
-    # ponytail: checksum for known-good version, update when AWS releases new v2
+    info 'Instalando AWS CLI v'"$AWS_VERSION"'...'
     run bash -c '
-      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip &&
-      echo "02a8eb2fe985be8ebcc284aaa5bae206ee8668872d6369e66a5c7d49d8671a08  /tmp/awscliv2.zip" | sha256sum -c - &&
-      unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip
+      tmp_dir=$(mktemp -d) && trap "rm -rf \"$tmp_dir\"" EXIT &&
+      cd "$tmp_dir" &&
+      curl -fsSL "'"$AWS_URL"'" -o awscliv2.zip &&
+      echo "'"$AWS_SHA256"'  awscliv2.zip" | sha256sum -c - &&
+      unzip -q awscliv2.zip &&
+      sudo ./aws/install
     '
   fi
 else
@@ -332,12 +339,74 @@ if command -v gentle-ai >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 8: Servidores MCP (transaccional — candidato único + validación + backup)
+# Fase 8: Servidores MCP (crash-consistent transaction)
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
 
-TMP_CANDIDATE=$(mktemp)
+# Lock para impedir bootstrap concurrente
+LOCK_FILE="$STATE_DIR/.bootstrap.lock"
+JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
+mkdir -p "$STATE_DIR"
+exec 200>"$LOCK_FILE"
+flock -n 200 || {
+  critical "Otro bootstrap en ejecucion (lock: $LOCK_FILE)"
+  exit 1
+}
+
+# Failpoints para tests deterministicos
+_check_failpoint() {
+  local point=$1
+  if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "$point" ]]; then
+    critical "Failpoint alcanzado: $point"
+    exit 1
+  fi
+}
+
+# Journal de transaccion
+_write_journal() {
+  local phase=$1
+  jq -n --arg p "$phase" \
+    --arg oc "$OC_FILE" \
+    --arg st "$STATE_FILE" \
+    '{phase: $p, configFile: $oc, stateFile: $st}' > "$JOURNAL_FILE"
+}
+
+_clear_journal() { rm -f "$JOURNAL_FILE"; }
+
+trap _rollback EXIT
+trap '_rollback; exit 1' INT TERM
+
+# Rollback atómico (desactivar trap antes de restaurar)
+_rollback() {
+  local rc=$?
+  trap '' EXIT INT TERM
+  if [[ -f "$JOURNAL_FILE" ]]; then
+    local j_phase j_oc j_st
+    j_phase=$(jq -r '.phase // "unknown"' "$JOURNAL_FILE" 2>/dev/null || echo "unknown")
+    j_oc=$(jq -r '.configFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    j_st=$(jq -r '.stateFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    critical "Recuperando transaccion incompleta (fase: $j_phase)"
+    if [[ -n "$j_oc" && -f "${j_oc}.bak" ]]; then
+      cp "${j_oc}.bak" "$j_oc"
+    fi
+    if [[ -n "$j_st" && -f "${j_st}.bak" ]]; then
+      cp "${j_st}.bak" "$j_st"
+    fi
+    _clear_journal
+  fi
+  rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+  exit $rc
+}
+
+# Recuperar transacción incompleta al iniciar
+if [[ -f "$JOURNAL_FILE" ]]; then
+  warn "Transaccion incompleta detectada — recuperando"
+  _rollback
+fi
+
+TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
 cp "$OC_FILE" "$TMP_CANDIDATE"
+TMP_STATE=""
 MCP_ADDED=0
 MCP_UPDATED=0
 MCP_SKIPPED=0
@@ -348,31 +417,39 @@ _mcp_jq() {
   jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
 }
 
-# Compare desired vs current for a managed MCP, apply with drift check
+# Estados explicitos de reconciliacion
+# 0=unchanged 1=updated 2=drift-conflict
 _reconcile_mcp() {
   local name=$1 desired=$2
   local current
   current=$(jq --arg n "$name" '.mcp[$n]' "$TMP_CANDIDATE" 2>/dev/null || echo "null")
 
-  if [[ "$current" == "$desired" ]]; then
-    ok "MCP $name configurado, idéntico al manifest"
-    return
+  # Hash canonico (jq -S -c elimina diferencias de orden/formato)
+  local desired_canonical
+  desired_canonical=$(echo "$desired" | jq -S -c . 2>/dev/null || echo "$desired")
+  local current_canonical
+  current_canonical=$(echo "$current" | jq -S -c . 2>/dev/null || echo "$current")
+
+  if [[ "$current_canonical" == "$desired_canonical" ]]; then
+    ok "MCP $name configurado, identico al manifest"
+    return 0
   fi
 
   if [[ -f "$STATE_FILE" ]]; then
     local current_hash last_hash
-    current_hash=$(echo "$current" | sha256sum | cut -d' ' -f1)
+    current_hash=$(echo "$current_canonical" | sha256sum | cut -d' ' -f1)
     last_hash=$(jq -r --arg n "$name" '.mcps[$n].lastAppliedHash // ""' "$STATE_FILE" 2>/dev/null || echo "")
     if [[ -n "$last_hash" && "$current_hash" != "$last_hash" ]]; then
-      warn "MCP $name modificado externamente desde la última aplicación. Conservando configuración personalizada."
+      warn "MCP $name modificado externamente desde la ultima aplicacion. Conservando configuracion personalizada."
       MCP_SKIPPED=$((MCP_SKIPPED + 1))
-      return
+      return 2
     fi
   fi
 
   _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
-  info "MCP $name actualizado (configuración administrada diferente del manifest)"
+  info "MCP $name actualizado (configuracion administrada diferente del manifest)"
   MCP_UPDATED=$((MCP_UPDATED + 1))
+  return 1
 }
 
 MANAGED_MCPS=()
@@ -445,9 +522,12 @@ while IFS= read -r name; do
       fi
     fi
     _reconcile_mcp "$name" "$desired"
+    _rc=$?
+    # drift-conflict (2): no trackear en state, preservar hash anterior
+    [[ $_rc -eq 2 ]] && continue
   else
     if [[ $DRY_RUN == true ]]; then
-      info "[simulado] jq injectaría MCP $name"
+      info "[simulado] jq inyectaria MCP $name"
       MCP_ADDED=$((MCP_ADDED + 1))
       continue
     fi
@@ -464,7 +544,7 @@ _build_state() {
   existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
   new_state="{}"
   for m in "${MANAGED_MCPS[@]}"; do
-    val=$(jq --arg n "$m" '.mcp[$n]' "$src" 2>/dev/null || echo "null")
+    val=$(jq -S -c --arg n "$m" '.mcp[$n]' "$src" 2>/dev/null || echo "null")
     hash=$(echo "$val" | sha256sum | cut -d' ' -f1)
     new_state=$(echo "$new_state" | jq --arg n "$m" --arg h "$hash" '.mcps[$n] = {lastAppliedHash: $h}')
   done
@@ -474,65 +554,76 @@ _build_state() {
 
 if [[ $DRY_RUN == false ]]; then
   OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
-  TMP_STATE=$(mktemp)
+  TMP_STATE=$(mktemp "$STATE_DIR/.opencode-managed.json.XXXXXXXX")
+
+  _check_failpoint "pre-validate"
 
   if (( MCP_ADDED > 0 || MCP_UPDATED > 0 )); then
     if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
-      critical "Candidato JSON inválido — cambios NO aplicados"
+      critical "Candidato JSON invalido -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     elif ! python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
          --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
-      critical "Candidato no pasa validación de schema — cambios NO aplicados"
+      critical "Candidato no pasa validacion de schema -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     elif (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
-      critical "No se pudo construir state — cambios NO aplicados"
+      critical "No se pudo construir state -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     else
+      # Backups obligatorios (sin || true)
       BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
-      cp "$OC_FILE" "$BACKUP_OC" 2>/dev/null || true
-      chmod 600 "$BACKUP_OC" 2>/dev/null || true
-      if (( ${#MANAGED_MCPS[@]} > 0 )); then
+      cp "$OC_FILE" "$BACKUP_OC"
+      chmod 600 "$BACKUP_OC"
+      if (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
         BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-        cp "$STATE_FILE" "$BACKUP_STATE" 2>/dev/null || true
-        chmod 600 "$BACKUP_STATE" 2>/dev/null || true
+        cp "$STATE_FILE" "$BACKUP_STATE"
+        chmod 600 "$BACKUP_STATE"
       fi
 
-      mv "$TMP_CANDIDATE" "$OC_FILE" && chmod 600 "$OC_FILE"
-      OC_MOVED=$?
-      STATE_MOVED=0
+      _check_failpoint "backup-config"
+      _check_failpoint "backup-state"
+
+      _write_journal "apply-config"
+      _check_failpoint "move-config"
+      mv "$TMP_CANDIDATE" "$OC_FILE"
+      chmod 600 "$OC_FILE"
+
       if (( ${#MANAGED_MCPS[@]} > 0 )); then
-        mv "$TMP_STATE" "$STATE_FILE" && chmod 600 "$STATE_FILE"
-        STATE_MOVED=$?
+        _write_journal "apply-state"
+        _check_failpoint "move-state"
+        mv "$TMP_STATE" "$STATE_FILE"
+        chmod 600 "$STATE_FILE"
+        _check_failpoint "chmod-state"
       fi
 
-      if (( OC_MOVED == 0 && STATE_MOVED == 0 )); then
-        summary="${MCP_ADDED} nuevos"
-        [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
-        [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
-        ok "Configuración aplicada (${summary})"
-        [[ -f "$BACKUP_OC" ]] && info "Backup: $BACKUP_OC"
-      else
-        critical "Fallo al escribir configuración o state — restaurando backups"
-        [[ -f "$BACKUP_OC" ]] && cp "$BACKUP_OC" "$OC_FILE" 2>/dev/null || true
-        [[ -f "$BACKUP_STATE" ]] && cp "$BACKUP_STATE" "$STATE_FILE" 2>/dev/null || true
-        rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-      fi
+      _clear_journal
+      summary="${MCP_ADDED} nuevos"
+      [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
+      [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
+      ok "Configuracion aplicada (${summary})"
+      info "Backup: $BACKUP_OC"
     fi
   else
     if (( ${#MANAGED_MCPS[@]} > 0 )); then
       if _build_state "$OC_FILE" "$TMP_STATE"; then
-        BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-        cp "$STATE_FILE" "$BACKUP_STATE" 2>/dev/null || true
-        chmod 600 "$BACKUP_STATE" 2>/dev/null || true
-        mv "$TMP_STATE" "$STATE_FILE" && chmod 600 "$STATE_FILE" || {
-          critical "Fallo al escribir state — restaurando backup"
-          [[ -f "$BACKUP_STATE" ]] && cp "$BACKUP_STATE" "$STATE_FILE" 2>/dev/null || true
-        }
+        if [[ -f "$STATE_FILE" ]]; then
+          _check_failpoint "backup-state"
+          BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
+          cp "$STATE_FILE" "$BACKUP_STATE"
+          chmod 600 "$BACKUP_STATE"
+        fi
+
+        _write_journal "apply-state"
+        _check_failpoint "move-state"
+        mv "$TMP_STATE" "$STATE_FILE"
+        _check_failpoint "chmod-state"
+        chmod 600 "$STATE_FILE"
+        _clear_journal
       fi
     fi
     summary=""
     [[ $MCP_SKIPPED -gt 0 ]] && summary="${MCP_SKIPPED} personalizados omitidos"
-    rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+    rm -f "$TMP_CANDIDATE"
     if [[ -n "$summary" ]]; then
       ok "MCPs: ${summary}"
     else
