@@ -285,8 +285,8 @@ def test_codegraph_pin_from_manifest():
     manifest = (ROOT_DIR / "bootstrap" / "manifest.yaml").read_text()
     assert 'parse_nested_value "user_tools" "codegraph" "install"' in bootstrap, \
         "bootstrap must read codegraph install from manifest, not hardcode"
-    assert "@codegraph/cli@1.2.0" in manifest, \
-        "manifest must have pinned codegraph version"
+    assert "@colbymchenry/codegraph@1.1.0" in manifest, \
+            "manifest must have pinned codegraph version"
 
 def test_aws_pin_from_manifest():
     """Verify bootstrap reads AWS version/url/sha256 from manifest."""

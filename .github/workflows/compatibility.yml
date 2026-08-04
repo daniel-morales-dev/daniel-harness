@@ -51,8 +51,8 @@ jobs:
 
           # CodeGraph exact version
           cg = manifest.get('user_tools', {}).get('codegraph', {}).get('install', '')
-          if '@codegraph/cli@1.2.0' in cg:
-              print('[ok] CodeGraph pinned: @codegraph/cli@1.2.0')
+          if '@colbymchenry/codegraph@1.1.0' in cg:
+              print('[ok] CodeGraph pinned: @colbymchenry/codegraph@1.1.0')
           else:
               print(f'::error title=codegraph-pin::CodeGraph not pinned to 1.2.0')
               failed = True
