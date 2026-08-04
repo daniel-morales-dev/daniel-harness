@@ -7,6 +7,8 @@ HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 
+source "$ROOT_DIR/scripts/lib/managed-links.sh"
+
 # Legacy cleanup: remove symlinks from old agent names
 remove_legacy_managed_link() {
   local source=$1 target=$2
@@ -70,24 +72,12 @@ for policy in "$ROOT_DIR/policies/"*.md; do
   link_if_missing "$policy" "$HARNESS_CONFIG_DIR/policies/$(basename "$policy")"
 done
 
-link_if_missing "$ROOT_DIR/global/AGENTS.md" "$OPENCODE_CONFIG_DIR/AGENTS.md"
-
-link_if_missing "$ROOT_DIR/agents/alegra-microservice-engineer.md" "$OPENCODE_CONFIG_DIR/agents/alegra-microservice-engineer.md"
-link_if_missing "$ROOT_DIR/agents/code-reviewer.md" "$OPENCODE_CONFIG_DIR/agents/code-reviewer.md"
-link_if_missing "$ROOT_DIR/agents/alegra-microservice-test-engineer.md" "$OPENCODE_CONFIG_DIR/agents/alegra-microservice-test-engineer.md"
-link_if_missing "$ROOT_DIR/agents/php-engineer.md" "$OPENCODE_CONFIG_DIR/agents/php-engineer.md"
-link_if_missing "$ROOT_DIR/agents/migration-parity-reviewer.md" "$OPENCODE_CONFIG_DIR/agents/migration-parity-reviewer.md"
-link_if_missing "$ROOT_DIR/skills/monolith-to-micro-migration" "$OPENCODE_CONFIG_DIR/skills/monolith-to-micro-migration"
-link_if_missing "$ROOT_DIR/skills/task-lifecycle" "$OPENCODE_CONFIG_DIR/skills/task-lifecycle"
-link_if_missing "$ROOT_DIR/commands/migration-gap-analysis.md" "$OPENCODE_CONFIG_DIR/commands/migration-gap-analysis.md"
-link_if_missing "$ROOT_DIR/commands/mysql-query.md" "$OPENCODE_CONFIG_DIR/commands/mysql-query.md"
-link_if_missing "$ROOT_DIR/commands/mongodb-query.md" "$OPENCODE_CONFIG_DIR/commands/mongodb-query.md"
-link_if_missing "$ROOT_DIR/commands/dynamodb-read.md" "$OPENCODE_CONFIG_DIR/commands/dynamodb-read.md"
-link_if_missing "$ROOT_DIR/commands/dynamodb-write-confirmed.md" "$OPENCODE_CONFIG_DIR/commands/dynamodb-write-confirmed.md"
-link_if_missing "$ROOT_DIR/commands/object-storage-read.md" "$OPENCODE_CONFIG_DIR/commands/object-storage-read.md"
-
+# Managed links desde inventario compartido (scripts/lib/managed-links.sh)
 install -d -m 700 "$LOCAL_BIN"
-link_if_missing "$ROOT_DIR/bin/dh" "$LOCAL_BIN/dh"
-link_if_missing "$ROOT_DIR/install" "$LOCAL_BIN/dh-install"
+while IFS='|' read -r source_rel dest_var dest_rel; do
+  dest_dir=$(dirname "${!dest_var}/$dest_rel")
+  [[ -d "$dest_dir" ]] || mkdir -p "$dest_dir"
+  link_if_missing "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel"
+done < <(list_managed_links)
 
 printf '\nInstalación completada. Ejecuta dh doctor para verificar.\n'

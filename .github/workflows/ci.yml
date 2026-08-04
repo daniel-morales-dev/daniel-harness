@@ -54,6 +54,9 @@ jobs:
       - name: Install test
         run: bash tests/install.test.sh
 
+      - name: Install/uninstall symmetry test
+        run: bash tests/install-symmetry.test.sh
+
       - name: Doctor test
         run: bash tests/doctor.test.sh
 
