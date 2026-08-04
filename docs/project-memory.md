@@ -53,6 +53,11 @@ No modificar estos assets salvo tarea explícita. `migration-gap.md` solo fue no
 - `scripts/bootstrap.sh`: instalación completa.
 - `bootstrap/manifest.yaml`: versión de herramientas.
 - Workflows y guías de configuración en `docs/`.
+- `commands/mysql-query.md`: read-only MySQL/MariaDB via tunnel.
+- `commands/mongodb-query.md`: read-only MongoDB via tunnel.
+- `commands/dynamodb-read.md`: read-only DynamoDB.
+- `commands/dynamodb-write-confirmed.md`: DynamoDB write with confirmation.
+- `commands/object-storage-read.md`: read-only S3-compatible object storage.
 
 ## Seguridad
 

@@ -80,6 +80,11 @@ link_if_missing "$ROOT_DIR/agents/migration-parity-reviewer.md" "$OPENCODE_CONFI
 link_if_missing "$ROOT_DIR/skills/monolith-to-micro-migration" "$OPENCODE_CONFIG_DIR/skills/monolith-to-micro-migration"
 link_if_missing "$ROOT_DIR/skills/task-lifecycle" "$OPENCODE_CONFIG_DIR/skills/task-lifecycle"
 link_if_missing "$ROOT_DIR/commands/migration-gap-analysis.md" "$OPENCODE_CONFIG_DIR/commands/migration-gap-analysis.md"
+link_if_missing "$ROOT_DIR/commands/mysql-query.md" "$OPENCODE_CONFIG_DIR/commands/mysql-query.md"
+link_if_missing "$ROOT_DIR/commands/mongodb-query.md" "$OPENCODE_CONFIG_DIR/commands/mongodb-query.md"
+link_if_missing "$ROOT_DIR/commands/dynamodb-read.md" "$OPENCODE_CONFIG_DIR/commands/dynamodb-read.md"
+link_if_missing "$ROOT_DIR/commands/dynamodb-write-confirmed.md" "$OPENCODE_CONFIG_DIR/commands/dynamodb-write-confirmed.md"
+link_if_missing "$ROOT_DIR/commands/object-storage-read.md" "$OPENCODE_CONFIG_DIR/commands/object-storage-read.md"
 
 install -d -m 700 "$LOCAL_BIN"
 link_if_missing "$ROOT_DIR/bin/dh" "$LOCAL_BIN/dh"

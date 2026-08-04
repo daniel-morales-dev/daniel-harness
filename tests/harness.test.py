@@ -237,6 +237,43 @@ def test_generated_mcp_schema():
     assert "oauth: $o" not in bootstrap, "bootstrap should not use bare oauth value"
     assert '".mcp[$n] = (. +' not in bootstrap, "bootstrap should not reference root in jq"
 
+DATA_TOOLS = [
+    "mysql-query",
+    "mongodb-query",
+    "dynamodb-read",
+    "dynamodb-write-confirmed",
+    "object-storage-read",
+]
+
+def test_data_tools_exist():
+    for name in DATA_TOOLS:
+        path = ROOT_DIR / "commands" / f"{name}.md"
+        assert path.exists(), f"data tool {name} missing"
+        content = path.read_text()
+        assert "mode:" in content, f"{name}: missing mode"
+        assert "agent:" in content, f"{name}: missing agent"
+        assert "argument-hint:" in content, f"{name}: missing argument-hint"
+        assert "description:" in content, f"{name}: missing description"
+        assert "allowed-tools" not in content, f"{name}: should not use allowed-tools"
+        assert "bash: allow" not in content, f"{name}: should not embed bash permission"
+
+def test_data_tools_readonly():
+    for name in DATA_TOOLS:
+        if name.startswith("dynamodb-write"):
+            continue  # write tool has mode: write
+        content = (ROOT_DIR / "commands" / f"{name}.md").read_text()
+        assert "mode: read" in content, f"{name}: must be read-only"
+
+def test_data_tools_write_has_confirmation():
+    content = (ROOT_DIR / "commands" / "dynamodb-write-confirmed.md").read_text()
+    assert "mode: write" in content, "dynamodb-write-confirmed must be mode: write"
+    assert "confirmacion" in content.lower(), "dynamodb-write-confirmed must mention confirmation"
+
+def test_data_tools_installed():
+    install = (ROOT_DIR / "scripts" / "install.sh").read_text()
+    for name in DATA_TOOLS:
+        assert f"{name}.md" in install, f"install.sh must link {name}"
+
 def test_bash_syntax():
     """Verify all shell scripts pass bash -n (no syntax errors)."""
     scripts = [
@@ -455,6 +492,15 @@ if __name__ == "__main__":
 
     test_uninstall_removes_global_link()
     print("[ok] uninstall.sh elimina enlace global")
+
+    test_data_tools_exist()
+    print("[ok] data tools: existencia, frontmatter basico")
+    test_data_tools_readonly()
+    print("[ok] data tools: modo read-only (excepto write-confirmed)")
+    test_data_tools_write_has_confirmation()
+    print("[ok] dynamodb-write-confirmed: modo write con confirmacion")
+    test_data_tools_installed()
+    print("[ok] data tools: instalados via install.sh")
 
     test_bash_syntax()
     print("[ok] bash -n: todos los scripts")
