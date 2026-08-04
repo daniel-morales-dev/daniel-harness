@@ -23,12 +23,6 @@ DRY_RUN=false
 SKIP_DOCKER=false
 PROFILE=core
 EXPERIMENTAL_DATA_TOOLS=false
-LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
-
-if [[ $DRY_RUN == false ]]; then
-  mkdir -p "$LOCAL_BIN"
-fi
-export PATH="$LOCAL_BIN:$PATH"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,6 +35,17 @@ while [[ $# -gt 0 ]]; do
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
+
+LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
+NPM_BIN=""
+
+if [[ $DRY_RUN == false ]]; then
+  mkdir -p "$LOCAL_BIN"
+  if command -v npm >/dev/null 2>&1; then
+    NPM_BIN="$(npm prefix -g 2>/dev/null || true)/bin"
+  fi
+fi
+export PATH="$LOCAL_BIN:$PATH"
 
 phase() {
   local label=$1
@@ -298,10 +303,10 @@ install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl 
 _ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
 
 install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | sh"
-_ensure_tool_visible "gentle-ai" "$LOCAL_BIN/gentle-ai" "$HOME/.local/bin/gentle-ai" || exit 1
+_ensure_tool_visible "gentle-ai" "$LOCAL_BIN/gentle-ai" || exit 1
 
 install_tool_if_in_profile "engram"    "Engram"    "command -v engram"    "npm install -g @engram-ai-memory/cli"
-_ensure_tool_visible "engram" "$(npm prefix -g 2>/dev/null)/bin/engram" "$LOCAL_BIN/engram" || exit 1
+_ensure_tool_visible "engram" "${NPM_BIN:+$NPM_BIN/engram}" "$LOCAL_BIN/engram" || exit 1
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   . "$NVM_DIR/nvm.sh"
@@ -310,10 +315,10 @@ elif [[ $DRY_RUN == true ]]; then
 fi
 CG_INSTALL=$(parse_nested_value "user_tools" "codegraph" "install")
 install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "$CG_INSTALL"
-_ensure_tool_visible "codegraph" "$(npm prefix -g 2>/dev/null)/bin/codegraph" "$LOCAL_BIN/codegraph" || exit 1
+_ensure_tool_visible "codegraph" "${NPM_BIN:+$NPM_BIN/codegraph}" "$LOCAL_BIN/codegraph" || exit 1
 
 install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh"
-_ensure_tool_visible "rtk" "$LOCAL_BIN/rtk" "$HOME/.local/bin/rtk" || exit 1
+_ensure_tool_visible "rtk" "$LOCAL_BIN/rtk" || exit 1
 
 if profile_includes "$PROFILE" "tools" "gh"; then
   if dpkg -s gh >/dev/null 2>&1; then
