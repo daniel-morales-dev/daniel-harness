@@ -57,7 +57,7 @@ def handle_read(profile, credentials, operation, params):
             items = resp.get('Items', [])
         elif operation == 'Scan':
             sparams = {k: v for k, v in params.items() if k not in ('tableName', 'operation')}
-            sparams.setdefault('Limit', 100)
+            sparams['Limit'] = min(int(sparams.get('Limit', 100)), 100)
             sparams['TableName'] = table_name
             resp = client.scan(**sparams)
             items = resp.get('Items', [])

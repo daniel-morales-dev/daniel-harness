@@ -1,25 +1,31 @@
-# scripts/dh_data/mysql.py — Read-only MySQL/MariaDB query backend
+"""Read-only MySQL/MariaDB query backend."""
 import json, subprocess, re, os, tempfile
 from dh_data.redaction import redact, truncate
 
 ALLOWED = ('SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN')
-BLOCKED = [
+BLOCKED_PATTERNS = [
     (re.compile(r'\bINTO\s+OUTFILE\b', re.I), 'INTO OUTFILE'),
+    (re.compile(r'\bINTO\s+DUMPFILE\b', re.I), 'INTO DUMPFILE'),
     (re.compile(r'\bLOAD_FILE\b', re.I), 'LOAD_FILE'),
+    (re.compile(r'\bFOR\s+UPDATE\b', re.I), 'FOR UPDATE'),
+    (re.compile(r'\bFOR\s+SHARE\b', re.I), 'FOR SHARE'),
+    (re.compile(r'\bSLEEP\s*\(', re.I), 'SLEEP()'),
+    (re.compile(r'\bBENCHMARK\s*\(', re.I), 'BENCHMARK()'),
+    (re.compile(r'\bINFORMATION_SCHEMA\b', re.I), 'INFORMATION_SCHEMA'),
 ]
 
 def validate_sql(sql):
     stripped = sql.strip().rstrip(';')
     if not stripped:
-        raise ValueError("Consulta SQL vacía")
+        raise ValueError("empty SQL query")
     if re.search(r';\s*\S', stripped):
-        raise ValueError("Multi-statement no permitido")
+        raise ValueError("multi-statement not allowed")
     first = stripped.split(None, 1)[0].upper()
     if first not in ALLOWED:
-        raise ValueError(f"Solo SELECT/SHOW/DESCRIBE/EXPLAIN permitidos, got '{first}'")
-    for pat, name in BLOCKED:
+        raise ValueError(f"only SELECT/SHOW/DESCRIBE/EXPLAIN allowed, got '{first}'")
+    for pat, name in BLOCKED_PATTERNS:
         if pat.search(stripped):
-            raise ValueError(f"Operación bloqueada: {name}")
+            raise ValueError(f"blocked operation: {name}")
     return stripped
 
 def handle(profile, credentials, operation, params):
