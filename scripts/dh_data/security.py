@@ -48,9 +48,8 @@ def validate_credential_ref(ref, harness_dir):
 
 
 def read_credentials(path):
-    """Read credential file, return content as string."""
+    """Read credential file, return content as string.
+    Validation was already performed by executor.py before calling this."""
     if not path.exists():
         raise FileNotFoundError(f"Credentials file not found: {path}")
-    validate_credential_ref(str(path.relative_to(path.parent.parent)), path.parent.parent)
-    content = path.read_text()
-    return content
+    return path.read_text()

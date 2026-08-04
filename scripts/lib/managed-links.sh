@@ -20,6 +20,7 @@ commands/dynamodb-read.md|OPENCODE_CONFIG_DIR|commands/dynamodb-read.md
 commands/dynamodb-write-confirmed.md|OPENCODE_CONFIG_DIR|commands/dynamodb-write-confirmed.md
 commands/object-storage-read.md|OPENCODE_CONFIG_DIR|commands/object-storage-read.md
 bin/dh|LOCAL_BIN|dh
+bin/dh-data-executor|LOCAL_BIN|dh-data-executor
 install|LOCAL_BIN|dh-install
 global/AGENTS.md|OPENCODE_CONFIG_DIR|AGENTS.md
 agents/data-access.md|OPENCODE_CONFIG_DIR|agents/data-access.md

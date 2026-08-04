@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/dh-data-executor — Launcher estable para dh_data Python executor
+# Invocado por las custom tools OpenCode via Bun.spawn.
+# Lee JSON por stdin, ejecuta dh_data.executor con PYTHONPATH controlado,
+# devuelve JSON por stdout. Stderr se redirige (errores se reportan en JSON).
+set -euo pipefail
+
+SCRIPT=$(readlink -f "$0")
+ROOT_DIR=$(cd "$(dirname "$SCRIPT")/.." && pwd)
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$ROOT_DIR/scripts"
+exec python3 -m dh_data.executor 2>/dev/null

@@ -93,6 +93,9 @@ jobs:
       - name: Data tools — Contract
         run: python3 tests/data-tools-contract.test.py
 
+      - name: Data tools — Launcher
+        run: bash tests/launcher.test.sh
+
       - name: Data tools — E2E
         run: bash tests/data-e2e.test.sh
 
