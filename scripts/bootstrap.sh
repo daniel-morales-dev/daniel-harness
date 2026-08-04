@@ -11,16 +11,13 @@ STATE_DIR="$HARNESS_CONFIG_DIR/state"
 STATE_FILE="$STATE_DIR/opencode-managed.json"
 MANAGED_MCPS=()
 
-# Lock de arranque para proteger state contra concurrencia y dir no escribible
-LOCK_FILE="$STATE_DIR/.bootstrap.lock"
-mkdir -p "$STATE_DIR" 2>/dev/null || { critical "No se pudo crear $STATE_DIR"; exit 1; }
-if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
-  critical "No se pudo crear lock (estado no escribible)"
-  exit 1
-elif ! flock -n 200 2>/dev/null; then
-  critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
-  exit 1
-fi
+# --help debe ejecutarse antes de crear cualquier estado o lock
+for arg in "$@"; do
+  if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+    printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker]\n'
+    exit 0
+  fi
+done
 
 DRY_RUN=false
 SKIP_DOCKER=false
@@ -36,15 +33,6 @@ while [[ $# -gt 0 ]]; do
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
-
-if [[ ! -f "$MANIFEST" ]]; then
-  printf 'error: no se encuentra %s\n' "$MANIFEST" >&2
-  exit 1
-fi
-
-if [[ $DRY_RUN == true ]]; then
-  printf '\n[preflight] Simulación (--dry-run)\n\n'
-fi
 
 phase() {
   local label=$1
@@ -71,6 +59,28 @@ sudo_run() {
   fi
 }
 
+# Lock de arranque solo si no es dry-run
+if [[ $DRY_RUN == false ]]; then
+  LOCK_FILE="$STATE_DIR/.bootstrap.lock"
+  mkdir -p "$STATE_DIR" 2>/dev/null || { critical "No se pudo crear $STATE_DIR"; exit 1; }
+  if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
+    critical "No se pudo crear lock (estado no escribible)"
+    exit 1
+  elif ! flock -n 200 2>/dev/null; then
+    critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
+    exit 1
+  fi
+fi
+
+if [[ ! -f "$MANIFEST" ]]; then
+  printf 'error: no se encuentra %s\n' "$MANIFEST" >&2
+  exit 1
+fi
+
+if [[ $DRY_RUN == true ]]; then
+  printf '\n[preflight] Simulación (--dry-run)\n\n'
+fi
+
 # ---------------------------------------------------------------------------
 # Fase 0: Preflight
 # ---------------------------------------------------------------------------
@@ -81,8 +91,12 @@ if [[ ! -f /etc/os-release ]] || ! grep -qi 'ubuntu' /etc/os-release 2>/dev/null
 fi
 
 if ! command -v sudo >/dev/null 2>&1; then
-  printf 'error: sudo es necesario\n' >&2
-  exit 1
+  if [[ $DRY_RUN == true ]]; then
+    printf '  [aviso] sudo no está instalado; se requeriría para la instalación real\n'
+  else
+    printf 'error: sudo es necesario\n' >&2
+    exit 1
+  fi
 fi
 
 _ensure_sudo() {
@@ -152,7 +166,9 @@ _create_venv() {
   ok "Venv creado en $VENV_DIR"
 }
 
-if [[ ! -f "$VENV_DIR/bin/python" ]]; then
+if [[ $DRY_RUN == true ]]; then
+  info "[simulado] Se verificaría/crearía runtime venv en $VENV_DIR"
+elif [[ ! -f "$VENV_DIR/bin/python" ]]; then
   info "Creando runtime venv..."
   _create_venv
 elif [[ -f "$RQ_FILE" ]]; then
@@ -368,24 +384,24 @@ ensure_opencode_config() {
     fi
   fi
 
-  run mkdir -p "$config_dir"
-
   if [[ $DRY_RUN == true ]]; then
-    OC_FILE=$(mktemp /tmp/opencode.json.XXXXXXXX)
-  else
-    local tmp
-    tmp=$(mktemp "$config_dir/opencode.json.XXXXXXXX")
-    printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "plugin": [],\n  "mcp": {}\n}\n' > "$tmp"
-
-    if ! jq empty "$tmp" >/dev/null 2>&1; then
-      critical "JSON generado no es válido"
-      rm -f "$tmp"
-      return 1
-    fi
-
-    mv "$tmp" "$OC_FILE"
-    chmod 600 "$OC_FILE"
+    info "[simulado] Se crearía opencode.json en $OC_FILE"
+    return 0
   fi
+
+  run mkdir -p "$config_dir"
+  local tmp
+  tmp=$(mktemp "$config_dir/opencode.json.XXXXXXXX")
+  printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "plugin": [],\n  "mcp": {}\n}\n' > "$tmp"
+
+  if ! jq empty "$tmp" >/dev/null 2>&1; then
+    critical "JSON generado no es válido"
+    rm -f "$tmp"
+    return 1
+  fi
+
+  mv "$tmp" "$OC_FILE"
+  chmod 600 "$OC_FILE"
   ok "opencode.json creado en $OC_FILE"
 }
 
@@ -471,8 +487,19 @@ fi
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
 
-TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
-cp "$OC_FILE" "$TMP_CANDIDATE"
+# En dry-run usar /tmp para evitar crear directorios de config
+if [[ $DRY_RUN == true ]] && [[ ! -d "$(dirname "$OC_FILE")" ]]; then
+  TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
+  printf '{}' > "$TMP_CANDIDATE"
+else
+  mkdir -p "$(dirname "$OC_FILE")" 2>/dev/null || true
+  TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
+fi
+if [[ -f "$OC_FILE" ]]; then
+  cp "$OC_FILE" "$TMP_CANDIDATE"
+elif [[ $DRY_RUN == true ]]; then
+  : # TMP_CANDIDATE already has {}
+fi
 TMP_STATE=""
 MCP_ADDED=0
 MCP_UPDATED=0
