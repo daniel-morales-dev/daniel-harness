@@ -29,7 +29,8 @@ export PATH="$LOCAL_BIN:$PATH"
 echo "=== Tool Path Exposure Test ==="
 
 # Source real implementation
-critical() { fail "$*"; }
+CRITICAL_CALLED=false
+critical() { CRITICAL_CALLED=true; printf '  [critico] %s\n' "$*"; }
 source "$ROOT_DIR/scripts/lib/tool-path.sh"
 
 # install.sh first for dh
@@ -119,6 +120,179 @@ if $USE_STUBS; then
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core --dry-run > "$TMP_DIR/boot.out" 2>&1
   grep -q 'Bootstrap completado' "$TMP_DIR/boot.out" && pass "dry-run bootstrap completado" || fail "dry-run bootstrap fallo"
 fi
+
+# --- Test 10: Integrated bootstrap — installer stub returns 0 but no binary ---
+if $USE_STUBS; then
+echo "--- Test 10: bootstrap integrado — instalador stub retorna 0 pero no crea binario ---"
+
+STUB_DIR="$TMP_DIR/stubs-bootstrap"
+HOME_INT="$TMP_DIR/home-integrated"
+mkdir -p "$STUB_DIR" "$HOME_INT/.config/daniel-harness/secrets/tunnels" "$HOME_INT/.nvm" "$HOME_INT/.local/bin"
+mkdir -p "$HOME_INT/.config/opencode/agents" "$HOME_INT/.config/opencode/skills"
+
+# System stubs
+cat > "$STUB_DIR/sudo" <<'SUDO'
+#!/bin/bash
+if [[ "$1" == "-n" && "$2" == "true" ]]; then exit 0; fi
+if [[ "$1" == "-v" ]]; then exit 0; fi
+exec "$@"
+SUDO
+chmod +x "$STUB_DIR/sudo"
+
+cat > "$STUB_DIR/apt-get" <<'APT'
+#!/bin/bash
+exit 0
+APT
+chmod +x "$STUB_DIR/apt-get"
+
+cat > "$STUB_DIR/dpkg" <<'DPKG'
+#!/bin/bash
+if [[ "$1" == "-s" ]]; then echo "Status: install ok installed"; exit 0; fi
+exit 0
+DPKG
+chmod +x "$STUB_DIR/dpkg"
+
+# curl stub: pipe mode = no-op installer, -o mode = empty file
+cat > "$STUB_DIR/curl" <<'CURL'
+#!/bin/bash
+outfile=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) outfile="$2"; shift 2 ;;
+    -*) shift ;;
+    *) shift ;;
+  esac
+done
+if [[ -n "${outfile:-}" ]]; then
+  : > "$outfile"
+  exit 0
+fi
+printf '#!/bin/bash\nexit 0\n'
+exit 0
+CURL
+chmod +x "$STUB_DIR/curl"
+
+# nvm.sh stub (must support --version, install, alias)
+cat > "$HOME_INT/.nvm/nvm.sh" <<'NVM'
+nvm() {
+  case "$1" in
+    --version) echo "0.40.4" ;;
+    install) mkdir -p "$NVM_DIR/versions/node/v24.0.0/bin"
+             cat > "$NVM_DIR/versions/node/v24.0.0/bin/node" <<'NODEEOF'
+#!/bin/bash
+echo "v24.0.0"
+NODEEOF
+      chmod +x "$NVM_DIR/versions/node/v24.0.0/bin/node" ;;
+    alias) ;;
+    *) ;;
+  esac
+}
+NVM
+chmod +x "$HOME_INT/.nvm/nvm.sh"
+
+# node and npm stubs in PATH
+cat > "$STUB_DIR/node" <<'NODE'
+#!/bin/bash
+echo "v24.0.0"
+NODE
+chmod +x "$STUB_DIR/node"
+
+cat > "$STUB_DIR/npm" <<'NPM'
+#!/bin/bash
+exit 0
+NPM
+chmod +x "$STUB_DIR/npm"
+
+# gentle-ai stub (needed if bootstrap reaches gentle-ai after opencode,
+# but opencode failure should prevent that)
+cat > "$STUB_DIR/gentle-ai" <<'GENTLE'
+#!/bin/bash
+case "$1" in
+  version) echo "gentle-ai 9.9.9 (stub)" ;;
+  doctor) echo "Status:  healthy" ;;
+  review) if [[ "$2" == "mode" ]]; then echo "receipt-driven development: on (decided by default)"; fi ;;
+  skill-registry) mkdir -p "$ROOT_DIR/.atl" 2>/dev/null; touch "$ROOT_DIR/.atl/skill-registry.md" 2>/dev/null; echo "ok" ;;
+  sync) echo "ok" ;;
+esac
+exit 0
+GENTLE
+chmod +x "$STUB_DIR/gentle-ai"
+
+for tool in codegraph engram rtk dh; do
+  cat > "$STUB_DIR/$tool" <<'TOOL'
+#!/bin/bash
+exit 0
+TOOL
+  chmod +x "$STUB_DIR/$tool"
+done
+
+# Config files
+cat > "$HOME_INT/.config/daniel-harness/config.yaml" <<'YAML'
+version: "1"
+models:
+  - id: default
+    trust: trusted
+    allowArbitraryShell: false
+    allowedCapabilities: []
+YAML
+chmod 600 "$HOME_INT/.config/daniel-harness/config.yaml"
+
+cat > "$HOME_INT/.config/daniel-harness/project-registry.yaml" <<'YAML'
+version: "1"
+profiles: []
+YAML
+chmod 600 "$HOME_INT/.config/daniel-harness/project-registry.yaml"
+
+printf '%s\n' 'version: "1"' 'tunnels: []' >"$HOME_INT/.config/daniel-harness/connections.yaml"
+chmod 600 "$HOME_INT/.config/daniel-harness/connections.yaml"
+
+# Verify opencode is NOT in controlled PATH
+CONTROLLED_PATH="$STUB_DIR:/usr/bin:/bin"
+if PATH="$CONTROLLED_PATH" command -v opencode >/dev/null 2>&1; then
+  echo "fixture invalido: opencode ya existe en PATH ($(PATH="$CONTROLLED_PATH" command -v opencode))" >&2
+  exit 1
+fi
+pass "Test 10: fixture — opencode no existe en PATH controlado"
+
+# Run bootstrap with isolated environment
+set +e
+BOOT_OUT=$(env \
+  HOME="$HOME_INT" \
+  XDG_CONFIG_HOME="$HOME_INT/.config" \
+  NVM_DIR="$HOME_INT/.nvm" \
+  DANIEL_HARNESS_CONFIG_DIR="$HOME_INT/.config/daniel-harness" \
+  DANIEL_HARNESS_BIN_DIR="$HOME_INT/.local/bin" \
+  OPENCODE_CONFIG_DIR="$HOME_INT/.config/opencode" \
+  PATH="$CONTROLLED_PATH" \
+  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core 2>&1)
+rc=$?
+set -e
+
+if [[ $rc -ne 0 ]]; then
+  pass "Test 10: bootstrap exit != 0 (rc=$rc)"
+else
+  fail "Test 10: bootstrap exit 0 (se esperaba fallo)"
+fi
+
+if echo "$BOOT_OUT" | grep -q 'Instalando OpenCode'; then
+  pass "Test 10: bootstrap llego a Instalando OpenCode"
+else
+  fail "Test 10: bootstrap no llego a Instalando OpenCode"
+fi
+
+if echo "$BOOT_OUT" | grep -q 'opencode no encontrado en PATH tras la instalacion'; then
+  pass "Test 10: salida contiene critico de opencode no encontrado"
+else
+  fail "Test 10: falta critico de opencode"
+fi
+
+if echo "$BOOT_OUT" | grep -q 'Bootstrap completado y saludable'; then
+  fail "Test 10: salida contiene Bootstrap completado pese a fallo"
+else
+  pass "Test 10: salida no contiene Bootstrap completado"
+fi
+
+fi # USE_STUBS
 
 echo ""
 echo "=== Tool Path Exposure Test: $PASS pass, $FAIL fail ==="

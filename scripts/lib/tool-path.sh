@@ -35,5 +35,6 @@ _ensure_tool_visible() {
     fi
     rm -f "$LOCAL_BIN/$name"
   done
+  critical "$name no encontrado en PATH tras la instalacion"
   return 1
 }

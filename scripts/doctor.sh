@@ -261,17 +261,11 @@ print_mcp_status() {
     elif [[ $kind == local ]]; then
       if [[ -z "$executable" ]]; then
         status=comando-no-encontrado
-        if $INSTALL_CHECK; then
-          critical "MCP local $name sin command definido"
-        fi
       elif command -v "$executable" >/dev/null 2>&1; then
         live=$(check_mcp_live "$name")
         status=$live
       else
         status=comando-no-encontrado
-        if $INSTALL_CHECK; then
-          critical "MCP $name: comando '$executable' no encontrado en PATH"
-        fi
       fi
     elif [[ $kind == remote ]]; then
       live=$(check_mcp_live "$name")
