@@ -522,6 +522,19 @@ else
     fi
   fi
 
+  # Check Navi env vars are set when profile includes navi
+  if [[ -n "$PROFILE" ]]; then
+    profile_mcps=$(get_profile_mcps "$PROFILE")
+    if echo "$profile_mcps" | grep -qw "navi"; then
+      if [[ -z "${NAVI_MCP_URL:-}" ]]; then
+        critical "NAVI_MCP_URL no definida (requerida por perfil $PROFILE)"
+      fi
+      if [[ -z "${NAVI_OAUTH_CLIENT_ID:-}" ]]; then
+        critical "NAVI_OAUTH_CLIENT_ID no definida (requerida por perfil $PROFILE)"
+      fi
+    fi
+  fi
+
   if [[ -n "$PROFILE" ]]; then
     profile_mcps=$(get_profile_mcps "$PROFILE")
     if [[ -n "$profile_mcps" ]]; then

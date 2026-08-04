@@ -259,9 +259,13 @@ OC_FILE="${OPENCODE_CONFIG_FILE:-$CONFIG_ROOT/opencode/opencode.json}"
 # Lock y journal para transacción crash-consistent (antes de cualquier modificación)
 LOCK_FILE="$STATE_DIR/.bootstrap.lock"
 JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
-mkdir -p "$STATE_DIR" 2>/dev/null || true
+mkdir -p "$STATE_DIR" 2>/dev/null || {
+  critical "No se pudo crear $STATE_DIR"
+  exit 1
+}
 if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
-  warn "No se pudo crear lock (estado no escribible)"
+  critical "No se pudo crear lock (estado no escribible)"
+  exit 1
 elif ! flock -n 200 2>/dev/null; then
   critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
   exit 1
@@ -549,11 +553,17 @@ while IFS= read -r name; do
     url=$(parse_mcp_field "$name" "url")
     if [[ -n "$url" ]]; then
       desired=$(jq -n --arg u "$url" '{type: "remote", url: $u, enabled: true}')
-      oauth_raw=$(parse_mcp_field "$name" "oauth_required")
-      if [[ "$oauth_raw" == "true" ]]; then
-        desired=$(echo "$desired" | jq '. + {oauth: {}}')
-      elif [[ "$oauth_raw" == "false" ]]; then
-        desired=$(echo "$desired" | jq '. + {oauth: false}')
+      # Full OAuth object (navi) takes priority
+      oauth_json=$(parse_mcp_oauth_json "$name")
+      if [[ "$oauth_json" != "{}" ]]; then
+        desired=$(echo "$desired" | jq --argjson navi_oauth "$oauth_json" '. + {oauth: $navi_oauth}')
+      else
+        oauth_raw=$(parse_mcp_field "$name" "oauth_required")
+        if [[ "$oauth_raw" == "true" ]]; then
+          desired=$(echo "$desired" | jq '. + {oauth: {}}')
+        elif [[ "$oauth_raw" == "false" ]]; then
+          desired=$(echo "$desired" | jq '. + {oauth: false}')
+        fi
       fi
       headers_json=$(parse_mcp_headers_json "$name")
       if [[ "$headers_json" != "{}" ]]; then

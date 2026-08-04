@@ -129,11 +129,13 @@ mcp_servers:
     oauth_required: true
   navi:
     type: remote
-    url: "https://bedrock-agentcore.us-east-1.amazonaws.com/runtimes/arn%3Aaws%3Abedrock-agentcore%3Aus-east-1%3A664923676010%3Aruntime%2FBrain2Mcp_Brain2Mcp-kkINiIBm2p/invocations?qualifier=DEFAULT"
+    url: "{env:NAVI_MCP_URL}"
     oauth_required: true
-    headers:
-      Authorization: "Bearer {env:AWS_BEDROCK_MCP_TOKEN}"
-      x-api-key: "Bearer {env:AWS_BEDROCK_API_KEY}"
+    headers: {}
+    oauth:
+      clientId: "{env:NAVI_OAUTH_CLIENT_ID}"
+      scope: "openid email profile"
+      redirectUri: "http://localhost:8080/callback"
 
 incompatible:
   alegra-test: "Solo funciona en Claude Code y ChatGPT; no en OpenCode"
