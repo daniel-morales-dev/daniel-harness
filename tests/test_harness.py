@@ -4,6 +4,7 @@
 import json
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -178,7 +179,7 @@ def test_agents_no_write_permission():
     """Verify no agent uses undocumented 'write' permission."""
     for agent_md in (ROOT_DIR / "agents").glob("*.md"):
         content = agent_md.read_text()
-        assert "write: allow" not in content, f"{agent_md.name} still has write: allow"
+        assert not re.search(r'(?:^|\n)\s*write:\s*allow', content), f"{agent_md.name} still has write: allow"
 
 
 def test_code_reviewer_readonly():
@@ -391,6 +392,22 @@ def test_sc2168_local_outside_function():
                 )
 
 
+def test_pytest_collects_tests():
+    """Verify pytest discovers and executes a positive number of tests."""
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "--collect-only", "-q"],
+        capture_output=True, text=True, timeout=30,
+        cwd=str(ROOT_DIR),
+    )
+    assert result.returncode == 0, (
+        f"pytest collection failed:\n{result.stdout}\n{result.stderr}"
+    )
+    match = re.search(r'(\d+)\s+(tests?|collected)', result.stdout)
+    assert match, f"could not find test count in pytest output:\n{result.stdout}"
+    count = int(match.group(1))
+    assert count > 0, f"pytest collected {count} tests, expected > 0"
+
+
 def test_shellcheck():
     """Run ShellCheck on all shell scripts if available."""
     import shutil
@@ -547,6 +564,9 @@ if __name__ == "__main__":
     print("[ok] dynamodb-write-confirmed: modo write con confirmacion")
     test_data_tools_installed()
     print("[ok] data tools: instalados via install.sh")
+
+    test_pytest_collects_tests()
+    print("[ok] pytest collects tests")
 
     test_bash_syntax()
     print("[ok] bash -n: todos los scripts")

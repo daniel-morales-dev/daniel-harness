@@ -2,8 +2,11 @@
 """Tests for dh_data/security.py — credential resolution."""
 import os
 import stat
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from dh_data.security import resolve_credentials, CredentialError
 

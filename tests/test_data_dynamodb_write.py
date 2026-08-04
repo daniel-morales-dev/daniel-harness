@@ -1,20 +1,23 @@
 """Tests for dh_data/dynamodb.py — Write 2-step confirmation with persistent store."""
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from dh_data.dynamodb import handle_write
 from dh_data.token_store import TokenStore
 
 
-def setup():
+def setup_module():
     global _tmpdir, _store
     _tmpdir = Path(tempfile.mkdtemp())
     os.environ["DANIEL_HARNESS_CONFIG_DIR"] = str(_tmpdir)
     _store = TokenStore(_tmpdir / "state")
 
 
-def teardown():
+def teardown_module():
     import shutil
     shutil.rmtree(str(_tmpdir), ignore_errors=True)
 
@@ -91,7 +94,7 @@ def test_prepare_create_token():
 
 
 if __name__ == "__main__":
-    setup()
+    setup_module()
     test_unknown_operation()
     print("[ok] unknown operation")
     test_prepare_rejects_write_op()
@@ -112,5 +115,5 @@ if __name__ == "__main__":
     print("[ok] confirm replay rejected")
     test_prepare_create_token()
     print("[ok] prepare creates token")
-    teardown()
+    teardown_module()
     print("\n=== Todos los tests pasaron ===")

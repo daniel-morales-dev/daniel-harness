@@ -1,4 +1,5 @@
 ---
+name: data-access
 description: Acceso cerrado a datos. Solo ejecuta las custom tools dh_* via OpenCode;
   no tiene acceso a bash ni edicion.
 mode: subagent
