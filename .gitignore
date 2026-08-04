@@ -30,6 +30,10 @@ query-results/
 results/
 *.log
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
 # Runtime and build output
 node_modules/
 dist/

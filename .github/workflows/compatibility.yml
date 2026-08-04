@@ -33,10 +33,11 @@ jobs:
               print(f'::warning title=schema-unreachable::Official schema not reachable: {e}')
               exit(0)
           if local == official:
-              print('[ok] Local schema matches official')
+              print(f'[ok] Local schema matches official')
           else:
               msg = 'Local schema differs from official'
-              print(f'::warning title=schema-drift::{msg}')
+              print(f'::error title=schema-drift::{msg}')
+              failed = True
           PYEOF
 
       - name: Package versions
