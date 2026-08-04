@@ -156,7 +156,8 @@ jq -e '.mcp | has("codegraph")' "$OC_FILE" >/dev/null && pass "MCP codegraph con
 jq -e '.mcp | has("engram")' "$OC_FILE" >/dev/null && pass "MCP engram configured" || fail "MCP engram missing"
 jq -e '.mcp | has("linear") | not' "$OC_FILE" >/dev/null && pass "MCP linear not in core" || fail "MCP linear should not be in core"
 jq -e '[.mcp[] | has("disabledTools")] | any | not' "$OC_FILE" >/dev/null && pass "no MCP has disabledTools" || fail "some MCP still has disabledTools"
-jq -e '.plugin | index("@dietrichgebert/ponytail@latest") != null' "$OC_FILE" >/dev/null && pass "Ponytail plugin registered" || fail "Ponytail plugin missing"
+# ponytail: check version-agnostic — exact version from manifest
+jq -e '.plugin[] | startswith("@dietrichgebert/ponytail")' "$OC_FILE" >/dev/null && pass "Ponytail plugin registered" || fail "Ponytail plugin missing"
 jq -e '.mcp.codegraph.type == "local"' "$OC_FILE" >/dev/null && pass "codegraph is local" || fail "codegraph type mismatch"
 jq -e '.mcp.engram.type == "local"' "$OC_FILE" >/dev/null && pass "engram is local" || fail "engram type mismatch"
 

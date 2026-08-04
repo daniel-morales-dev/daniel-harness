@@ -141,6 +141,23 @@ parse_mcp_field() {
   ' "$MANIFEST"
 }
 
+# Parse a value nested 3 levels deep: section > subsection > key
+# e.g. plugins > ponytail > package
+parse_nested_value() {
+  local section=$1 subsection=$2 key=$3
+  awk -v sec="$section" -v subsec="$subsection" -v k="$key" '
+    $0 ~ "^" sec ":" { in_sec=1; next }
+    in_sec && $0 ~ "^  " subsec ":" { in_sub=1; next }
+    in_sub && $0 ~ "^    " k ":" {
+      sub(/^    [a-z_]+:[[:space:]]*/, "")
+      gsub(/^["\x27]/, ""); gsub(/["\x27]$/, "")
+      print; exit
+    }
+    in_sub && !/^    / && !/^[[:space:]]*$/ { in_sub=0 }
+    in_sec && !/^  / && !/^[[:space:]]*$/ { in_sec=0 }
+  ' "$MANIFEST"
+}
+
 parse_mcp_headers_json() {
   local name=$1
   awk -v n="$name" '

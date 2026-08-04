@@ -210,9 +210,12 @@ ensure_opencode_config() {
       ok "opencode.json existe y es JSON válido"
       return 0
     else
+      local backup="${OC_FILE}.bak.$(date +%s)"
+      cp "$OC_FILE" "$backup" 2>/dev/null || true
+      chmod 600 "$backup" 2>/dev/null || true
       critical "opencode.json existe pero no es JSON válido"
-      critical "  Backup: cp \"$OC_FILE\" \"${OC_FILE}.bak.$(date +%s)\""
-      critical "  No se realizaron cambios. Corrige el JSON o elimina el archivo para regenerarlo."
+      critical "  Backup creado: $backup"
+      critical "  Corrige el JSON o elimina el archivo para regenerarlo."
       return 1
     fi
   fi
@@ -267,18 +270,19 @@ fi
 phase "Plugins de OpenCode"
 
 if profile_includes "$PROFILE" "plugins" "ponytail"; then
+  PLUGIN_PACKAGE=$(parse_nested_value "plugins" "ponytail" "package")
   PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
-  if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
-    ok "Ponytail ya registrado"
+  if echo "$PLUGIN_LIST" | grep -qF "$PLUGIN_PACKAGE"; then
+    ok "Ponytail ya registrado ($PLUGIN_PACKAGE)"
   else
-    info 'Registrando Ponytail...'
+    info "Registrando Ponytail ($PLUGIN_PACKAGE)..."
     if [[ $DRY_RUN == true ]]; then
-      info "[simulado] Agregar ponytail como plugin"
+      info "[simulado] Agregar $PLUGIN_PACKAGE como plugin"
     else
       TMP=$(mktemp)
-      jq '.plugin = ((.plugin // []) + ["@dietrichgebert/ponytail@latest"] | unique)' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+      jq --arg p "$PLUGIN_PACKAGE" '.plugin = ((.plugin // []) + [$p] | unique)' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
       chmod 600 "$OC_FILE"
-      ok "Ponytail registrado en opencode.json"
+      ok "Ponytail registrado en opencode.json ($PLUGIN_PACKAGE)"
     fi
   fi
 else
@@ -412,7 +416,7 @@ phase "Verificación"
 
 if [[ -f "$ROOT_DIR/scripts/doctor.sh" ]]; then
   info 'Ejecutando doctor.sh...'
-  if run bash "$ROOT_DIR/scripts/doctor.sh" --strict; then
+  if run bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict; then
     ok 'Bootstrap completado y saludable'
   else
     printf '\n========================================\n'
