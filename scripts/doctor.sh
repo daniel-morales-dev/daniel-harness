@@ -28,7 +28,7 @@ ok() { printf '[ok] %s\n' "$*"; }
 warn() { printf '[aviso] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
 critical() { printf '[crítico] %s\n' "$*"; CRITICAL=$((CRITICAL + 1)); }
 
-_get_profile_field() {
+_parse_profile_list() {
   local p=$1 field=$2
   awk -v p="$p" -v f="$field" '
     $0 ~ "^profiles:" { in_profiles=1; next }
@@ -37,52 +37,19 @@ _get_profile_field() {
       sub(/^[[:space:]]*[a-z_]+:[[:space:]]*/, "")
       gsub(/^\[|\]$/, "")
       gsub(/["\x27]/, "")
-      gsub(/[[:space:]]*,[[:space:]]*/, "\n")
-      print; exit
+      gsub(/,/, "\n")
+      print
+      exit
     }
-    in_profile && !/^    / && !/^[[:space:]]*$/ { in_profile=0 }
   ' "$MANIFEST"
-}
-
-_get_profile_extend() {
-  local p=$1
-  awk -v p="$p" '
-    $0 ~ "^profiles:" { in_profiles=1; next }
-    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
-    in_profile && $0 ~ "^    extends:" {
-      sub(/^[[:space:]]*extends:[[:space:]]*/, "")
-      gsub(/^["\x27]/, ""); gsub(/["\x27]$/, "")
-      print; exit
-    }
-    in_profile && !/^    / && !/^[[:space:]]*$/ { in_profile=0 }
-  ' "$MANIFEST"
-}
-
-_merge_profile_field() {
-  local p=$1 field=$2 last_p
-  local seen=""
-  while [[ -n "$p" ]]; do
-    local items
-    items=$(_get_profile_field "$p" "$field")
-    while IFS= read -r item; do
-      [[ -z "$item" ]] && continue
-      if ! echo "$seen" | grep -qxF "$item" 2>/dev/null; then
-        seen="$seen$item"$'\n'
-      fi
-    done <<< "$items"
-    last_p=$p
-    p=$(_get_profile_extend "$p")
-    [[ "$p" == "$last_p" ]] && break
-  done
-  printf '%s' "$seen"
 }
 
 get_profile_tools() {
-  _merge_profile_field "$1" "tools"
+  _parse_profile_list "$1" "tools"
 }
 
 get_profile_mcps() {
-  _merge_profile_field "$1" "mcps"
+  _parse_profile_list "$1" "mcps"
 }
 
 tool_status() {
