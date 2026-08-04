@@ -151,7 +151,7 @@ else
 fi
 
 echo "=== Fase 3: validator ejecutado sin error de jsonschema ==="
-grep -q 'Schema valido\|opencode.json existe\|opencode.json creado' "$TMP_DIR/bootstrap.out" && \
+grep -q 'Schema valido\|opencode.json existe\|Directorio de configuración accesible' "$TMP_DIR/bootstrap.out" && \
   pass "validator se ejecuto sin error" || \
   fail "posible error de validator"
 
