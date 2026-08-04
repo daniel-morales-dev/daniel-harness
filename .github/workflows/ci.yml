@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    timeout-minutes: 10
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -26,6 +26,18 @@ jobs:
       - name: Install Python deps
         run: pip install -r requirements-dev.txt
 
+      - name: Install Bun
+        run: curl -fsSL https://bun.sh/install | bash -s -- "bun-v1.3.14"
+        env:
+          BUN_INSTALL: "${{ runner.temp }}/bun"
+
+      - name: TS typecheck + tool tests
+        run: |
+          export PATH="${{ runner.temp }}/bun/bin:$PATH"
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run test:tools
+
       - name: ShellCheck scripts
         run: shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2317 bin/dh scripts/*.sh
 
@@ -33,22 +45,24 @@ jobs:
         run: bash -n bin/dh scripts/*.sh
 
       - name: Internal schemas
-        run: python3 tests/config-schema.test.py && python3 tests/connections-schema.test.py && python3 tests/examples-schema.test.py
+        run: python3 tests/test_config_schema.py && python3 tests/test_connections_schema.py && python3 tests/test_examples_schema.py
 
       - name: Profile resolver
         run: bash tests/profile-resolver.test.sh
 
-      - name: Pytest discovery
-        run: pip install pytest && python3 -m pytest tests/ --co -q 2>&1 || true
+      - name: Pytest
+        run: python3 -m pytest -q
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
 
       - name: Config security
-        run: python3 tests/security-config.test.py
+        run: python3 tests/test_security_config.py
 
       - name: Credential security
-        run: python3 tests/security-credentials.test.py
+        run: python3 tests/test_security_credentials.py
 
       - name: Agents and skills
-        run: python3 tests/harness.test.py
+        run: python3 tests/test_harness.py
 
       - name: Validate skill frontmatter
         run: |
@@ -82,22 +96,22 @@ jobs:
         run: bash tests/clean-runtime.test.sh
 
       - name: Data tools — MySQL
-        run: python3 tests/data-mysql.test.py
+        run: python3 tests/test_data_mysql.py
 
       - name: Data tools — MongoDB
-        run: python3 tests/data-mongodb.test.py
+        run: python3 tests/test_data_mongodb.py
 
       - name: Data tools — DynamoDB read
-        run: python3 tests/data-dynamodb-read.test.py
+        run: python3 tests/test_data_dynamodb_read.py
 
       - name: Data tools — DynamoDB write
-        run: python3 tests/data-dynamodb-write.test.py
+        run: python3 tests/test_data_dynamodb_write.py
 
       - name: Data tools — Object storage
-        run: python3 tests/data-object-storage.test.py
+        run: python3 tests/test_data_object_storage.py
 
       - name: Data tools — Contract
-        run: python3 tests/data-tools-contract.test.py
+        run: python3 tests/test_data_tools_contract.py
 
       - name: Data tools — Launcher
         run: bash tests/launcher.test.sh
@@ -106,7 +120,7 @@ jobs:
         run: bash tests/data-e2e.test.sh
 
   e2e:
-    timeout-minutes: 15
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -120,7 +134,7 @@ jobs:
       - name: MCP reconciliation
         run: bash tests/mcp-reconciliation.test.sh
       - name: OpenCode schema
-        run: python3 tests/opencode-schema.test.py
+        run: python3 tests/test_opencode_schema.py
       - name: Installer first-run
         run: bash tests/installer-first-run.test.sh
       - name: Doctor MCP status
@@ -128,7 +142,7 @@ jobs:
       - name: Plugin reconciliation
         run: bash tests/plugin-reconciliation.test.sh
       - name: Preflight output
-        run: python3 tests/preflight.test.py
+        run: python3 tests/test_preflight.py
       - name: Drift 3-run persistence
         run: bash tests/drift-three-run.test.sh
       - name: Transaction failures

@@ -23,8 +23,16 @@ def validate_read_operation(operation):
         raise ValueError(f"read-only operation required: {operation}")
 
 
-def _build_payload(params):
-    return {k: v for k, v in params.items() if k in ('tableName', 'keys', 'fields', 'condition', 'operation')}
+def _build_payload(profile, params):
+    return {
+        "profile": profile.get("id", ""),
+        "region": profile.get("region", ""),
+        "resource": params.get("tableName", ""),
+        "operation": params.get("operation", ""),
+        "keys": params.get("keys", {}),
+        "fields": params.get("fields", {}),
+        "condition": params.get("condition"),
+    }
 
 
 def handle_read(profile, credentials, operation, params):
@@ -81,18 +89,17 @@ def _handle_write_prepare(profile, credentials, params):
     if write_op not in WRITE_OPS:
         return {"error": f"write operation not allowed: {write_op}"}, 2
 
-    payload = _build_payload(params)
-    if not payload.get("tableName"):
+    if not params.get("tableName"):
         return {"error": "tableName required"}, 2
 
-    # Validate writeConfirmation.mode
+    payload = _build_payload(profile, params)
+
     wc = profile.get("writeConfirmation", {})
     if wc.get("mode") in ("deny", None):
         return {"error": "writes not allowed for this profile"}, 2
     if wc.get("mode") not in ("exact-operation",):
         return {"error": f"unsupported writeConfirmation mode: {wc.get('mode')}"}, 2
 
-    # Validate required fields
     required = wc.get("requiredFields", [])
     for field in required:
         if field not in params:
@@ -108,14 +115,12 @@ def _handle_write_prepare(profile, credentials, params):
         client = session.client('dynamodb')
         if payload.get('keys'):
             try:
-                item = client.get_item(TableName=payload['tableName'], Key=payload['keys'])
+                item = client.get_item(TableName=payload['resource'], Key=payload['keys'])
                 preview['currentItem'] = item.get('Item', {})
             except Exception:
                 preview['currentItem'] = None
-    except ImportError:
+    except Exception:
         preview['currentItem'] = None
-    except Exception as e:
-        return {"error": str(e)}, 1
 
     store = _get_store()
     token = store.create(payload)
@@ -128,7 +133,7 @@ def _handle_write_confirm(profile, credentials, params):
     if not token:
         return {"error": "token required"}, 4
 
-    payload = _build_payload(params)
+    payload = _build_payload(profile, params)
 
     store = _get_store()
     try:
@@ -147,7 +152,7 @@ def _handle_write_confirm(profile, credentials, params):
         session = boto3.Session(profile_name=profile_name, region_name=region)
         client = session.client('dynamodb')
 
-        kwargs = {'TableName': payload['tableName']}
+        kwargs = {'TableName': payload['resource']}
         if write_op == 'PutItem':
             kwargs['Item'] = payload.get('fields', {})
             if payload.get('condition'):

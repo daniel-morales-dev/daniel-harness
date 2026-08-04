@@ -213,3 +213,18 @@ headers = mcp.get('headers', {})
 print(json.dumps(headers))
 " 2>/dev/null || echo "{}"
 }
+
+parse_mcp_oauth_json() {
+  local name=$1
+  python3 -c "
+import json, sys, yaml
+with open('$MANIFEST') as f:
+    data = yaml.safe_load(f)
+mcp = data.get('mcp_servers', {}).get('$name', {})
+oauth = mcp.get('oauth', None)
+if oauth and isinstance(oauth, dict):
+    print(json.dumps(oauth))
+else:
+    print('{}')
+" 2>/dev/null || echo "{}"
+}

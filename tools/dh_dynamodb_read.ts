@@ -1,12 +1,13 @@
 import { tool } from "@opencode-ai/plugin"
+import { s, e, r, getLauncher, redact } from "./_helpers.js"
 
 export default tool({
   description: "DynamoDB GetItem/Query/Scan via dh-data executor (read-only)",
   args: {
-    profile: tool.schema.string().describe("AWS profile name"),
-    operation: tool.schema.enum(["GetItem", "Query", "Scan"]).describe("DynamoDB read operation"),
-    tableName: tool.schema.string().describe("DynamoDB table name"),
-    params: tool.schema.record(tool.schema.unknown()).describe("Operation parameters (key, filter, limit, etc.)"),
+    profile: s().describe("AWS profile name"),
+    operation: e(["GetItem", "Query", "Scan"]).describe("DynamoDB read operation"),
+    tableName: s().describe("DynamoDB table name"),
+    params: r().describe("Operation parameters (key, filter, limit, etc.)"),
   },
   async execute(args) {
     const payload = JSON.stringify({
@@ -15,20 +16,31 @@ export default tool({
       operation: args.operation,
       params: { tableName: args.tableName, ...args.params },
     })
-    const launcher = process.env.HOME + "/.local/bin/dh-data-executor"
     try {
-      const proc = Bun.spawn([launcher], { input: payload, stdout: "pipe", stderr: "pipe" })
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 30_000)
+      const proc = Bun.spawn([getLauncher()], {
+        stdin: new Blob([payload]),
+        stdout: "pipe",
+        stderr: "pipe",
+        signal: ctrl.signal,
+      })
       const [stdout, stderr] = await Promise.all([
         Bun.readableStreamToText(proc.stdout),
         Bun.readableStreamToText(proc.stderr),
       ])
+      clearTimeout(timer)
       const exitCode = await proc.exited
-      if (exitCode !== 0) {
-        try { return JSON.stringify(JSON.parse(stdout)) } catch { return JSON.stringify({ error: stderr || "executor exited " + exitCode }) }
+      if (exitCode === 0) return stdout.trim()
+      try {
+        const parsed = JSON.parse(stdout.trim())
+        return JSON.stringify(parsed)
+      } catch {
+        const sanitised = redact(stderr.trim())
+        return JSON.stringify({ error: sanitised || `executor exited (${exitCode})` })
       }
-      return stdout.trim()
-    } catch (e) {
-      return JSON.stringify({ error: "executor failed: " + (e instanceof Error ? e.message : String(e)) })
+    } catch {
+      return JSON.stringify({ error: "executor failed" })
     }
   },
 })

@@ -7,5 +7,9 @@ set -euo pipefail
 
 SCRIPT=$(readlink -f "$0")
 ROOT_DIR=$(cd "$(dirname "$SCRIPT")/.." && pwd)
+VENV="${DANIEL_HARNESS_RUNTIME_DIR:-$HOME/.local/share/daniel-harness/runtime-venv}"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$ROOT_DIR/scripts"
+if [[ -x "$VENV/bin/python" ]]; then
+  exec "$VENV/bin/python" -m dh_data.executor 2>/dev/null
+fi
 exec python3 -m dh_data.executor 2>/dev/null
