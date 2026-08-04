@@ -13,6 +13,7 @@ WARNINGS=0
 CRITICAL=0
 
 MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
+source "$ROOT_DIR/scripts/profile-resolver.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,29 +29,8 @@ ok() { printf '[ok] %s\n' "$*"; }
 warn() { printf '[aviso] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
 critical() { printf '[crítico] %s\n' "$*"; CRITICAL=$((CRITICAL + 1)); }
 
-_parse_profile_list() {
-  local p=$1 field=$2
-  awk -v p="$p" -v f="$field" '
-    $0 ~ "^profiles:" { in_profiles=1; next }
-    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
-    in_profile && $0 ~ "^    " f ":" {
-      sub(/^[[:space:]]*[a-z_]+:[[:space:]]*/, "")
-      gsub(/^\[|\]$/, "")
-      gsub(/["\x27]/, "")
-      gsub(/,/, "\n")
-      print
-      exit
-    }
-  ' "$MANIFEST"
-}
-
-get_profile_tools() {
-  _parse_profile_list "$1" "tools"
-}
-
-get_profile_mcps() {
-  _parse_profile_list "$1" "mcps"
-}
+# Funciones provistas por profile-resolver.sh:
+#   get_profile_tools, get_profile_mcps, get_profile_plugins
 
 tool_status() {
   local label=$1

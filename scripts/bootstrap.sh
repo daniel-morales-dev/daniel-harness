@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
+source "$ROOT_DIR/scripts/profile-resolver.sh"
 DRY_RUN=false
 SKIP_DOCKER=false
 PROFILE=core
@@ -74,144 +75,11 @@ if [[ $DRY_RUN == false ]]; then
 fi
 
 # Parseadores del manifest (sin dependencia de yq)
-parse_section() {
-  local section=$1
-  awk -v sec="$section" '
-    $0 ~ "^" sec ":" { in_section=1; next }
-    in_section && /^[a-z]/ && !/^  / { in_section=0 }
-    in_section
-  ' "$MANIFEST"
-}
-
-parse_nested_list() {
-  local parent=$1 child=$2
-  awk -v parent="$parent" -v child="$child" '
-    $0 ~ "^" parent ":" { in_parent=1; next }
-    in_parent && $0 ~ "^  " child ":" { in_child=1; next }
-    in_child && /^    - / { gsub(/^    - /,""); print; next }
-    in_child && !/^      / && !/^    - / { in_child=0 }
-    in_parent && !/^  / && !/^$/ { in_parent=0 }
-  ' "$MANIFEST"
-}
-
-parse_value() {
-  local section=$1
-  local key=$2
-  awk -v sec="$section" -v k="$key" '
-    $0 ~ "^" sec ":" { in_section=1; next }
-    in_section && $0 ~ "^  " k ":" {
-      sub(/^  [a-z_]+:[[:space:]]*/,"")
-      sub(/^["\x27]/,""); sub(/["\x27]$/,"")
-      print
-      exit
-    }
-    in_section && !/^  / { in_section=0 }
-  ' "$MANIFEST"
-}
-
-parse_mcp_names() {
-  awk '/^mcp_servers:/{found=1; next} found && /^  [a-z][a-z0-9_-]*:$/ {
-    gsub(/^[[:space:]]+/,""); gsub(/:$/,""); print; next
-  } found && !/^    / && !/^  $/{found=0}' "$MANIFEST"
-}
-
-parse_mcp_field() {
-  local name=$1 field=$2
-  awk -v n="$name" -v f="$field" '
-    /^mcp_servers:/{in_mcp=1; next}
-    in_mcp {
-      if ($0 ~ "^  " n ":" && !found) { found=1; next }
-      if (found && $0 ~ "^    " f ":") {
-        sub(/^[[:space:]]*[a-z_]+:[[:space:]]*/, "")
-        gsub(/^["\x27]/, ""); gsub(/["\x27]$/, "")
-        print; exit
-      }
-      if (found && $0 ~ /^  [a-z]/) { found=0 }
-    }
-  ' "$MANIFEST"
-}
-
-parse_mcp_headers_json() {
-  local name=$1
-  awk -v n="$name" '
-    /^mcp_servers:/{in_mcp=1; next}
-    in_mcp {
-      if ($0 ~ "^  " n ":" && !found) { found=1; next }
-      if (found && $0 ~ "^    headers:") { in_headers=1; next }
-      if (in_headers && $0 ~ /^      [a-z]/) {
-        gsub(/^      /, "")
-        split($0, parts, ": ")
-        key = parts[1]
-        sub(/^"/, "", parts[2]); sub(/"$/, "", parts[2])
-        val = parts[2]
-        for(i=3; i<=length(parts); i++) val = val ": " parts[i]
-        if (first) printf ","
-        printf "\"%s\": \"%s\"", key, val
-        first=1
-        next
-      }
-      if (found && $0 ~ /^  [a-z]/) { found=0; in_headers=0 }
-      if (in_headers && $0 !~ /^      / && $0 !~ /^[[:space:]]*$/) { in_headers=0 }
-    }
-    BEGIN { printf "{" }
-    END { printf "}" }
-  ' "$MANIFEST"
-}
-
-# Parseadores de perfiles con herencia (extends)
-_get_profile_field() {
-  local p=$1 field=$2
-  awk -v p="$p" -v f="$field" '
-    $0 ~ "^profiles:" { in_profiles=1; next }
-    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
-    in_profile && $0 ~ "^    " f ":" {
-      sub(/^[[:space:]]*[a-z_]+:[[:space:]]*/, "")
-      gsub(/^\[|\]$/, "")
-      gsub(/["\x27]/, "")
-      gsub(/[[:space:]]*,[[:space:]]*/, "\n")
-      print; exit
-    }
-    in_profile && !/^    / && !/^[[:space:]]*$/ { in_profile=0 }
-  ' "$MANIFEST"
-}
-
-_get_profile_extend() {
-  local p=$1
-  awk -v p="$p" '
-    $0 ~ "^profiles:" { in_profiles=1; next }
-    in_profiles && $0 ~ "^  " p ":" { in_profile=1; next }
-    in_profile && $0 ~ "^    extends:" {
-      sub(/^[[:space:]]*extends:[[:space:]]*/, "")
-      gsub(/^["\x27]/, ""); gsub(/["\x27]$/, "")
-      print; exit
-    }
-    in_profile && !/^    / && !/^[[:space:]]*$/ { in_profile=0 }
-  ' "$MANIFEST"
-}
-
-# Verifica si un item pertenece al campo de un perfil, recorriendo extends
-_profile_field_contains() {
-  local p=$1 field=$2 item=$3
-  local items
-  items=$(_get_profile_field "$p" "$field")
-  echo "$items" | grep -qxF "$item" 2>/dev/null
-}
-
-profile_includes() {
-  local field=$1 item=$2
-  local p last_p
-  p=$PROFILE
-  while [[ -n "$p" ]]; do
-    if _profile_field_contains "$p" "$field" "$item"; then
-      return 0
-    fi
-    last_p=$p
-    p=$(_get_profile_extend "$p")
-    # evitar bucles infinitos por extends cíclico
-    [[ "$p" == "$last_p" ]] && break
-  done
-  return 1
-}
+# provistos por profile-resolver.sh:
+#   parse_section, parse_nested_list, parse_value
+#   parse_mcp_names, parse_mcp_field, parse_mcp_headers_json
+#   _get_profile_field, _get_profile_extend, profile_includes
+#   get_profile_mcps, get_profile_tools, get_profile_plugins
 
 # ---------------------------------------------------------------------------
 # Fase 1: Dependencias del sistema
@@ -230,7 +98,7 @@ for pkg in "${packages[@]}"; do
   dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
 done
 for pkg in "${optional_packages[@]}"; do
-  if profile_includes "optional_packages" "$pkg"; then
+  if profile_includes "$PROFILE" "optional_packages" "$pkg"; then
     dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
   else
     skip "Paquete opcional $pkg (no incluido en perfil $PROFILE)"
@@ -278,7 +146,7 @@ phase "Herramientas CLI"
 
 install_tool_if_in_profile() {
   local profile_key=$1 label=$2 check=$3 install_cmd=$4
-  if profile_includes "tools" "$profile_key"; then
+  if profile_includes "$PROFILE" "tools" "$profile_key"; then
     if eval "$check" >/dev/null 2>&1; then
       ok "$label ya instalado"
     else
@@ -302,7 +170,7 @@ fi
 install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "npm install -g @codegraph/cli"
 install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
 
-if profile_includes "tools" "gh"; then
+if profile_includes "$PROFILE" "tools" "gh"; then
   if dpkg -s gh >/dev/null 2>&1; then
     ok "GitHub CLI ya instalado"
   else
@@ -313,7 +181,7 @@ else
   skip "GitHub CLI (no incluido en perfil $PROFILE)"
 fi
 
-if profile_includes "tools" "aws"; then
+if profile_includes "$PROFILE" "tools" "aws"; then
   if command -v aws >/dev/null 2>&1; then
     ok "AWS CLI ya instalado"
   else
@@ -375,7 +243,7 @@ ensure_opencode_config
 # ---------------------------------------------------------------------------
 # Fase 5: Docker
 # ---------------------------------------------------------------------------
-if profile_includes "tools" "docker"; then
+if profile_includes "$PROFILE" "tools" "docker"; then
   if [[ $SKIP_DOCKER == true ]]; then
     skip 'Docker omitido (--skip-docker)'
   else
@@ -398,7 +266,7 @@ fi
 # ---------------------------------------------------------------------------
 phase "Plugins de OpenCode"
 
-if profile_includes "plugins" "ponytail"; then
+if profile_includes "$PROFILE" "plugins" "ponytail"; then
   PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
   if echo "$PLUGIN_LIST" | grep -q '@dietrichgebert/ponytail'; then
     ok "Ponytail ya registrado"
@@ -453,7 +321,7 @@ _mcp_jq() {
 
 while IFS= read -r name; do
   [[ -z "$name" ]] && continue
-  if ! profile_includes "mcps" "$name"; then
+  if ! profile_includes "$PROFILE" "mcps" "$name"; then
     skip "MCP $name (no incluido en perfil $PROFILE)"
     continue
   fi
