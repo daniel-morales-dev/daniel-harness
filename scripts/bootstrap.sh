@@ -279,15 +279,26 @@ phase "Plugins de OpenCode"
 if profile_includes "$PROFILE" "plugins" "ponytail"; then
   PLUGIN_PACKAGE=$(parse_nested_value "plugins" "ponytail" "package")
   PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
-  if echo "$PLUGIN_LIST" | grep -qF "$PLUGIN_PACKAGE"; then
+  PLUGIN_BASE=$(echo "$PLUGIN_PACKAGE" | sed 's/@[^@]*$//')
+  if echo "$PLUGIN_LIST" | grep -qxF "$PLUGIN_PACKAGE"; then
     ok "Ponytail ya registrado ($PLUGIN_PACKAGE)"
+  elif echo "$PLUGIN_LIST" | grep -q "^${PLUGIN_BASE}"; then
+    info "Reemplazando Ponytail por versión exacta ($PLUGIN_PACKAGE)..."
+    if [[ $DRY_RUN == true ]]; then
+      info "[simulado] Reemplazar $PLUGIN_BASE* por $PLUGIN_PACKAGE"
+    else
+      TMP=$(mktemp)
+      jq --arg p "$PLUGIN_PACKAGE" --arg b "$PLUGIN_BASE" '.plugin = ((.plugin // []) | map(select(startswith($b) | not)) + [$p])' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+      chmod 600 "$OC_FILE"
+      ok "Ponytail reemplazado por versión exacta ($PLUGIN_PACKAGE)"
+    fi
   else
     info "Registrando Ponytail ($PLUGIN_PACKAGE)..."
     if [[ $DRY_RUN == true ]]; then
       info "[simulado] Agregar $PLUGIN_PACKAGE como plugin"
     else
       TMP=$(mktemp)
-      jq --arg p "$PLUGIN_PACKAGE" '.plugin = ((.plugin // []) + [$p] | unique)' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
+      jq --arg p "$PLUGIN_PACKAGE" '.plugin = ((.plugin // []) + [$p])' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
       chmod 600 "$OC_FILE"
       ok "Ponytail registrado en opencode.json ($PLUGIN_PACKAGE)"
     fi
@@ -331,18 +342,31 @@ _mcp_jq() {
   jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
 }
 
-# Compare desired vs current for a managed MCP, update if different
+# Compare desired vs current for a managed MCP, apply with drift check
 _reconcile_mcp() {
   local name=$1 desired=$2
   local current
   current=$(jq --arg n "$name" '.mcp[$n]' "$TMP_CANDIDATE" 2>/dev/null || echo "null")
-  if [[ "$current" != "$desired" ]]; then
-    _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
-    info "MCP $name actualizado (configuración administrada diferente del manifest)"
-    MCP_UPDATED=$((MCP_UPDATED + 1))
-  else
+
+  if [[ "$current" == "$desired" ]]; then
     ok "MCP $name configurado, idéntico al manifest"
+    return
   fi
+
+  if [[ -f "$STATE_FILE" ]]; then
+    local current_hash last_hash
+    current_hash=$(echo "$current" | sha256sum | cut -d' ' -f1)
+    last_hash=$(jq -r --arg n "$name" '.mcps[$n].lastAppliedHash // ""' "$STATE_FILE" 2>/dev/null || echo "")
+    if [[ -n "$last_hash" && "$current_hash" != "$last_hash" ]]; then
+      warn "MCP $name modificado externamente desde la última aplicación. Conservando configuración personalizada."
+      MCP_SKIPPED=$((MCP_SKIPPED + 1))
+      return
+    fi
+  fi
+
+  _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
+  info "MCP $name actualizado (configuración administrada diferente del manifest)"
+  MCP_UPDATED=$((MCP_UPDATED + 1))
 }
 
 MANAGED_MCPS=()
@@ -400,10 +424,19 @@ while IFS= read -r name; do
 
   exists=$(jq --arg n "$name" '.mcp // {} | has($n)' "$TMP_CANDIDATE" 2>/dev/null || false)
   if [[ $exists == true ]]; then
-    if [[ -f "$STATE_FILE" ]] && ! jq -e --arg n "$name" '.mcps | index($n) != null' "$STATE_FILE" >/dev/null 2>&1; then
-      warn "MCP $name personalizado, no administrado por bootstrap. Omite actualización."
-      MCP_SKIPPED=$((MCP_SKIPPED + 1))
-      continue
+    if [[ -f "$STATE_FILE" ]]; then
+      if ! jq -e --arg n "$name" '.mcps | has($n)' "$STATE_FILE" >/dev/null 2>&1; then
+        warn "MCP $name personalizado, no administrado por bootstrap. Omite actualización."
+        MCP_SKIPPED=$((MCP_SKIPPED + 1))
+        continue
+      fi
+    else
+      current=$(jq --arg n "$name" '.mcp[$n]' "$TMP_CANDIDATE" 2>/dev/null || echo "null")
+      if [[ "$current" != "$desired" ]]; then
+        warn "MCP $name personalizado (sin state, diferente del manifest). Omite actualización."
+        MCP_SKIPPED=$((MCP_SKIPPED + 1))
+        continue
+      fi
     fi
     _reconcile_mcp "$name" "$desired"
   else
@@ -449,14 +482,15 @@ if [[ $DRY_RUN == false ]]; then
 
   if (( ${#MANAGED_MCPS[@]} > 0 )); then
     run mkdir -p "$STATE_DIR"
-    arr="["
-    sep=""
+    existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
+    new_state="{}"
     for m in "${MANAGED_MCPS[@]}"; do
-      arr+="${sep}\"$m\""
-      sep=", "
+      val=$(jq --arg n "$m" '.mcp[$n]' "$OC_FILE" 2>/dev/null || echo "null")
+      hash=$(echo "$val" | sha256sum | cut -d' ' -f1)
+      new_state=$(echo "$new_state" | jq --arg n "$m" --arg h "$hash" '.mcps[$n] = {lastAppliedHash: $h}')
     done
-    arr+="]"
-    jq -n --argjson mcps "$arr" '{mcps: $mcps}' > "$STATE_FILE" 2>/dev/null || true
+    merged=$(echo "$existing" "$new_state" | jq -s '.[0] * .[1]')
+    echo "$merged" > "$STATE_FILE" 2>/dev/null || true
     chmod 600 "$STATE_FILE" 2>/dev/null || true
   fi
 fi

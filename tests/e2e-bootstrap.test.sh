@@ -236,20 +236,6 @@ BACKUPS_AFTER=$(find "$HOME_CORE/.config/opencode/" -name 'opencode.json.bak.*' 
 [[ "$BACKUPS_AFTER" -eq "$BACKUPS_BEFORE" ]] && pass "no new backups created on second run" || fail "second bootstrap created unnecessary backups"
 grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-idempotent.out" && pass "second bootstrap healthy" || fail "second bootstrap failed"
 
-# --- Phase 5b: Schema validation for alegra MCPs ---
-printf '\n=== Phase 5b: Schema validation (alegra MCPs) ===\n'
-ALEGRA_OC="$HOME_ALEGRA/.config/opencode/opencode.json"
-if [[ -f "$ALEGRA_OC" ]]; then
-  jq -e '[.mcp[] | has("_managed")] | any | not' "$ALEGRA_OC" >/dev/null && pass "alegra: no MCP has _managed" || fail "alegra: some MCP has _managed"
-  jq -e '[.mcp[] | select(.type == "remote") | .oauth == true] | any | not' "$ALEGRA_OC" >/dev/null && pass "alegra: no remote MCP has oauth: true" || fail "alegra: some remote MCP has oauth: true"
-  jq -e '.mcp.github.oauth == false' "$ALEGRA_OC" >/dev/null && pass "alegra: github oauth is false" || fail "alegra: github oauth not false"
-  jq -e '.mcp.github.headers.Authorization != null' "$ALEGRA_OC" >/dev/null && pass "alegra: github has Authorization header" || fail "alegra: github missing Authorization"
-  jq -e '.mcp.linear.oauth == {}' "$ALEGRA_OC" >/dev/null && pass "alegra: linear oauth is empty object" || fail "alegra: linear oauth not empty"
-  jq -e '.mcp.context7.oauth | not' "$ALEGRA_OC" >/dev/null && pass "alegra: context7 has no oauth field" || fail "alegra: context7 has unexpected oauth"
-else
-  pass "alegra OC not available yet (will validate after Phase 7)"
-fi
-
 # --- Phase 5c: Core → alegra transition on same HOME ---
 printf '\n=== Phase 5c: Core → alegra transition ===\n'
 TRANSITION_HOME="$TMP_DIR/home-transition"
@@ -272,7 +258,7 @@ done
 # Verify state file tracks all alegra MCPs
 STATE_FILE="$TRANSITION_HOME/.config/daniel-harness/state/opencode-managed.json"
 for mcp in codegraph engram linear context7 wiki-alegra github; do
-  jq -e --arg n "$mcp" '.mcps | index($n) != null' "$STATE_FILE" >/dev/null && pass "transition: state has $mcp" || fail "transition: state missing $mcp"
+  jq -e --arg n "$mcp" '.mcps | has($n)' "$STATE_FILE" >/dev/null && pass "transition: state has $mcp" || fail "transition: state missing $mcp"
 done
 # Verify doctor --profile alegra --strict passes
 doctor_profile alegra alegra "$TRANSITION_HOME" > /dev/null 2>&1 && pass "transition: doctor alegra passes" || fail "transition: doctor alegra failed"
@@ -307,6 +293,21 @@ done
 for mcp in sentry mcp-raia-lib; do
   echo "$ALEGRA_MCPS" | grep -qxF "$mcp" && fail "alegra should NOT have MCP $mcp" || pass "alegra correctly lacks MCP $mcp"
 done
+
+# --- Phase 7c: Schema and OAuth assertions (alegra) ---
+printf '\n=== Phase 7c: Schema and OAuth validation (alegra) ===\n'
+jq -e '.mcp.github.headers.Authorization == "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}"' "$OC_ALEGRA" >/dev/null && pass "alegra: github Authorization exact" || fail "alegra: github Authorization mismatch"
+jq -e '.mcp.github.headers["X-MCP-Toolsets"] == "repos,pull_requests,issues"' "$OC_ALEGRA" >/dev/null && pass "alegra: github X-MCP-Toolsets exact" || fail "alegra: github X-MCP-Toolsets mismatch"
+jq -e '.mcp.github.oauth == false' "$OC_ALEGRA" >/dev/null && pass "alegra: github oauth false" || fail "alegra: github oauth not false"
+jq -e '.mcp.linear.oauth == {}' "$OC_ALEGRA" >/dev/null && pass "alegra: linear oauth {}" || fail "alegra: linear oauth not object"
+jq -e '.mcp.context7 | has("oauth") | not' "$OC_ALEGRA" >/dev/null && pass "alegra: context7 no oauth" || fail "alegra: context7 has unexpected oauth"
+jq -e '[.mcp[] | has("_managed")] | any | not' "$OC_ALEGRA" >/dev/null && pass "alegra: no MCP has _managed" || fail "alegra: some MCP has _managed"
+jq -e '[.mcp[] | select(.type == "remote") | .oauth == true] | any | not' "$OC_ALEGRA" >/dev/null && pass "alegra: no remote MCP has oauth: true" || fail "alegra: some remote MCP has oauth: true"
+jq -e '.plugin[] == "@dietrichgebert/ponytail@4.8.4"' "$OC_ALEGRA" >/dev/null && pass "alegra: ponytail exact version" || fail "alegra: ponytail version mismatch"
+ALEGRA_STATE="$HOME_ALEGRA/.config/daniel-harness/state/opencode-managed.json"
+[[ -f "$ALEGRA_STATE" ]] && pass "alegra: state file exists" || fail "alegra: state file missing"
+STAT_MODE=$(stat -c '%a' "$ALEGRA_STATE" 2>/dev/null || echo "000")
+[[ "$STAT_MODE" == "600" ]] && pass "alegra: state file mode 600" || fail "alegra: state file mode is $STAT_MODE"
 
 # --- Phase 8: Bootstrap --profile migration --skip-docker (HOME aislado) ---
 printf '\n=== Phase 8: bootstrap --profile migration --skip-docker ===\n'

@@ -238,13 +238,13 @@ check_mcp_live() {
   fi
   local debug_out
   debug_out=$(opencode mcp debug "$name" 2>&1 || true)
-  # negativos primero para evitar "not connected" como "connected"
-  if echo "$debug_out" | grep -qiE '(not connected|not.*found|error|failed)'; then
-    echo "inaccesible"
-  elif echo "$debug_out" | grep -qiE '(connected|healthy|ok|running)'; then
-    echo "connected"
-  elif echo "$debug_out" | grep -qi 'auth'; then
+  # auth primero para evitar clasificar "authentication failed" como inaccesible
+  if echo "$debug_out" | grep -qiE '(authentication required|auth-required|auth.*failed|missing credentials|401 unauthorized|auth.*required)'; then
     echo "auth-required"
+  elif echo "$debug_out" | grep -qiE '^connected$|^healthy$'; then
+    echo "connected"
+  elif echo "$debug_out" | grep -qiE '(not connected|not.*found|connection refused|broken pipe|error|failed)'; then
+    echo "inaccesible"
   elif [[ -z "$debug_out" ]]; then
     echo "desconocido"
   else
