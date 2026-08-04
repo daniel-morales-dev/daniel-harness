@@ -401,12 +401,51 @@ fi
 
 printf '\nMCPs de OpenCode\n'
 if [[ ! -f "$OPENCODE_CONFIG_FILE" ]]; then
-  warn 'No se encontró la configuración de OpenCode; inventario MCP no disponible'
+  if [[ $STRICT == true && -n "$PROFILE" ]]; then
+    critical 'No se encontró la configuración de OpenCode (requerida con --profile --strict)'
+  else
+    warn 'No se encontró la configuración de OpenCode; inventario MCP no disponible'
+  fi
 elif ! command -v jq >/dev/null 2>&1; then
   warn 'jq no está disponible; no se inspeccionó la configuración de OpenCode'
 elif ! jq empty "$OPENCODE_CONFIG_FILE" >/dev/null 2>&1; then
-  warn 'La configuración de OpenCode no es JSON válido; se omitió el inventario MCP'
+  if [[ $STRICT == true && -n "$PROFILE" ]]; then
+    critical 'La configuración de OpenCode no es JSON válido'
+  else
+    warn 'La configuración de OpenCode no es JSON válido; se omitió el inventario MCP'
+  fi
 else
+  # Validate MCP schema compliance
+  schema_issues=$(jq -r '
+    (.mcp // {}) | to_entries[] |
+      select(.value | has("_managed")) |
+      "\"_managed\" presente en MCP \(.key) (viola schema de OpenCode)"
+  ' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+  if [[ -n "$schema_issues" ]]; then
+    while IFS= read -r issue; do
+      critical "$issue"
+    done <<< "$schema_issues"
+  fi
+  schema_issues=$(jq -r '
+    (.mcp // {}) | to_entries[] |
+      select(.value | has("disabledTools")) |
+      "\"disabledTools\" presente en MCP \(.key) (campo no válido)"
+  ' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+  if [[ -n "$schema_issues" ]]; then
+    while IFS= read -r issue; do
+      critical "$issue"
+    done <<< "$schema_issues"
+  fi
+  schema_issues=$(jq -r '
+    (.mcp // {}) | to_entries[] |
+      select(.value | has("oauth") and .value.oauth == true) |
+      "oauth: true no válido en MCP \(.key) (usar objeto {} o false)"
+  ' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+  if [[ -n "$schema_issues" ]]; then
+    while IFS= read -r issue; do
+      critical "$issue"
+    done <<< "$schema_issues"
+  fi
   print_mcp_status
 
   if has_hardcoded_sensitive_values; then
