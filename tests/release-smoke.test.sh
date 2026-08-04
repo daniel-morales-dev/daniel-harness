@@ -34,50 +34,54 @@ export NAVI_OAUTH_CLIENT_ID="dummy-client-id"
 if $USE_STUBS; then
   DRY="--dry-run"
   mkdir -p "$DANIEL_HARNESS_CONFIG_DIR/secrets/tunnels"
-  python3 -c "
-import yaml
-from pathlib import Path
-cfg = yaml.safe_load((Path('$ROOT_DIR/examples/config.example.yaml')).read_text())
-cfg['models'] = [m for m in cfg['models'] if m.get('trust') != 'restricted']
-Path('$DANIEL_HARNESS_CONFIG_DIR/config.yaml').write_text(yaml.dump(cfg))
-" 2>/dev/null || true
 else
   DRY=""
 fi
+
+bootstrap_ok() {
+  local label=$1 out=$2
+  local rc
+  bash "$ROOT_DIR/scripts/bootstrap.sh" $DRY > "$out" 2>&1 || rc=$?
+  if [[ ${rc:-0} -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$out" 2>/dev/null; then
+    pass "$label OK"
+    return 0
+  fi
+  if grep -Eq 'Bootstrap completado' "$out" 2>/dev/null; then
+    grep -E '(crítico|Bootstrap|Resumen)' "$out"
+  fi
+  fail "$label failed"
+  return 1
+}
 
 echo "=== Smoke Test: v0.1.0 Release ==="
 
 # Step 1: Install core profile
 echo "--- Step 1: install core ---"
 bash "$ROOT_DIR/scripts/install.sh" > "$TMP_DIR/s1.out" 2>&1 && pass "install core OK" || fail "install core failed"
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core $DRY > "$TMP_DIR/s1b.out" 2>&1
-if grep -q 'Bootstrap completado' "$TMP_DIR/s1b.out"; then
-  pass "bootstrap core OK"
-else
-  cat "$TMP_DIR/s1b.out"
-  fail "bootstrap core failed"
-fi
+bootstrap_ok "bootstrap core" "$TMP_DIR/s1b.out"
 
-# Step 2: Doctor --profile core (with --skip-oauth)
+# Step 2: Doctor --profile core (install-check mode)
 echo "--- Step 2: doctor core ---"
-bash "$ROOT_DIR/scripts/doctor.sh" --profile core --strict --skip-oauth > "$TMP_DIR/s2.out" 2>&1 || true
-if grep -q 'Resumen: 0 crítico(s)' "$TMP_DIR/s2.out"; then
-  pass "doctor core strict passed"
+if bash "$ROOT_DIR/scripts/doctor.sh" --profile core --strict --skip-oauth --install-check > "$TMP_DIR/s2.out" 2>&1; then
+  if grep -Eq 'Resumen: 0 crítico\(s\)' "$TMP_DIR/s2.out"; then
+    pass "doctor core strict passed"
+  else
+    grep -E '(crítico|Resumen)' "$TMP_DIR/s2.out"
+    fail "doctor core strict: críticos encontrados"
+  fi
 else
   grep -E '(crítico|Resumen)' "$TMP_DIR/s2.out"
-  # In stub mode, doctor may fail because real tools aren't installed
-  $USE_STUBS && pass "doctor core: stubs mode (skipped)" || fail "doctor core strict failed"
+  if $USE_STUBS; then
+    pass "doctor core: stubs mode (skipped)"
+  else
+    fail "doctor core strict failed"
+  fi
 fi
 
 # Step 3: Second core bootstrap (idempotence)
 echo "--- Step 3: core idempotence ---"
 OC_HASH_BEFORE=$(sha256sum "$HOME_DIR/.config/opencode/opencode.json" 2>/dev/null | cut -d' ' -f1 || echo "none")
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core $DRY > "$TMP_DIR/s3.out" 2>&1
-if grep -q 'Bootstrap completado' "$TMP_DIR/s3.out"; then
-  pass "second core OK"
-else
-  fail "second core failed"
-fi
+bootstrap_ok "second core" "$TMP_DIR/s3.out"
 if [[ "$OC_HASH_BEFORE" != "none" ]]; then
   OC_HASH_AFTER=$(sha256sum "$HOME_DIR/.config/opencode/opencode.json" 2>/dev/null | cut -d' ' -f1)
   [[ "$OC_HASH_BEFORE" == "$OC_HASH_AFTER" ]] && pass "core idempotent" || fail "core modified opencode.json"
@@ -85,18 +89,27 @@ fi
 
 # Step 4: Alegra profile
 echo "--- Step 4: alegra ---"
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra $DRY > "$TMP_DIR/s4.out" 2>&1
-grep -q 'Bootstrap completado' "$TMP_DIR/s4.out" && pass "bootstrap alegra OK" || fail "bootstrap alegra failed"
+bootstrap_ok "bootstrap alegra" "$TMP_DIR/s4.out"
 
 # Step 5: Migration profile (skip docker)
 echo "--- Step 5: migration ---"
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile migration --skip-docker $DRY > "$TMP_DIR/s5.out" 2>&1
-grep -q 'Bootstrap completado' "$TMP_DIR/s5.out" && pass "bootstrap migration OK" || fail "bootstrap migration failed"
+SKIP_DOCKER=""
+$DRY || SKIP_DOCKER="--skip-docker"
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile migration $SKIP_DOCKER $DRY > "$TMP_DIR/s5.out" 2>&1
+if [[ $? -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$TMP_DIR/s5.out"; then
+  pass "bootstrap migration OK"
+else
+  fail "bootstrap migration failed"
+fi
 
 # Step 6: Full profile
 echo "--- Step 6: full ---"
 bash "$ROOT_DIR/scripts/bootstrap.sh" --profile full $DRY > "$TMP_DIR/s6.out" 2>&1
-grep -q 'Bootstrap completado' "$TMP_DIR/s6.out" && pass "bootstrap full OK" || fail "bootstrap full failed"
+if [[ $? -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$TMP_DIR/s6.out"; then
+  pass "bootstrap full OK"
+else
+  fail "bootstrap full failed"
+fi
 
 # Step 7: Schema validation
 echo "--- Step 7: schema validation ---"
@@ -113,7 +126,11 @@ fi
 echo "--- Step 8: profile transitions ---"
 for transition in "core" "alegra" "core" "alegra"; do
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$transition" $DRY > "$TMP_DIR/s8_${transition}.out" 2>&1
-  grep -q 'Bootstrap completado' "$TMP_DIR/s8_${transition}.out" && pass "transition: $transition" || fail "transition: $transition"
+  if [[ $? -eq 0 ]] && grep -Eq 'Bootstrap completado y saludable' "$TMP_DIR/s8_${transition}.out"; then
+    pass "transition: $transition"
+  else
+    fail "transition: $transition"
+  fi
 done
 
 # Step 9: Content verification

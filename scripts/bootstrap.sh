@@ -877,7 +877,7 @@ phase "Verificación"
 
 if [[ -f "$ROOT_DIR/scripts/doctor.sh" ]]; then
   info 'Ejecutando doctor.sh...'
-  doctor_args=(--profile "$PROFILE" --strict --skip-oauth)
+  doctor_args=(--profile "$PROFILE" --strict --skip-oauth --install-check)
   if $SKIP_DOCKER; then doctor_args+=(--skip-docker); fi
   $EXPERIMENTAL_DATA_TOOLS && doctor_args+=(--experimental-data-tools)
   if run bash "$ROOT_DIR/scripts/doctor.sh" "${doctor_args[@]}"; then

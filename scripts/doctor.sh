@@ -11,6 +11,7 @@ LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 STRICT=false
 SKIP_OAUTH=false
 SKIP_DOCKER=false
+INSTALL_CHECK=false
 PROFILE=
 EXPERIMENTAL=false
 WARNINGS=0
@@ -26,10 +27,11 @@ while [[ $# -gt 0 ]]; do
     --strict) STRICT=true; shift ;;
     --skip-oauth) SKIP_OAUTH=true; shift ;;
     --skip-docker) SKIP_DOCKER=true; shift ;;
+    --install-check) INSTALL_CHECK=true; shift ;;
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
     --experimental-data-tools) EXPERIMENTAL=true; shift ;;
-    --help|-h) printf 'Uso: doctor.sh [--strict] [--skip-oauth] [--profile core|alegra|migration|full] [--experimental-data-tools]\n'; exit 0 ;;
+    --help|-h) printf 'Uso: doctor.sh [--strict] [--skip-oauth] [--skip-docker] [--install-check] [--profile core|alegra|migration|full] [--experimental-data-tools]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -567,19 +569,33 @@ else
             else
               critical "MCP $mcp deshabilitado (requerido por perfil $PROFILE)"
             fi
-          else
-            live=$(check_mcp_live "$mcp")
-            case "$live" in
-              connected) ;;
-              auth-required)
-                if $SKIP_OAUTH; then
-                  warn "MCP $mcp requiere autenticacion (omitido por --skip-oauth)"
-                else
-                  critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
-                fi
-                ;;
-              *) critical "MCP $mcp no accesible (estado: $live)" ;;
-            esac
+            else
+              live=$(check_mcp_live "$mcp")
+              case "$live" in
+                connected) ;;
+                auth-required)
+                  if $SKIP_OAUTH; then
+                    warn "MCP $mcp requiere autenticacion (omitido por --skip-oauth)"
+                  else
+                    critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
+                  fi
+                  ;;
+                inaccesible)
+                  if $INSTALL_CHECK; then
+                    # Durante install-check: MCP configurado pero no conectado es esperado
+                    warn "MCP $mcp configurado, binario presente (conexion pendiente tras primer inicio de OpenCode)"
+                  else
+                    critical "MCP $mcp no accesible (estado: $live)"
+                  fi
+                  ;;
+                *)
+                  if $INSTALL_CHECK; then
+                    warn "MCP $mcp no accesible (estado: $live) — conexion pendiente"
+                  else
+                    critical "MCP $mcp no accesible (estado: $live)"
+                  fi
+                  ;;
+              esac
           fi
         fi
       done

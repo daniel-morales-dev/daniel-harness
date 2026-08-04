@@ -33,12 +33,6 @@ models:
       - repository-write
       - approved-shell
       - closed-data-tools
-  - id: restricted-free-placeholder
-    trust: restricted
-    allowArbitraryShell: false
-    allowedCapabilities:
-      - repository-read-sanitized
-      - closed-data-tools
 
 mcpRouting:
   - capability: code-structure
