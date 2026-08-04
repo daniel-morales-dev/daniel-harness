@@ -15,14 +15,16 @@ profiles:
     plugins: ["ponytail"]
   migration:
     description: Migración monolito → microservicios
-    mcps: ["codegraph", "engram", "linear", "context7", "wiki-alegra", "mcp-raia-lib"]
-    tools: ["opencode", "gentle-ai", "engram", "codegraph", "rtk", "dh", "gh", "aws", "docker"]
+    extends: alegra
+    mcps: ["mcp-raia-lib"]
+    tools: ["docker"]
     optional_packages: ["mariadb-client", "unzip"]
     plugins: ["ponytail"]
   full:
     description: Todos los MCPs y herramientas
-    mcps: ["codegraph", "engram", "linear", "context7", "wiki-alegra", "mcp-raia-lib", "github", "sentry"]
-    tools: ["opencode", "gentle-ai", "engram", "codegraph", "rtk", "dh", "gh", "aws", "docker"]
+    extends: alegra
+    mcps: ["mcp-raia-lib", "sentry"]
+    tools: ["docker"]
     optional_packages: ["mariadb-client", "unzip"]
     plugins: ["ponytail"]
 
