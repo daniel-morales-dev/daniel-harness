@@ -202,7 +202,7 @@ if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   ok "NVM ya instalado ($(source "$NVM_DIR/nvm.sh" && nvm --version 2>/dev/null))"
 else
   info 'Instalando NVM...'
-  run bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash'
+  run bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh -o /tmp/nvm-install.sh && bash /tmp/nvm-install.sh; rm -f /tmp/nvm-install.sh'
 fi
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
