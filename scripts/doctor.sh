@@ -258,12 +258,20 @@ print_mcp_status() {
 
     if [[ $enabled == false ]]; then
       status=deshabilitado
-    elif [[ $kind == local && -n $executable ]]; then
-      if command -v "$executable" >/dev/null 2>&1; then
+    elif [[ $kind == local ]]; then
+      if [[ -z "$executable" ]]; then
+        status=comando-no-encontrado
+        if $INSTALL_CHECK; then
+          critical "MCP local $name sin command definido"
+        fi
+      elif command -v "$executable" >/dev/null 2>&1; then
         live=$(check_mcp_live "$name")
         status=$live
       else
         status=comando-no-encontrado
+        if $INSTALL_CHECK; then
+          critical "MCP $name: comando '$executable' no encontrado en PATH"
+        fi
       fi
     elif [[ $kind == remote ]]; then
       live=$(check_mcp_live "$name")
@@ -573,6 +581,20 @@ else
               critical "MCP $mcp deshabilitado (requerido por perfil $PROFILE)"
             fi
             else
+              if $INSTALL_CHECK; then
+                mcp_type=$(jq -r --arg n "$mcp" '(.mcp[$n].type // "")' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+                cmd0=$(jq -r --arg n "$mcp" '(.mcp[$n].command // [])[0] // ""' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+                if [[ "$mcp_type" == "local" ]]; then
+                  if [[ -z "$cmd0" ]]; then
+                    critical "MCP local $mcp sin command definido"
+                    continue
+                  fi
+                  if ! command -v "$cmd0" >/dev/null 2>&1; then
+                    critical "MCP $mcp: comando '$cmd0' no encontrado en PATH"
+                    continue
+                  fi
+                fi
+              fi
               live=$(check_mcp_live "$mcp")
               case "$live" in
                 connected) ;;

@@ -274,38 +274,7 @@ install_tool_if_in_profile() {
   fi
 }
 
-_ensure_tool_visible() {
-  if [[ $DRY_RUN == true ]]; then
-    return 0
-  fi
-  local name=$1; shift
-
-  if command -v "$name" >/dev/null 2>&1; then
-    local current_path
-    current_path=$(command -v "$name")
-    [[ "$current_path" == "$LOCAL_BIN/$name" ]] && return 0
-    if [[ ! -e "$LOCAL_BIN/$name" ]]; then
-      ln -s "$current_path" "$LOCAL_BIN/$name" 2>/dev/null || true
-    fi
-    command -v "$name" >/dev/null 2>&1 && return 0
-  fi
-
-  local candidate
-  for candidate in "$@"; do
-    [[ -x "$candidate" ]] || continue
-    if [[ -e "$LOCAL_BIN/$name" ]]; then
-      command -v "$name" >/dev/null 2>&1 && return 0
-      continue
-    fi
-    ln -s "$candidate" "$LOCAL_BIN/$name" 2>/dev/null || continue
-    if command -v "$name" >/dev/null 2>&1; then
-      return 0
-    fi
-    rm -f "$LOCAL_BIN/$name"
-  done
-  critical "$name no encontrado en PATH tras la instalacion"
-  return 1
-}
+source "$ROOT_DIR/scripts/lib/tool-path.sh"
 
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
 _ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1

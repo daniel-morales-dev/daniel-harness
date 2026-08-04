@@ -39,10 +39,10 @@ jobs:
           bun run test:tools
 
       - name: ShellCheck scripts
-        run: shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2317 bin/dh scripts/*.sh
+        run: shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2148,SC2317 bin/dh scripts/*.sh scripts/lib/*.sh
 
       - name: Bash syntax check
-        run: bash -n bin/dh scripts/*.sh
+        run: bash -n bin/dh scripts/*.sh scripts/lib/*.sh
 
       - name: Internal schemas
         run: python3 tests/test_config_schema.py && python3 tests/test_connections_schema.py && python3 tests/test_examples_schema.py
@@ -85,6 +85,9 @@ jobs:
 
       - name: Doctor test
         run: bash tests/doctor.test.sh
+
+      - name: Doctor install-check MCP command
+        run: bash tests/doctor-install-check.test.sh
 
       - name: Bootstrap test
         run: bash tests/bootstrap.test.sh

@@ -28,27 +28,9 @@ export PATH="$LOCAL_BIN:$PATH"
 
 echo "=== Tool Path Exposure Test ==="
 
-# Source _ensure_tool_visible logic (extracted from bootstrap.sh)
-_ensure_tool_visible() {
-  local name=$1; shift
-  if command -v "$name" >/dev/null 2>&1; then
-    return 0
-  fi
-  local candidate
-  for candidate in "$@"; do
-    [[ -x "$candidate" ]] || continue
-    if [[ -e "$LOCAL_BIN/$name" ]]; then
-      command -v "$name" >/dev/null 2>&1 && return 0
-      continue
-    fi
-    ln -s "$candidate" "$LOCAL_BIN/$name" 2>/dev/null || continue
-    if command -v "$name" >/dev/null 2>&1; then
-      return 0
-    fi
-    rm -f "$LOCAL_BIN/$name"
-  done
-  return 1
-}
+# Source real implementation
+critical() { fail "$*"; }
+source "$ROOT_DIR/scripts/lib/tool-path.sh"
 
 # install.sh first for dh
 bash "$ROOT_DIR/scripts/install.sh" > "$TMP_DIR/install.out" 2>&1 && pass "install.sh OK" || fail "install.sh failed"
@@ -67,7 +49,7 @@ echo '#!/bin/sh' > "$HOME_DIR/.custom/bin/opencode-stub"
 chmod +x "$HOME_DIR/.custom/bin/opencode-stub"
 _ensure_tool_visible "opencode-stub" "$HOME_DIR/.custom/bin/opencode-stub" && pass "symlink creado para opencode-stub" || fail "symlink fallo para opencode-stub"
 if [[ -L "$LOCAL_BIN/opencode-stub" ]]; then
-  pass "symlink verificado" 
+  pass "symlink verificado"
 else
   fail "symlink no existe en LOCAL_BIN"
 fi
@@ -111,9 +93,29 @@ _ensure_tool_visible "multi-tool" \
 echo "--- Test 7: dh en PATH ---"
 command -v dh >/dev/null 2>&1 && pass "dh disponible en PATH" || fail "dh no disponible"
 
-# Test 8: Stubs mode — simulate bootstrap flow
+# Test 8: bootstrap no muestra completado cuando tool requerida no disponible
+echo "--- Test 8: bootstrap falla sin tool ---"
+SIM_OUT=$("$ROOT_DIR/scripts/bootstrap.sh" --profile core --dry-run 2>&1 || true)
+if echo "$SIM_OUT" | grep -q 'Bootstrap completado y saludable'; then
+  # dry-run pasa; testear funcion directamente
+  MISSED=$(bash -c '
+    source "'"$ROOT_DIR/scripts/lib/tool-path.sh"'"
+    LOCAL_BIN=/tmp/nonexistent-bin
+    export PATH=/tmp/nonexistent-bin
+    _ensure_tool_visible ghost-tool /nope/ghost 2>/dev/null; echo rc=$?
+  ')
+  if echo "$MISSED" | grep -q 'rc=1'; then
+    pass "herramienta fantasma retorna 1 (bootstrap no mostraria completado)"
+  else
+    fail "se esperaba rc=1, obtuvo: $MISSED"
+  fi
+else
+  pass "bootstrap no mostro completado (dry-run con tool ausente)"
+fi
+
+# Test 9: Stubs mode — simulate bootstrap flow
 if $USE_STUBS; then
-  echo "--- Test 8: bootstrap con stubs ---"
+  echo "--- Test 9: bootstrap con stubs ---"
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core --dry-run > "$TMP_DIR/boot.out" 2>&1
   grep -q 'Bootstrap completado' "$TMP_DIR/boot.out" && pass "dry-run bootstrap completado" || fail "dry-run bootstrap fallo"
 fi

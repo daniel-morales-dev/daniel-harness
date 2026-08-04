@@ -32,12 +32,15 @@ jobs:
           except Exception as e:
               print(f'::warning title=schema-unreachable::Official schema not reachable: {e}')
               exit(0)
+          failed = False
           if local == official:
               print(f'[ok] Local schema matches official')
           else:
               msg = 'Local schema differs from official'
               print(f'::error title=schema-drift::{msg}')
               failed = True
+          if failed:
+              exit(1)
           PYEOF
 
       - name: Package versions
@@ -54,7 +57,7 @@ jobs:
           if '@colbymchenry/codegraph@1.1.0' in cg:
               print('[ok] CodeGraph pinned: @colbymchenry/codegraph@1.1.0')
           else:
-              print(f'::error title=codegraph-pin::CodeGraph not pinned to 1.2.0')
+              print(f'::error title=codegraph-pin::CodeGraph not pinned to 1.1.0')
               failed = True
 
           # AWS CLI version + artifact + checksum

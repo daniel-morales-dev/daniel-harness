@@ -325,6 +325,8 @@ def test_bash_syntax():
         ROOT_DIR / "scripts" / "doctor.sh",
         ROOT_DIR / "scripts" / "detect-context.sh",
         ROOT_DIR / "scripts" / "lib" / "managed-links.sh",
+        ROOT_DIR / "scripts" / "lib" / "mcp-health.sh",
+        ROOT_DIR / "scripts" / "lib" / "tool-path.sh",
         ROOT_DIR / "install",
     ]
     failures = []
@@ -423,6 +425,9 @@ def test_shellcheck():
         ROOT_DIR / "scripts" / "uninstall.sh",
         ROOT_DIR / "scripts" / "doctor.sh",
         ROOT_DIR / "scripts" / "detect-context.sh",
+        ROOT_DIR / "scripts" / "lib" / "managed-links.sh",
+        ROOT_DIR / "scripts" / "lib" / "mcp-health.sh",
+        ROOT_DIR / "scripts" / "lib" / "tool-path.sh",
         ROOT_DIR / "install",
     ]
     for script in scripts:
@@ -430,7 +435,7 @@ def test_shellcheck():
             print(f"  [-] {script.name} no existe, saltando")
             continue
         result = subprocess.run(
-            ["shellcheck", "-e", "SC1091,SC2015,SC2016,SC2154,SC2317", str(script)],
+            ["shellcheck", "-e", "SC1091,SC2015,SC2016,SC2154,SC2148,SC2317", str(script)],
             capture_output=True, text=True
         )
         assert result.returncode == 0, (
