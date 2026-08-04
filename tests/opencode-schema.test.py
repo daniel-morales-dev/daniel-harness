@@ -58,7 +58,7 @@ def run_bootstrap(home_dir, stubs, profile="core"):
     (home_dir / ".nvm" / "versions" / "node" / "v24.0.0" / "bin" / "node").write_text("#!/bin/bash\necho v24.0.0\n")
     (home_dir / ".nvm" / "versions" / "node" / "v24.0.0" / "bin" / "node").chmod(0o755)
     (home_dir / ".config" / "daniel-harness" / "secrets" / "tunnels").mkdir(parents=True)
-    (home_dir / ".config" / "daniel-harness" / "config.yaml").write_text('version: "1"\n')
+    (home_dir / ".config" / "daniel-harness" / "config.yaml").write_text('version: "1"\nmodels:\n  - id: default\n    trust: trusted\n    allowArbitraryShell: false\n    allowedCapabilities: []\n')
 
     result = subprocess.run(
         ["bash", str(BOOTSTRAP), "--profile", profile],

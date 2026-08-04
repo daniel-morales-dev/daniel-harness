@@ -27,7 +27,7 @@ setup_home() {
   echo '#!/bin/bash; echo v24.0.0' > "$home/.nvm/versions/node/v24.0.0/bin/node"
   chmod +x "$home/.nvm/versions/node/v24.0.0/bin/node"
   echo 'nvm() { :; }' > "$home/.nvm/nvm.sh"
-  echo 'version: "1"' > "$home/.config/daniel-harness/config.yaml"
+  printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' '    allowArbitraryShell: false' '    allowedCapabilities: []' > "$home/.config/daniel-harness/config.yaml"
 }
 
 # --- Setup: stubs ---

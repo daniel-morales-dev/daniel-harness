@@ -106,6 +106,24 @@ printf '\n=== parse_mcp_field ===\n'
 field=$(MANIFEST="$TMP_DIR/manifest-full.yaml" bash -c 'source "'"$ROOT_DIR"'/scripts/profile-resolver.sh"; parse_mcp_field codegraph type' 2>/dev/null || true)
 [[ "$field" == "local" ]] && pass "parse_mcp_field codegraph type=local" || fail "parse_mcp_field: $field"
 
+# --- Test: Cycle detection ---
+printf '\n=== Cycle detection ===\n'
+result=$(MANIFEST="$MANIFEST" bash -c 'source "'"$ROOT_DIR"'/scripts/profile-resolver.sh"; get_profile_tools self-ref' 2>&1 || true)
+echo "$result" | grep -qE '(error|ciclo)' && fail "self-ref should be handled gracefully" || pass "self-ref handled by equality guard"
+
+result=$(MANIFEST="$MANIFEST" bash -c 'source "'"$ROOT_DIR"'/scripts/profile-resolver.sh"; get_profile_tools cycle-a' 2>&1 || true)
+echo "$result" | grep -qE '(error|ciclo)' && pass "cycle-a→cycle-b→cycle-a detected" || fail "cycle-a not detected ($result)"
+
+# --- Test: Unknown parent ---
+printf '\n=== Unknown parent ===\n'
+result=$(MANIFEST="$MANIFEST" bash -c 'source "'"$ROOT_DIR"'/scripts/profile-resolver.sh"; get_profile_tools unknown-parent' 2>&1 || true)
+echo "$result" | grep -qE '(error|no existe)' && pass "unknown parent detected" || fail "unknown parent not detected ($result)"
+
+# --- Test: Unknown profile ---
+printf '\n=== Unknown profile ===\n'
+result=$(MANIFEST="$MANIFEST" bash -c 'source "'"$ROOT_DIR"'/scripts/profile-resolver.sh"; get_profile_tools does-not-exist-either' 2>&1 || true)
+echo "$result" | grep -qE '(error|no existe)' && pass "unknown profile detected" || fail "unknown profile not detected ($result)"
+
 # --- Summary ---
 printf '\n========================================\n'
 printf '  Profile resolver: %d pasaron, %d fallaron\n' "$PASS" "$FAIL"

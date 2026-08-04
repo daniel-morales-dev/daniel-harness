@@ -74,12 +74,12 @@ if ! command -v sudo >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ $DRY_RUN == false ]]; then
-  if ! sudo -n true 2>/dev/null; then
+_ensure_sudo() {
+  if [[ $DRY_RUN == false ]] && ! sudo -n true 2>/dev/null; then
     printf 'Se necesita acceso sudo.\n'
     sudo -v || exit 1
   fi
-fi
+}
 
 # Parseadores del manifest (sin dependencia de yq)
 # provistos por profile-resolver.sh:
@@ -113,6 +113,7 @@ for pkg in "${optional_packages[@]}"; do
 done
 
 if (( ${#missing[@]} > 0 )); then
+  _ensure_sudo
   info "Instalando: ${missing[*]}"
   sudo_run apt-get update -qq
   sudo_run apt-get install -y --no-install-recommends "${missing[@]}"

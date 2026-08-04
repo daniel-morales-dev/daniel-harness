@@ -59,7 +59,7 @@ printf '\n=== Doctor --skip-oauth tests ===\n'
 STUBS="$TMP_DIR/stubs"
 HOME_DIR="$TMP_DIR/home"
 mkdir -p "$STUBS" "$HOME_DIR/.config/daniel-harness/state" "$HOME_DIR/.config/daniel-harness/secrets/tunnels" "$HOME_DIR/.config/opencode"
-echo 'version: "1"' > "$HOME_DIR/.config/daniel-harness/config.yaml"
+printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' '    allowArbitraryShell: false' '    allowedCapabilities: []' > "$HOME_DIR/.config/daniel-harness/config.yaml"
 
 # Stubs that actually work (heredoc to avoid noexec issues)
 cat > "$STUBS/sudo" <<'STUB'

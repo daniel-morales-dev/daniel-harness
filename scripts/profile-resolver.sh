@@ -37,11 +37,34 @@ _get_profile_extend() {
   ' "$MANIFEST"
 }
 
+# Check if a profile exists in the manifest
+_profile_exists() {
+  local p=$1
+  awk -v p="$p" '
+    $0 ~ "^profiles:" { in_profiles=1; next }
+    in_profiles && $0 ~ "^  " p ":" { found=1; exit }
+    END { exit found ? 0 : 1 }
+  ' "$MANIFEST"
+}
+
 # Merge field across inheritance chain (unique values, parent preserved)
 _resolve_profile_field() {
   local p=$1 field=$2
-  local result="" seen=""
+  local result="" seen="" chain=""
+
+  if ! _profile_exists "$p"; then
+    echo "error: perfil '$p' no existe en el manifest" >&2
+    return 1
+  fi
+
   while [[ -n "$p" ]]; do
+    # cycle detection
+    if echo " $chain " | grep -q " $p "; then
+      echo "error: ciclo de herencia detectado en perfil '$p'" >&2
+      return 1
+    fi
+    chain="$chain $p"
+
     local items
     items=$(_get_profile_field "$p" "$field")
     if [[ -n "$items" ]]; then
@@ -55,6 +78,11 @@ _resolve_profile_field() {
     fi
     local last_p=$p
     p=$(_get_profile_extend "$p")
+    # unknown parent check
+    if [[ -n "$p" && "$p" != "$last_p" ]] && ! _profile_exists "$p"; then
+      echo "error: parent '$p' del perfil '$last_p' no existe en el manifest" >&2
+      return 1
+    fi
     [[ "$p" == "$last_p" ]] && break
   done
   echo "$result" | grep -v '^$' || true
@@ -74,13 +102,29 @@ _profile_field_contains() {
 
 profile_includes() {
   local p=$1 field=$2 item=$3
-  local last_p
+  local last_p chain=""
+
+  if ! _profile_exists "$p"; then
+    echo "error: perfil '$p' no existe en el manifest" >&2
+    return 1
+  fi
+
   while [[ -n "$p" ]]; do
+    if echo " $chain " | grep -q " $p "; then
+      echo "error: ciclo de herencia detectado en perfil '$p'" >&2
+      return 1
+    fi
+    chain="$chain $p"
+
     if _profile_field_contains "$p" "$field" "$item"; then
       return 0
     fi
     last_p=$p
     p=$(_get_profile_extend "$p")
+    if [[ -n "$p" && "$p" != "$last_p" ]] && ! _profile_exists "$p"; then
+      echo "error: parent '$p' del perfil '$last_p' no existe en el manifest" >&2
+      return 1
+    fi
     [[ "$p" == "$last_p" ]] && break
   done
   return 1

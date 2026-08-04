@@ -58,7 +58,14 @@ cat > "$HOME_DIR/.nvm/nvm.sh" <<'NVM'
 nvm() { case "$1" in --version) echo "0.40.4" ;; install) ;; alias) ;; *) ;; esac; }
 NVM
 
-echo 'version: "1"' > "$HOME_DIR/.config/daniel-harness/config.yaml"
+printf '%s' 'version: "1"
+defaultScope: single-repo
+models:
+  - id: default
+    trust: trusted
+    allowArbitraryShell: false
+    allowedCapabilities: []
+' > "$HOME_DIR/.config/daniel-harness/config.yaml"
 
 export PATH="$STUBS:$PATH"
 
@@ -143,7 +150,7 @@ mkdir -p "$CUSTOM_HOME/.nvm/versions/node/v24.0.0/bin" "$CUSTOM_HOME/.config/dan
 echo '#!/bin/bash; echo v24.0.0' > "$CUSTOM_HOME/.nvm/versions/node/v24.0.0/bin/node"
 chmod +x "$CUSTOM_HOME/.nvm/versions/node/v24.0.0/bin/node"
 echo 'nvm() { :; }' > "$CUSTOM_HOME/.nvm/nvm.sh"
-echo 'version: "1"' > "$CUSTOM_HOME/.config/daniel-harness/config.yaml"
+printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' '    allowArbitraryShell: false' '    allowedCapabilities: []' > "$CUSTOM_HOME/.config/daniel-harness/config.yaml"
 
 # Create opencode.json with a custom github MCP (different URL than manifest)
 jq -n '{
@@ -176,7 +183,7 @@ mkdir -p "$DRIFT_HOME/.nvm/versions/node/v24.0.0/bin" "$DRIFT_HOME/.config/danie
 echo '#!/bin/bash; echo v24.0.0' > "$DRIFT_HOME/.nvm/versions/node/v24.0.0/bin/node"
 chmod +x "$DRIFT_HOME/.nvm/versions/node/v24.0.0/bin/node"
 echo 'nvm() { :; }' > "$DRIFT_HOME/.nvm/nvm.sh"
-echo 'version: "1"' > "$DRIFT_HOME/.config/daniel-harness/config.yaml"
+printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' '    allowArbitraryShell: false' '    allowedCapabilities: []' > "$DRIFT_HOME/.config/daniel-harness/config.yaml"
 
 # Bootstrap core → alegra (establish state with hashes)
 env PATH="$STUBS:$PATH" HOME="$DRIFT_HOME" XDG_CONFIG_HOME="$DRIFT_HOME/.config" NVM_DIR="$DRIFT_HOME/.nvm" \
@@ -205,7 +212,7 @@ mkdir -p "$STATE_FAIL_HOME/.nvm/versions/node/v24.0.0/bin" "$STATE_FAIL_HOME/.co
 echo '#!/bin/bash; echo v24.0.0' > "$STATE_FAIL_HOME/.nvm/versions/node/v24.0.0/bin/node"
 chmod +x "$STATE_FAIL_HOME/.nvm/versions/node/v24.0.0/bin/node"
 echo 'nvm() { :; }' > "$STATE_FAIL_HOME/.nvm/nvm.sh"
-echo 'version: "1"' > "$STATE_FAIL_HOME/.config/daniel-harness/config.yaml"
+printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' '    allowArbitraryShell: false' '    allowedCapabilities: []' > "$STATE_FAIL_HOME/.config/daniel-harness/config.yaml"
 
 # Make state dir unwritable
 mkdir -p "$STATE_FAIL_HOME/.config/daniel-harness/state"

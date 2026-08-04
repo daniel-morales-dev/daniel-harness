@@ -326,7 +326,11 @@ config_path = os.environ.get('_DH_CONFIG', '')
 if os.path.exists(config_path):
     with open(config_path) as f:
         cfg = yaml.safe_load(f) or {}
-    result['modelTrust'] = cfg.get('trust', 'unknown')
+    models = cfg.get('models', [])
+    if models and isinstance(models, list):
+        result['modelTrust'] = models[0].get('trust', 'unknown')
+    else:
+        result['modelTrust'] = 'unknown'
 
 oc_file = os.environ.get('_DH_OC_FILE', '')
 if os.path.exists(oc_file):

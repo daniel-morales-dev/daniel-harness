@@ -1,0 +1,31 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install pyyaml jsonschema
+      - name: E2E bootstrap
+        run: bash tests/e2e-bootstrap.test.sh
+      - name: MCP reconciliation
+        run: bash tests/mcp-reconciliation.test.sh
+      - name: OpenCode schema
+        run: python3 tests/opencode-schema.test.py
+      - name: Installer first-run
+        run: bash tests/installer-first-run.test.sh
+      - name: Doctor MCP status
+        run: bash tests/doctor-mcp-status.test.sh
+      - name: Plugin reconciliation
+        run: bash tests/plugin-reconciliation.test.sh
+      - name: Preflight output
+        run: python3 tests/preflight.test.py

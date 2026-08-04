@@ -128,15 +128,34 @@ done
 
 cat > "$CONFIG_TMP/daniel-harness/config.yaml" <<'EOF'
 version: "1"
-trust: trusted
+defaultScope: single-repo
+workflowAuthority: {}
+tooling: {}
+workTracking: {}
+mcpRouting: []
+confirmations: {}
+models:
+  - id: default
+    trust: trusted
+    allowArbitraryShell: false
+    allowedCapabilities: []
 EOF
 
-# Pre-create config.yaml per HOME with trusted model (avoid restricted from example)
 for h in "$HOME_CORE" "$HOME_ALEGRA" "$HOME_MIGRATION" "$HOME_FULL"; do
   mkdir -p "$h/.config/daniel-harness/secrets/tunnels"
   cat > "$h/.config/daniel-harness/config.yaml" <<'EOF'
 version: "1"
-trust: trusted
+defaultScope: single-repo
+workflowAuthority: {}
+tooling: {}
+workTracking: {}
+mcpRouting: []
+confirmations: {}
+models:
+  - id: default
+    trust: trusted
+    allowArbitraryShell: false
+    allowedCapabilities: []
 EOF
 done
 
@@ -240,7 +259,19 @@ grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-idempotent.out" &
 printf '\n=== Phase 5c: Core → alegra transition ===\n'
 TRANSITION_HOME="$TMP_DIR/home-transition"
 mkdir -p "$TRANSITION_HOME/.config/daniel-harness/secrets/tunnels" "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin"
-echo 'version: "1"' > "$TRANSITION_HOME/.config/daniel-harness/config.yaml"
+printf '%s' 'version: "1"
+defaultScope: single-repo
+workflowAuthority: {}
+tooling: {}
+workTracking: {}
+mcpRouting: []
+confirmations: {}
+models:
+  - id: default
+    trust: trusted
+    allowArbitraryShell: false
+    allowedCapabilities: []
+' > "$TRANSITION_HOME/.config/daniel-harness/config.yaml"
 echo 'nvm() { :; }' > "$TRANSITION_HOME/.nvm/nvm.sh"
 echo '#!/bin/bash; echo v24.0.0' > "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
 chmod +x "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
