@@ -65,7 +65,7 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 |---|---|
 | `dh doctor` | Diagnóstico completo del harness |
 | `dh install` | Configuración local + symlinks |
-| `dh bootstrap [--profile core|alegra|migration|full] [--skip-docker]` | Instalación desde cero según perfil |
+| `dh bootstrap [--profile core/alegra/migration/full] [--skip-docker]` | Instalación desde cero según perfil |
 | `dh mcp-status` | Conexión y OAuth de servidores MCP |
 | `dh tunnel list` | Lista túneles configurados |
 | `dh update` | Actualiza el harness desde Git |
