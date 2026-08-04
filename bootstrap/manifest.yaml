@@ -69,7 +69,8 @@ user_tools:
   codegraph:
     type: binary
     check: command -v codegraph
-    install: npm install -g @codegraph/cli
+    # ponytail: pinned to matching cli version, bump when tooling updates
+    install: npm install -g @codegraph/cli@1.2.0
     depends: node
   rtk:
     type: binary
@@ -123,6 +124,7 @@ mcp_servers:
     url: https://wiki.alegra.com/mcp
     oauth_required: true
   mcp-raia-lib:
+    # ponytail: pin tag when a stable version is identified; :latest depends on push cadence
     command: ["docker", "run", "--rm", "-i", "ghcr.io/alegradev/mcp-raia-lib:latest"]
     type: local
 

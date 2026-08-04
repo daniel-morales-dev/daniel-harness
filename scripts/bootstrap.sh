@@ -194,8 +194,12 @@ if profile_includes "$PROFILE" "tools" "aws"; then
     ok "AWS CLI ya instalado"
   else
     info 'Instalando AWS CLI...'
-    # ponytail: inline curl-pipe, add checksum verification if installation becomes frequent
-    run bash -c 'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip'
+    # ponytail: checksum for known-good version, update when AWS releases new v2
+    run bash -c '
+      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip &&
+      echo "02a8eb2fe985be8ebcc284aaa5bae206ee8668872d6369e66a5c7d49d8671a08  /tmp/awscliv2.zip" | sha256sum -c - &&
+      unzip -q /tmp/awscliv2.zip -d /tmp/ && sudo /tmp/aws/install && rm -rf /tmp/aws /tmp/awscliv2.zip
+    '
   fi
 else
   skip "AWS CLI (no incluido en perfil $PROFILE)"
