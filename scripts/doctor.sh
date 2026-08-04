@@ -14,6 +14,7 @@ PROFILE=
 WARNINGS=0
 CRITICAL=0
 
+# shellcheck disable=SC2034 # usado por profile-resolver.sh via source
 MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
 source "$ROOT_DIR/scripts/profile-resolver.sh"
 

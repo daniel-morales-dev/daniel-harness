@@ -218,7 +218,8 @@ ensure_opencode_config() {
       ok "opencode.json existe y es JSON válido"
       return 0
     else
-      local backup="${OC_FILE}.bak.$(date +%s)"
+      local backup
+      backup="${OC_FILE}.bak.$(date +%s)"
       cp "$OC_FILE" "$backup" 2>/dev/null || true
       chmod 600 "$backup" 2>/dev/null || true
       critical "opencode.json existe pero no es JSON válido"
@@ -280,7 +281,7 @@ phase "Plugins de OpenCode"
 if profile_includes "$PROFILE" "plugins" "ponytail"; then
   PLUGIN_PACKAGE=$(parse_nested_value "plugins" "ponytail" "package")
   PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
-  PLUGIN_BASE=$(echo "$PLUGIN_PACKAGE" | sed 's/@[^@]*$//')
+  PLUGIN_BASE="${PLUGIN_PACKAGE%@*}"
   if echo "$PLUGIN_LIST" | grep -qxF "$PLUGIN_PACKAGE"; then
     ok "Ponytail ya registrado ($PLUGIN_PACKAGE)"
   elif echo "$PLUGIN_LIST" | grep -q "^${PLUGIN_BASE}"; then
@@ -505,9 +506,9 @@ phase "Verificación"
 
 if [[ -f "$ROOT_DIR/scripts/doctor.sh" ]]; then
   info 'Ejecutando doctor.sh...'
-  doctor_args="--profile $PROFILE --strict --skip-oauth"
-  if $SKIP_DOCKER; then doctor_args="$doctor_args --skip-docker"; fi
-  if run bash "$ROOT_DIR/scripts/doctor.sh" $doctor_args; then
+  doctor_args=(--profile "$PROFILE" --strict --skip-oauth)
+  if $SKIP_DOCKER; then doctor_args+=(--skip-docker); fi
+  if run bash "$ROOT_DIR/scripts/doctor.sh" "${doctor_args[@]}"; then
     ok 'Bootstrap completado y saludable'
   else
     printf '\n========================================\n'
