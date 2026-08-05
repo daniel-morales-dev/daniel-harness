@@ -134,6 +134,9 @@ jobs:
       - name: Fail-closed validation
         run: bash tests/fail-closed.test.sh
 
+      - name: Managed state and transaction
+        run: bash tests/managed-state.test.sh
+
       - name: First-run transactional
         run: bash tests/first-run-transaction.test.sh
 
