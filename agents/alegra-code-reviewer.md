@@ -1,5 +1,5 @@
 ---
-name: code-reviewer
+name: alegra-code-reviewer
 description: >
   Senior Software Engineer performing strict, thorough code reviews. Use for PR reviews
   (including via GitHub MCP), commit analysis, pre-commit checks, and file reviews.

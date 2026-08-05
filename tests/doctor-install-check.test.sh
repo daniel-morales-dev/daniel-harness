@@ -96,7 +96,7 @@ printf '%s\n' 'version: "1"' 'tunnels: []' >"$HOME_DIR/.config/daniel-harness/co
 chmod 600 "$HOME_DIR/.config/daniel-harness/connections.yaml"
 
 # Agents and skills (required by --profile core --strict)
-for a in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
+for a in alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
   touch "$HOME_DIR/.config/opencode/agents/$a.md"
 done
 for s in monolith-to-micro-migration task-lifecycle; do

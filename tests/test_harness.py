@@ -184,7 +184,7 @@ def test_agents_no_write_permission():
 
 def test_code_reviewer_readonly():
     """Verify code-reviewer has restricted permissions with wildcard deny."""
-    content = (ROOT_DIR / "agents" / "code-reviewer.md").read_text()
+    content = (ROOT_DIR / "agents" / "alegra-code-reviewer.md").read_text()
     assert "edit: deny" in content
     assert '"*": deny' in content
     assert "git diff" in content
@@ -494,7 +494,7 @@ if __name__ == "__main__":
     print("[ok] agents sin write permission")
 
     test_code_reviewer_readonly()
-    print("[ok] code-reviewer readonly con wildcard deny")
+    print("[ok] alegra-code-reviewer readonly con wildcard deny")
 
     test_writers_bash_is_ask()
     print("[ok] alegra-microservice-engineer y alegra-microservice-test-engineer con bash: ask")

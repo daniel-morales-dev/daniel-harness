@@ -16,7 +16,7 @@ FOREIGN_TARGET="$TMP_DIR/foreign-command.md"
 HOME="$TMP_DIR/home" XDG_CONFIG_HOME="$CONFIG_ROOT" "$ROOT_DIR/scripts/install.sh" >"$FIRST_OUTPUT"
 
 [[ -f "$OPENCODE_CONFIG/agents/alegra-microservice-engineer.md" ]]
-[[ -f "$OPENCODE_CONFIG/agents/code-reviewer.md" ]]
+[[ -f "$OPENCODE_CONFIG/agents/alegra-code-reviewer.md" ]]
 [[ -f "$OPENCODE_CONFIG/agents/alegra-microservice-test-engineer.md" ]]
 [[ -f "$OPENCODE_CONFIG/agents/php-engineer.md" ]]
 [[ -f "$OPENCODE_CONFIG/agents/migration-parity-reviewer.md" ]]

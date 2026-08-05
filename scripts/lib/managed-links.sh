@@ -9,10 +9,10 @@
 list_managed_links() {
   cat <<'LINKS'
 agents/alegra-microservice-engineer.md|OPENCODE_CONFIG_DIR|agents/alegra-microservice-engineer.md
-agents/code-reviewer.md|OPENCODE_CONFIG_DIR|agents/code-reviewer.md
 agents/alegra-microservice-test-engineer.md|OPENCODE_CONFIG_DIR|agents/alegra-microservice-test-engineer.md
 agents/php-engineer.md|OPENCODE_CONFIG_DIR|agents/php-engineer.md
 agents/migration-parity-reviewer.md|OPENCODE_CONFIG_DIR|agents/migration-parity-reviewer.md
+agents/alegra-code-reviewer.md|OPENCODE_CONFIG_DIR|agents/alegra-code-reviewer.md
 skills/monolith-to-micro-migration|OPENCODE_CONFIG_DIR|skills/monolith-to-micro-migration
 skills/task-lifecycle|OPENCODE_CONFIG_DIR|skills/task-lifecycle
 commands/migration-gap-analysis.md|OPENCODE_CONFIG_DIR|commands/migration-gap-analysis.md
@@ -44,9 +44,9 @@ LINKS
 list_managed_files() {
   cat <<'FILES'
 agents/alegra-microservice-engineer.md|OPENCODE_CONFIG_DIR|agents/alegra-microservice-engineer.md
-agents/code-reviewer.md|OPENCODE_CONFIG_DIR|agents/code-reviewer.md
 agents/alegra-microservice-test-engineer.md|OPENCODE_CONFIG_DIR|agents/alegra-microservice-test-engineer.md
 agents/php-engineer.md|OPENCODE_CONFIG_DIR|agents/php-engineer.md
 agents/migration-parity-reviewer.md|OPENCODE_CONFIG_DIR|agents/migration-parity-reviewer.md
+agents/alegra-code-reviewer.md|OPENCODE_CONFIG_DIR|agents/alegra-code-reviewer.md
 FILES
 }

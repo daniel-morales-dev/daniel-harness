@@ -88,7 +88,7 @@ cat > "$HOME_DIR/.config/opencode/opencode.json" <<'JSON'
 {"$schema":"https://opencode.ai/config.json","plugin":[],"mcp":{"codegraph":{"type":"local","command":["codegraph","serve","--mcp"],"enabled":true},"engram":{"type":"local","command":["engram","mcp","--tools=agent"],"enabled":true},"test-mcp":{"type":"remote","url":"https://example.com/mcp","enabled":true}}}
 JSON
 mkdir -p "$HOME_DIR/.config/opencode/agents" "$HOME_DIR/.config/opencode/skills" "$HOME_DIR/.config/opencode/commands"
-for a in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
+for a in alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
   touch "$HOME_DIR/.config/opencode/agents/$a.md"
 done
 for s in monolith-to-micro-migration task-lifecycle; do

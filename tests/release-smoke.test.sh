@@ -125,7 +125,7 @@ echo "--- Step 9: content verification ---"
 AGENT_DIR="$HOME_DIR/.config/opencode/agents"
 SKILL_DIR="$HOME_DIR/.config/opencode/skills"
 CMD_DIR="$HOME_DIR/.config/opencode/commands"
-for agent in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
+for agent in alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
   [[ -f "$AGENT_DIR/$agent.md" || -L "$AGENT_DIR/$agent.md" ]] && pass "agent $agent" || fail "agent $agent missing"
 done
 for skill in monolith-to-micro-migration task-lifecycle; do

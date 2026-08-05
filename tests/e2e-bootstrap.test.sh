@@ -73,7 +73,7 @@ cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
 case "$1" in
   --version) echo "opencode 0.1.0"; exit 0 ;;
-  agent) echo "alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
   mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
 esac
 exit 0
@@ -209,7 +209,7 @@ jq -e '[.mcp[] | select(.type == "remote") | .oauth == true] | any | not' "$OC_C
 # --- Phase 3: Agents and skills ---
 printf '\n=== Phase 3: Agents and skills ===\n'
 AGENT_DIR="$HOME_CORE/.config/opencode/agents"
-for a in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
+for a in alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
   f="$AGENT_DIR/$a.md"
   [[ -f "$f" ]] && pass "agent $a: file exists" || fail "agent $a missing"
   [[ ! -L "$f" ]] && pass "agent $a: not a symlink" || fail "agent $a: is still a symlink"
@@ -219,7 +219,7 @@ done
 # Verify managed state tracks agent hashes
 AGENT_STATE="$HOME_CORE/.config/daniel-harness/state/opencode-managed.state"
 [[ -f "$AGENT_STATE" ]] && pass "agent state file exists" || fail "agent state file missing"
-for a in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
+for a in alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
   grep -q "^agents/${a}.md|" "$AGENT_STATE" 2>/dev/null && pass "agent $a: tracked in state" || fail "agent $a: not tracked in state"
 done
 # Idempotence: second install should NOT re-copy
@@ -395,7 +395,7 @@ cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
 case "$1" in
   --version) echo "opencode 0.1.0"; exit 0 ;;
-  agent) echo "alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
   mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
 esac
 exit 0

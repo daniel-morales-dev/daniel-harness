@@ -59,57 +59,45 @@ done
 # ── Profile selection ───────────────────────────────────────────
 if [[ -z "$PROFILE" ]]; then
   if [[ -t 0 ]] && [[ $NON_INTERACTIVE == false ]]; then
-    # ── interactive selector from manifest via awk ──
-    mapfile -t _raw < <(
+    # ── interactive selector with resolved tools/MCPs via profile-resolver ──
+    source "$ROOT_DIR/scripts/profile-resolver.sh"
+
+    mapfile -t _profile_names < <(
       awk '
-        BEGIN { c=0 }
         /^profiles:/ { in_p=1; next }
-        in_p && /^[a-z]/ && !/^  / { in_p=0; next }
-        !in_p { next }
         in_p && /^  [a-z][a-z0-9_-]+:$/ {
-          if (c) print c "\t" n "\t" d "\t" t "\t" m
-          c++; n=$1; sub(/:$/,"",n); d=""; t=""; m=""; next
+          n=$1; sub(/:$/,"",n); print n
         }
-        in_p && n!="" && /^    description:/ {
-          sub(/^ +description: +/,""); gsub(/^["\x27]|["\x27]$/,"")
-          d=length>60 ? substr($0,1,57)"..." : $0
-        }
-        in_p && n!="" && /^    tools:/ {
-          sub(/^ +tools: +\[/,""); sub(/\]$/,""); gsub(/["\x27]/,""); t=$0
-        }
-        in_p && n!="" && /^    mcps:/ {
-          sub(/^ +mcps: +\[/,""); sub(/\]$/,""); gsub(/["\x27]/,""); m=$0
-        }
-        END { if (c) print c "\t" n "\t" d "\t" t "\t" m }
+        in_p && /^[a-z]/ && !/^  / { in_p=0 }
       ' "$MANIFEST"
     )
 
-    if [[ ${#_raw[@]} -eq 0 ]]; then
+    if [[ ${#_profile_names[@]} -eq 0 ]]; then
       printf 'Error: no se encontraron perfiles en %s\n' "$MANIFEST" >&2
       exit 1
     fi
 
-    declare -a _names _descs
-    for _line in "${_raw[@]}"; do
-      IFS=$'\t' read -r _n _name _desc _tools _mcps <<< "$_line"
-      _names+=("$_name"); _descs+=("$_desc")
+    printf '\n  Perfiles disponibles:\n\n'
+    for ((i=0; i<${#_profile_names[@]}; i++)); do
+      _name="${_profile_names[$i]}"
+      _desc=$(_get_profile_field "$_name" "description" 2>/dev/null | head -1 || echo "")
+      _desc="${_desc:0:60}"
+      _tools=$(get_profile_tools "$_name" 2>/dev/null | tr '\n' ',' | sed 's/,$//' || echo "")
+      _mcps=$(get_profile_mcps "$_name" 2>/dev/null | tr '\n' ',' | sed 's/,$//' || echo "")
+      printf '  %d) %-11s %s\n' $((i+1)) "$_name" "$_desc"
+      [[ -n "$_tools" ]] && printf '     Herramientas: %s\n' "$_tools"
+      [[ -n "$_mcps" ]] && printf '     MCPs: %s\n' "$_mcps"
     done
 
-    printf '\n'
-    printf '  Perfiles disponibles:\n\n'
-    for ((i=0; i<${#_names[@]}; i++)); do
-      printf '  %d) %-11s %s\n' $((i+1)) "${_names[$i]}" "${_descs[$i]}"
-    done
-
-    printf '\n  Selecciona un perfil (1-%d): ' "${#_names[@]}"
+    printf '\n  Selecciona un perfil (1-%d): ' "${#_profile_names[@]}"
     read -r _sel
     _sel=$((_sel - 1))
-    if [[ $_sel -lt 0 || $_sel -ge ${#_names[@]} ]]; then
+    if [[ $_sel -lt 0 || $_sel -ge ${#_profile_names[@]} ]]; then
       printf '\n  Seleccion invalida\n' >&2
       exit 1
     fi
     printf '\n'
-    PROFILE="${_names[$_sel]}"
+    PROFILE="${_profile_names[$_sel]}"
   else
     cat >&2 <<'ERR'
 Error: --profile es requerido

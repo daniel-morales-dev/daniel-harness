@@ -9,12 +9,14 @@ LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 EXPERIMENTAL=false
 RESET_MANAGED=false
 SKIP_RESOURCES=false
+NON_INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --experimental-data-tools) EXPERIMENTAL=true; shift ;;
     --reset-managed) RESET_MANAGED=true; shift ;;
     --skip-resources) SKIP_RESOURCES=true; shift ;;
+    --non-interactive) NON_INTERACTIVE=true; shift ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done

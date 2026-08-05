@@ -877,6 +877,7 @@ phase "Configuración del harness"
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
   INSTALL_ARGS=()
   $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
+  $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
   $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
   info 'Ejecutando install.sh...'
   run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
@@ -1268,9 +1269,8 @@ _enforce_allowlist() {
 
   # Verificar modificación concurrente
   if [[ -f "$original" ]]; then
-    local orig_sha cand_sha
+    local orig_sha
     orig_sha=$(sha256sum "$original" | cut -d' ' -f1)
-    # Guardar en journal si existe recurso opencodeConfig
     local j_orig
     j_orig=$(jq -r '.resources[] | select(.id == "opencodeConfig") | .originalSha256 // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
     if [[ -n "$j_orig" && "$orig_sha" != "$j_orig" ]]; then
@@ -1279,9 +1279,29 @@ _enforce_allowlist() {
     fi
   fi
 
+  # First run: original no existe o está vacío — nada que preservar
+  if [[ ! -f "$original" || ! -s "$original" ]]; then
+    local pkg
+    pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
+    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado"; return 1; }
+    return 0
+  fi
+  local o_size
+  o_size=$(jq '. | length' "$original" 2>/dev/null || echo 0)
+  [[ "$o_size" -gt 0 ]] || {
+    local pkg
+    pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
+    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado"; return 1; }
+    return 0
+  }
+
   # Copias de trabajo
   cp "$original" "$tmp_o" 2>/dev/null || printf '{}' > "$tmp_o"
   cp "$candidate" "$tmp_c" 2>/dev/null || printf '{}' > "$tmp_c"
+
+  # Ignorar $schema (siempre añadido por el harness)
+  jq 'del(.["$schema"])' "$tmp_o" > "${tmp_o}.$$" && mv "${tmp_o}.$$" "$tmp_o"
+  jq 'del(.["$schema"])' "$tmp_c" > "${tmp_c}.$$" && mv "${tmp_c}.$$" "$tmp_c"
 
   # Retirar MCPs administrados de AMBAS
   for mcp in codegraph engram context7 github linear wiki-alegra navi sentry; do
@@ -1300,7 +1320,6 @@ _enforce_allowlist() {
 
   if [[ "$hash_o" != "$hash_c" ]]; then
     critical "ALLOWLIST: cambios detectados fuera de los recursos administrados"
-    # Mostrar diff de secciones (redactado)
     diff <(jq -S -c 'keys | sort[]' "$tmp_o" 2>/dev/null) \
          <(jq -S -c 'keys | sort[]' "$tmp_c" 2>/dev/null) \
          | head -20 || true
