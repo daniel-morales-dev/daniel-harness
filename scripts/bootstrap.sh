@@ -1504,17 +1504,11 @@ if [[ $DRY_RUN == false ]]; then
   _transaction_apply; rc=$?
   set -e
   if [[ $rc -eq 1 ]]; then
-    rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-    printf '  [dbg] exit on rc=1\n'
-    exit 1
+    warn "Transaccion terminó con error — continuando con agentes"
   elif [[ $rc -eq 2 ]]; then
-    rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-    printf '  [dbg] exit on rc=2\n'
-    exit 1
+    warn "Transaccion detectó conflicto — continuando con agentes"
   fi
-  printf '  [dbg] transaction rc=%d (ok)\n' "$rc"
 fi
-printf '  [dbg] post transaction block reached\n'
 
 # ── Fase post-transacción: agentes administrados ─────────────
 if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
