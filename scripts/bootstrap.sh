@@ -20,6 +20,7 @@ for arg in "$@"; do
 done
 
 DRY_RUN=false
+DRY_RUN_DIR=""
 SKIP_DOCKER=false
 PROFILE=core
 CONNECT=false
@@ -41,6 +42,16 @@ while [[ $# -gt 0 ]]; do
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
+
+_cleanup_dry_run() {
+  [[ -z "$DRY_RUN_DIR" || ! -d "$DRY_RUN_DIR" ]] || rm -rf -- "$DRY_RUN_DIR"
+}
+
+if [[ $DRY_RUN == true ]]; then
+  DRY_RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/daniel-harness-dry-run.XXXXXXXX")
+  trap _cleanup_dry_run EXIT
+  trap '_cleanup_dry_run; exit 1' INT TERM
+fi
 
 LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 NPM_BIN=""
@@ -567,15 +578,6 @@ _rollback_resources() {
   return 0
 }
 
-# ── Detectar journal residual y recuperar ───────────────────────
-if [[ -f "$JOURNAL_FILE" ]]; then
-  _recover_journal "$JOURNAL_FILE" || exit 1
-fi
-
-# Trap para transacción actual
-trap _rollback EXIT
-trap '_rollback; exit 1' INT TERM
-
 _rollback() {
   local rc=$?
   trap '' EXIT INT TERM
@@ -750,8 +752,15 @@ TMP_GITHUB=""
 TMP_NAVI_URL=""
 TMP_NAVI_CID=""
 
-# Inicializar journal
-_init_journal
+# Recovery y journal existen solo en modo transaccional real.
+if [[ $DRY_RUN == false ]]; then
+  if [[ -f "$JOURNAL_FILE" ]]; then
+    _recover_journal "$JOURNAL_FILE" || exit 4
+  fi
+  _init_journal
+  trap _rollback EXIT
+  trap '_rollback; exit 1' INT TERM
+fi
 
 ensure_opencode_config() {
   if [[ -f "$OC_FILE" ]]; then
@@ -759,6 +768,10 @@ ensure_opencode_config() {
       ok "opencode.json existe y es JSON válido"
       return 0
     else
+      if [[ $DRY_RUN == true ]]; then
+        critical "opencode.json existe pero no es JSON válido"
+        return 1
+      fi
       local backup
       backup="${OC_FILE}.bak.$(date +%s)"
       cp "$OC_FILE" "$backup" || { critical "No se pudo crear backup de opencode.json inválido"; return 1; }
@@ -791,9 +804,13 @@ _determine_candidate() {
   cfg_dir=$(dirname "$OC_FILE")
   local base_json='{"$schema":"https://opencode.ai/config.json","plugin":[],"mcp":{}}'
 
-  if [[ $DRY_RUN == true ]] && [[ ! -d "$cfg_dir" ]]; then
-    TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
-    printf '{}' > "$TMP_CANDIDATE"
+  if [[ $DRY_RUN == true ]]; then
+    TMP_CANDIDATE="$DRY_RUN_DIR/opencode.json"
+    if [[ -f "$OC_FILE" ]]; then
+      cp "$OC_FILE" "$TMP_CANDIDATE"
+    else
+      printf '%s\n' "$base_json" > "$TMP_CANDIDATE"
+    fi
     return
   fi
 
@@ -848,7 +865,7 @@ phase "Plugins de OpenCode"
 
 if profile_includes "$PROFILE" "plugins" "ponytail"; then
   PLUGIN_PACKAGE=$(parse_nested_value "plugins" "ponytail" "package")
-  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
+  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$TMP_CANDIDATE" 2>/dev/null || true)
   PLUGIN_BASE="${PLUGIN_PACKAGE%@*}"
   if echo "$PLUGIN_LIST" | grep -qxF "$PLUGIN_PACKAGE"; then
     ok "Ponytail ya registrado ($PLUGIN_PACKAGE)"
@@ -1630,4 +1647,9 @@ printf '     dh opencode backup\n'
 printf '\n  3. Verifica estado con doctor.sh\n'
 printf '     bash scripts/doctor.sh\n'
 printf '\n  4. Si es primera instalación, reinicia OpenCode\n'
+
+if [[ $DRY_RUN == true ]]; then
+  _cleanup_dry_run
+  trap - EXIT INT TERM
+fi
 printf '\n'
