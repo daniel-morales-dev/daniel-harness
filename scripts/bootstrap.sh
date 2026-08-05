@@ -1500,15 +1500,15 @@ _transaction_apply() {
 # ── Ejecutar transacción (dry-run salta) ──────────────────────
 rc=0
 if [[ $DRY_RUN == false ]]; then
-  set +e
+  set +eu
   _transaction_apply; rc=$?
-  set -e
-  if [[ $rc -eq 1 ]]; then
-    warn "Transaccion terminó con error — continuando con agentes"
-  elif [[ $rc -eq 2 ]]; then
-    warn "Transaccion detectó conflicto — continuando con agentes"
+  set -eu
+  if [[ $rc -ne 0 ]]; then
+    warn "Transaccion rc=$rc — continuando bootstrap"
   fi
 fi
+# Limpiar TMP_STATE si existe (puede haber fallado antes del clear)
+[[ -f "$TMP_STATE" ]] && rm -f "$TMP_STATE" 2>/dev/null || true
 
 # ── Fase post-transacción: agentes administrados ─────────────
 if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
