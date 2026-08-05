@@ -775,13 +775,17 @@ opencode_cmd() {
       }
       opencode_backup_diff "$backup" "$OC_FILE"
       ;;
+    find-all)
+      opencode_backup_find_all "$OC_FILE" "$HARNESS_DIR"
+      ;;
     help|--help|-h|"")
       printf 'Uso: dh opencode <subcomando>\n\n'
       printf 'Subcomandos:\n'
       printf '  backup             Crea backup de la configuración opencode actual\n'
       printf '  backups            Lista backups disponibles\n'
-      printf '  restore <backup-id>  Restaura un backup por prefijo SHA o ruta\n'
+      printf '  restore <backup-id>  Restaura un backup por ID\n'
       printf '  diff <backup-id>   Muestra diferencias estructurales con un backup\n'
+      printf '  find-all           Busca cualquier backup (moderno, legacy)\n'
       ;;
     *)
       printf 'Subcomando desconocido: %s\n\n' "$subcmd" >&2
