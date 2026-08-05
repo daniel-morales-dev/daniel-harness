@@ -63,21 +63,21 @@ user_tools:
   gentle-ai:
     type: binary
     check: command -v gentle-ai
-    install: curl -fsSL https://gentle-ai.dev/install.sh | sh
+    install: curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash
   engram:
     type: binary
     check: command -v engram
-    install: curl -fsSL https://engram.sh/install.sh | sh
+    install: npm install -g @engram-ai-memory/cli
   codegraph:
     type: binary
     check: command -v codegraph
     # ponytail: pinned to matching cli version, bump when tooling updates
-    install: npm install -g @codegraph/cli@1.2.0
+    install: npm install -g @colbymchenry/codegraph@1.1.0
     depends: node
   rtk:
     type: binary
     check: command -v rtk
-    install: curl -fsSL https://rtk.dev/install.sh | sh
+    install: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | bash
   gh:
     type: system_package
     package: gh

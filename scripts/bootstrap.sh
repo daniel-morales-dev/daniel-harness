@@ -11,20 +11,18 @@ STATE_DIR="$HARNESS_CONFIG_DIR/state"
 STATE_FILE="$STATE_DIR/opencode-managed.json"
 MANAGED_MCPS=()
 
-# Lock de arranque para proteger state contra concurrencia y dir no escribible
-LOCK_FILE="$STATE_DIR/.bootstrap.lock"
-mkdir -p "$STATE_DIR" 2>/dev/null || { critical "No se pudo crear $STATE_DIR"; exit 1; }
-if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
-  critical "No se pudo crear lock (estado no escribible)"
-  exit 1
-elif ! flock -n 200 2>/dev/null; then
-  critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
-  exit 1
-fi
+# --help debe ejecutarse antes de crear cualquier estado o lock
+for arg in "$@"; do
+  if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+    printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--experimental-data-tools]\n'
+    exit 0
+  fi
+done
 
 DRY_RUN=false
 SKIP_DOCKER=false
 PROFILE=core
+EXPERIMENTAL_DATA_TOOLS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,19 +30,22 @@ while [[ $# -gt 0 ]]; do
     --skip-docker) SKIP_DOCKER=true; shift ;;
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
-    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker]\n'; exit 0 ;;
+    --experimental-data-tools) EXPERIMENTAL_DATA_TOOLS=true; shift ;;
+    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--experimental-data-tools]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
 
-if [[ ! -f "$MANIFEST" ]]; then
-  printf 'error: no se encuentra %s\n' "$MANIFEST" >&2
-  exit 1
-fi
+LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
+NPM_BIN=""
 
-if [[ $DRY_RUN == true ]]; then
-  printf '\n[preflight] Simulación (--dry-run)\n\n'
+if [[ $DRY_RUN == false ]]; then
+  mkdir -p "$LOCAL_BIN"
+  if command -v npm >/dev/null 2>&1; then
+    NPM_BIN="$(npm prefix -g 2>/dev/null || true)/bin"
+  fi
 fi
+export PATH="$LOCAL_BIN:$PATH"
 
 phase() {
   local label=$1
@@ -71,6 +72,28 @@ sudo_run() {
   fi
 }
 
+# Lock de arranque solo si no es dry-run
+if [[ $DRY_RUN == false ]]; then
+  LOCK_FILE="$STATE_DIR/.bootstrap.lock"
+  mkdir -p "$STATE_DIR" 2>/dev/null || { critical "No se pudo crear $STATE_DIR"; exit 1; }
+  if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
+    critical "No se pudo crear lock (estado no escribible)"
+    exit 1
+  elif ! flock -n 200 2>/dev/null; then
+    critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
+    exit 1
+  fi
+fi
+
+if [[ ! -f "$MANIFEST" ]]; then
+  printf 'error: no se encuentra %s\n' "$MANIFEST" >&2
+  exit 1
+fi
+
+if [[ $DRY_RUN == true ]]; then
+  printf '\n[preflight] Simulación (--dry-run)\n\n'
+fi
+
 # ---------------------------------------------------------------------------
 # Fase 0: Preflight
 # ---------------------------------------------------------------------------
@@ -81,8 +104,12 @@ if [[ ! -f /etc/os-release ]] || ! grep -qi 'ubuntu' /etc/os-release 2>/dev/null
 fi
 
 if ! command -v sudo >/dev/null 2>&1; then
-  printf 'error: sudo es necesario\n' >&2
-  exit 1
+  if [[ $DRY_RUN == true ]]; then
+    printf '  [aviso] sudo no está instalado; se requeriría para la instalación real\n'
+  else
+    printf 'error: sudo es necesario\n' >&2
+    exit 1
+  fi
 fi
 
 _ensure_sudo() {
@@ -152,7 +179,15 @@ _create_venv() {
   ok "Venv creado en $VENV_DIR"
 }
 
-if [[ ! -f "$VENV_DIR/bin/python" ]]; then
+if [[ $EXPERIMENTAL_DATA_TOOLS == false ]]; then
+  if [[ $DRY_RUN == true ]]; then
+    info "[simulado] Runtime venv omitido (data tools deshabilitadas)"
+  else
+    ok "Runtime venv omitido (data tools deshabilitadas, usa --experimental-data-tools)"
+  fi
+elif [[ $DRY_RUN == true ]]; then
+  info "[simulado] Se verificaría/crearía runtime venv en $VENV_DIR"
+elif [[ ! -f "$VENV_DIR/bin/python" ]]; then
   info "Creando runtime venv..."
   _create_venv
 elif [[ -f "$RQ_FILE" ]]; then
@@ -174,11 +209,37 @@ fi
 phase "NVM + Node.js"
 
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+_install_nvm() {
+  local tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/daniel-harness-nvm.XXXXXXXX") || {
+    critical "No se pudo crear temporal para NVM"
+    return 1
+  }
+  mkdir -p "$NVM_DIR" || { rm -f "$tmp"; critical "No se pudo crear $NVM_DIR"; return 1; }
+  if ! curl -fsSL \
+    "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh" \
+    -o "$tmp"; then
+    rm -f "$tmp"
+    critical "No se pudo descargar el instalador de NVM"
+    return 1
+  fi
+  if ! bash "$tmp"; then
+    rm -f "$tmp"
+    critical "El instalador de NVM terminó con error"
+    return 1
+  fi
+  rm -f "$tmp"
+  if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+    critical "NVM no quedó instalado en $NVM_DIR"
+    return 1
+  fi
+}
+
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   ok "NVM ya instalado ($(source "$NVM_DIR/nvm.sh" && nvm --version 2>/dev/null))"
 else
   info 'Instalando NVM...'
-  run bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash'
+  run _install_nvm || exit 1
 fi
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
@@ -213,9 +274,16 @@ install_tool_if_in_profile() {
   fi
 }
 
+source "$ROOT_DIR/scripts/lib/tool-path.sh"
+
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
-install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://gentle-ai.dev/install.sh | sh"
-install_tool_if_in_profile "engram"    "Engram"    "command -v engram"    "curl -fsSL https://engram.sh/install.sh | sh"
+_ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
+
+install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash"
+_ensure_tool_visible "gentle-ai" "$LOCAL_BIN/gentle-ai" || exit 1
+
+install_tool_if_in_profile "engram"    "Engram"    "command -v engram"    "npm install -g @engram-ai-memory/cli"
+_ensure_tool_visible "engram" "${NPM_BIN:+$NPM_BIN/engram}" "$LOCAL_BIN/engram" || exit 1
 
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   . "$NVM_DIR/nvm.sh"
@@ -224,7 +292,10 @@ elif [[ $DRY_RUN == true ]]; then
 fi
 CG_INSTALL=$(parse_nested_value "user_tools" "codegraph" "install")
 install_tool_if_in_profile "codegraph" "CodeGraph" "command -v codegraph" "$CG_INSTALL"
-install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://rtk.dev/install.sh | sh"
+_ensure_tool_visible "codegraph" "${NPM_BIN:+$NPM_BIN/codegraph}" "$LOCAL_BIN/codegraph" || exit 1
+
+install_tool_if_in_profile "rtk"       "RTK"       "command -v rtk"       "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | bash"
+_ensure_tool_visible "rtk" "$LOCAL_BIN/rtk" || exit 1
 
 if profile_includes "$PROFILE" "tools" "gh"; then
   if dpkg -s gh >/dev/null 2>&1; then
@@ -285,13 +356,23 @@ _recover_incomplete_transaction() {
   e_oc=$(jq -r '.existedBeforeConfig // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
   e_st=$(jq -r '.existedBeforeState // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
   warn "Recuperando transacción incompleta"
-  if [[ -n "$b_oc" && -f "$b_oc" ]]; then cp "$b_oc" "$j_oc"; chmod 600 "$j_oc" 2>/dev/null || true
-  elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then rm -f "$j_oc"; fi
-  if [[ -n "$b_st" && -f "$b_st" ]]; then cp "$b_st" "$j_st"; chmod 600 "$j_st" 2>/dev/null || true
-  elif [[ "$e_st" == "false" && -n "$j_st" ]]; then rm -f "$j_st"; fi
+  if [[ -n "$b_oc" && -f "$b_oc" ]]; then
+    cp "$b_oc" "$j_oc" || { critical "No se pudo restaurar backup de config"; return 1; }
+    chmod 600 "$j_oc" || { critical "No se pudo fijar permiso de config"; return 1; }
+  elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then
+    rm -f "$j_oc" || { critical "No se pudo eliminar config creada en transaccion fallida"; return 1; }
+  fi
+  if [[ -n "$b_st" && -f "$b_st" ]]; then
+    cp "$b_st" "$j_st" || { critical "No se pudo restaurar backup de state"; return 1; }
+    chmod 600 "$j_st" || { critical "No se pudo fijar permiso de state"; return 1; }
+  elif [[ "$e_st" == "false" && -n "$j_st" ]]; then
+    rm -f "$j_st" || { critical "No se pudo eliminar state creado en transaccion fallida"; return 1; }
+  fi
   rm -f "$JOURNAL_FILE"
 }
-if [[ -f "$JOURNAL_FILE" ]]; then _recover_incomplete_transaction; fi
+if [[ -f "$JOURNAL_FILE" ]]; then
+  _recover_incomplete_transaction || { critical "Recuperación fallida — journal conservado en $JOURNAL_FILE"; exit 1; }
+fi
 
 # Trap para transacción actual
 trap _rollback EXIT
@@ -301,7 +382,7 @@ _rollback() {
   local rc=$?
   trap '' EXIT INT TERM
   if [[ -f "$JOURNAL_FILE" ]]; then
-    local j_oc j_st b_oc b_st e_oc e_st
+    local j_oc j_st b_oc b_st e_oc e_st restore_failed=false
     j_oc=$(jq -r '.configFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
     j_st=$(jq -r '.stateFile // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
     b_oc=$(jq -r '.backupConfig // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
@@ -309,11 +390,19 @@ _rollback() {
     e_oc=$(jq -r '.existedBeforeConfig // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
     e_st=$(jq -r '.existedBeforeState // false' "$JOURNAL_FILE" 2>/dev/null || echo "false")
     critical "Rollback transacción incompleta (fase: $(jq -r '.phase // "unknown"' "$JOURNAL_FILE" 2>/dev/null || echo "unknown"))"
-    if [[ -n "$b_oc" && -f "$b_oc" ]]; then cp "$b_oc" "$j_oc"; chmod 600 "$j_oc" 2>/dev/null || true
-    elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then rm -f "$j_oc"; fi
-    if [[ -n "$b_st" && -f "$b_st" ]]; then cp "$b_st" "$j_st"; chmod 600 "$j_st" 2>/dev/null || true
-    elif [[ "$e_st" == "false" && -n "$j_st" ]]; then rm -f "$j_st"; fi
-    _clear_journal
+    if [[ -n "$b_oc" && -f "$b_oc" ]]; then
+      cp "$b_oc" "$j_oc" || { critical "Rollback: no se pudo restaurar config"; restore_failed=true; }
+      chmod 600 "$j_oc" || { critical "Rollback: no se pudo fijar permiso de config"; restore_failed=true; }
+    elif [[ "$e_oc" == "false" && -n "$j_oc" ]]; then
+      rm -f "$j_oc" || { critical "Rollback: no se pudo eliminar config"; restore_failed=true; }
+    fi
+    if [[ -n "$b_st" && -f "$b_st" ]]; then
+      cp "$b_st" "$j_st" || { critical "Rollback: no se pudo restaurar state"; restore_failed=true; }
+      chmod 600 "$j_st" || { critical "Rollback: no se pudo fijar permiso de state"; restore_failed=true; }
+    elif [[ "$e_st" == "false" && -n "$j_st" ]]; then
+      rm -f "$j_st" || { critical "Rollback: no se pudo eliminar state"; restore_failed=true; }
+    fi
+    $restore_failed && critical "Rollback: journal conservado para reintento manual" || _clear_journal
   fi
   [[ -n "$TMP_CANDIDATE" && -f "$TMP_CANDIDATE" ]] && rm -f "$TMP_CANDIDATE"
   [[ -n "$TMP_STATE" && -f "$TMP_STATE" ]] && rm -f "$TMP_STATE"
@@ -349,9 +438,6 @@ STATE_EXISTED_BEFORE=false
 [[ -f "$STATE_FILE" ]] && STATE_EXISTED_BEFORE=true
 
 ensure_opencode_config() {
-  local config_dir
-  config_dir=$(dirname "$OC_FILE")
-
   if [[ -f "$OC_FILE" ]]; then
     if jq empty "$OC_FILE" >/dev/null 2>&1; then
       ok "opencode.json existe y es JSON válido"
@@ -359,8 +445,8 @@ ensure_opencode_config() {
     else
       local backup
       backup="${OC_FILE}.bak.$(date +%s)"
-      cp "$OC_FILE" "$backup" 2>/dev/null || true
-      chmod 600 "$backup" 2>/dev/null || true
+      cp "$OC_FILE" "$backup" || { critical "No se pudo crear backup de opencode.json inválido"; return 1; }
+      chmod 600 "$backup" || { critical "No se pudo fijar permisos del backup"; return 1; }
       critical "opencode.json existe pero no es JSON válido"
       critical "  Backup creado: $backup"
       critical "  Corrige el JSON o elimina el archivo para regenerarlo."
@@ -368,28 +454,55 @@ ensure_opencode_config() {
     fi
   fi
 
-  run mkdir -p "$config_dir"
-
   if [[ $DRY_RUN == true ]]; then
-    OC_FILE=$(mktemp /tmp/opencode.json.XXXXXXXX)
-  else
-    local tmp
-    tmp=$(mktemp "$config_dir/opencode.json.XXXXXXXX")
-    printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "plugin": [],\n  "mcp": {}\n}\n' > "$tmp"
-
-    if ! jq empty "$tmp" >/dev/null 2>&1; then
-      critical "JSON generado no es válido"
-      rm -f "$tmp"
-      return 1
-    fi
-
-    mv "$tmp" "$OC_FILE"
-    chmod 600 "$OC_FILE"
+    info "[simulado] Se crearía opencode.json en $OC_FILE"
+    return 0
   fi
-  ok "opencode.json creado en $OC_FILE"
+
+  # Primer arranque: no crear archivo real — solo validar que podemos crearlo
+  if ! jq empty <<< '{"$schema":"https://opencode.ai/config.json","plugin":[],"mcp":{}}' >/dev/null 2>&1; then
+    critical "JSON base no es válido"
+    return 1
+  fi
+  ok "Directorio de configuración accesible"
 }
 
 ensure_opencode_config
+
+# Crear candidato temprano — plugins y MCPs comparten una transacción
+_determine_candidate() {
+  local cfg_dir
+  cfg_dir=$(dirname "$OC_FILE")
+  local base_json='{"$schema":"https://opencode.ai/config.json","plugin":[],"mcp":{}}'
+
+  if [[ $DRY_RUN == true ]] && [[ ! -d "$cfg_dir" ]]; then
+    TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
+    printf '{}' > "$TMP_CANDIDATE"
+    return
+  fi
+
+  run mkdir -p "$cfg_dir"
+  TMP_CANDIDATE=$(mktemp "$cfg_dir/.opencode.json.XXXXXXXX")
+
+  if [[ -f "$OC_FILE" ]]; then
+    cp "$OC_FILE" "$TMP_CANDIDATE"
+  else
+    # Primer arranque: candidato con JSON base, archivo real se crea en transacción
+    printf '%s\n' "$base_json" > "$TMP_CANDIDATE"
+    if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
+      critical "JSON base inválido en candidato"
+      rm -f "$TMP_CANDIDATE"
+      exit 1
+    fi
+  fi
+}
+_determine_candidate
+
+_candidate_jq() {
+  local tmp_next
+  tmp_next=$(mktemp)
+  jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
+}
 
 # ---------------------------------------------------------------------------
 # Fase 5: Docker
@@ -428,9 +541,7 @@ if profile_includes "$PROFILE" "plugins" "ponytail"; then
     if [[ $DRY_RUN == true ]]; then
       info "[simulado] Reemplazar $PLUGIN_BASE* por $PLUGIN_PACKAGE"
     else
-      TMP=$(mktemp)
-      jq --arg p "$PLUGIN_PACKAGE" --arg b "$PLUGIN_BASE" '.plugin = ((.plugin // []) | map(select(startswith($b) | not)) + [$p])' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-      chmod 600 "$OC_FILE"
+      _candidate_jq --arg p "$PLUGIN_PACKAGE" --arg b "$PLUGIN_BASE" '.plugin = ((.plugin // []) | map(select(startswith($b) | not)) + [$p])'
       ok "Ponytail reemplazado por versión exacta ($PLUGIN_PACKAGE)"
     fi
   else
@@ -438,9 +549,7 @@ if profile_includes "$PROFILE" "plugins" "ponytail"; then
     if [[ $DRY_RUN == true ]]; then
       info "[simulado] Agregar $PLUGIN_PACKAGE como plugin"
     else
-      TMP=$(mktemp)
-      jq --arg p "$PLUGIN_PACKAGE" '.plugin = ((.plugin // []) + [$p])' "$OC_FILE" > "$TMP" && mv "$TMP" "$OC_FILE"
-      chmod 600 "$OC_FILE"
+      _candidate_jq --arg p "$PLUGIN_PACKAGE" '.plugin = ((.plugin // []) + [$p])'
       ok "Ponytail registrado en opencode.json ($PLUGIN_PACKAGE)"
     fi
   fi
@@ -454,11 +563,14 @@ fi
 phase "Configuración del harness"
 
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
+  INSTALL_ARGS=()
+  $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
   info 'Ejecutando install.sh...'
-  run bash "$ROOT_DIR/scripts/install.sh"
+  run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
 else
   info 'install.sh no encontrado'
 fi
+_ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
 
 if command -v gentle-ai >/dev/null 2>&1; then
   info 'Sincronizando skills con Gentle AI...'
@@ -471,18 +583,12 @@ fi
 # ---------------------------------------------------------------------------
 phase "Servidores MCP"
 
-TMP_CANDIDATE=$(mktemp "$(dirname "$OC_FILE")/.opencode.json.XXXXXXXX")
-cp "$OC_FILE" "$TMP_CANDIDATE"
+# TMP_CANDIDATE ya fue creado en la fase de configuración de OpenCode
+# (plugins y MCPs comparten la misma transacción)
 TMP_STATE=""
 MCP_ADDED=0
 MCP_UPDATED=0
 MCP_SKIPPED=0
-
-_mcp_jq() {
-  local tmp_next
-  tmp_next=$(mktemp)
-  jq "$@" "$TMP_CANDIDATE" > "$tmp_next" && mv "$tmp_next" "$TMP_CANDIDATE"
-}
 
 # Estados explicitos de reconciliacion via variable (seguro bajo set -e)
 # RECONCILE_STATUS=unchanged|updated|drift-conflict
@@ -513,7 +619,7 @@ _reconcile_mcp() {
     fi
   fi
 
-  _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
+  _candidate_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
   info "MCP $name actualizado (configuracion administrada diferente del manifest)"
   MCP_UPDATED=$((MCP_UPDATED + 1))
   RECONCILE_STATUS=updated
@@ -605,7 +711,7 @@ while IFS= read -r name; do
       MCP_ADDED=$((MCP_ADDED + 1))
       continue
     fi
-    _mcp_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
+    _candidate_jq --arg n "$name" --argjson d "$desired" '.mcp[$n] = $d'
     ok "MCP $name registrado en candidato"
     MCP_ADDED=$((MCP_ADDED + 1))
   fi
@@ -614,6 +720,7 @@ done < <(parse_mcp_names)
 
 _build_state() {
   local src=$1 dst=$2
+  _check_failpoint "build-state"
   mkdir -p "$(dirname "$dst")" "$STATE_DIR"
   existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
   new_state="{}"
@@ -627,64 +734,88 @@ _build_state() {
 }
 
 if [[ $DRY_RUN == false ]]; then
-  OC_SCHEMA="$ROOT_DIR/tests/fixtures/opencode-config.schema.json"
+  OC_SCHEMA="${DH_OC_SCHEMA:-$ROOT_DIR/tests/fixtures/opencode-config.schema.json}"
   TMP_STATE=$(mktemp "$STATE_DIR/.opencode-managed.json.XXXXXXXX")
 
   _check_failpoint "pre-validate"
 
-  if (( MCP_ADDED > 0 || MCP_UPDATED > 0 )); then
+  # Comparar hash canónico del candidato completo vs archivo real
+  # Esto detecta cambios de plugins, MCPs o cualquier config administrada
+  original_hash=$(jq -S -c . "$OC_FILE" 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "no-file")
+  candidate_hash=$(jq -S -c . "$TMP_CANDIDATE" 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "no-candidate")
+  config_changed=false
+  [[ "$original_hash" != "$candidate_hash" ]] && config_changed=true
+
+  if $config_changed; then
+    if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "invalid-candidate" ]]; then
+      echo '}}}}INVALID' >> "$TMP_CANDIDATE"
+    fi
     if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
       critical "Candidato JSON invalido -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+      exit 1
     elif ! python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
          --config "$TMP_CANDIDATE" --schema "$OC_SCHEMA" >/dev/null 2>&1; then
       critical "Candidato no pasa validacion de schema -- cambios NO aplicados"
       rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-    elif (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
-      critical "No se pudo construir state -- cambios NO aplicados"
-      rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+      exit 1
     else
-      # Backups obligatorios (sin || true)
-      BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
-      cp "$OC_FILE" "$BACKUP_OC"
-      chmod 600 "$BACKUP_OC"
-      if (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
-        BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-        cp "$STATE_FILE" "$BACKUP_STATE"
-        chmod 600 "$BACKUP_STATE"
+      if (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
+        critical "No se pudo construir state -- cambios NO aplicados"
+        rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+        exit 1
+      else
+        # Backups solo si el archivo existía antes de la transacción
+        BACKUP_OC=""
+        BACKUP_STATE=""
+        if $OC_EXISTED_BEFORE; then
+          BACKUP_OC="${OC_FILE}.bak.$(date +%s)"
+          cp "$OC_FILE" "$BACKUP_OC" || { critical "No se pudo crear backup de configuración"; exit 1; }
+          chmod 600 "$BACKUP_OC" || { critical "No se pudo fijar permisos del backup de configuración"; exit 1; }
+          ok "Backup creado: $BACKUP_OC"
+        fi
+        if $STATE_EXISTED_BEFORE && (( ${#MANAGED_MCPS[@]} > 0 )) && [[ -f "$STATE_FILE" ]]; then
+          BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
+          cp "$STATE_FILE" "$BACKUP_STATE" || { critical "No se pudo crear backup de estado"; exit 1; }
+          chmod 600 "$BACKUP_STATE" || { critical "No se pudo fijar permisos del backup de estado"; exit 1; }
+          ok "Backup creado: $BACKUP_STATE"
+        fi
+
+        _check_failpoint "backup-config"
+        _check_failpoint "backup-state"
+
+        _write_journal "apply-config" "$BACKUP_OC" "" "$OC_EXISTED_BEFORE" "false"
+        _check_failpoint "journal-write"
+        _check_failpoint "move-config"
+        mv "$TMP_CANDIDATE" "$OC_FILE"
+        chmod 600 "$OC_FILE"
+        _check_failpoint "chmod-config"
+        _check_failpoint "crash-after-config"
+
+        if (( ${#MANAGED_MCPS[@]} > 0 )); then
+          _write_journal "apply-state" "$BACKUP_OC" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
+          _check_failpoint "move-state"
+          mv "$TMP_STATE" "$STATE_FILE"
+          chmod 600 "$STATE_FILE"
+          _check_failpoint "chmod-state"
+          _check_failpoint "crash-after-state"
+        fi
+
+        _clear_journal
+        info "Configuracion aplicada (plugins y/o MCPs actualizados)"
+        $OC_EXISTED_BEFORE && info "Backup: $BACKUP_OC"
       fi
-
-      _check_failpoint "backup-config"
-      _check_failpoint "backup-state"
-
-      _write_journal "apply-config" "$BACKUP_OC" "" "$OC_EXISTED_BEFORE" "false"
-      _check_failpoint "move-config"
-      mv "$TMP_CANDIDATE" "$OC_FILE"
-      chmod 600 "$OC_FILE"
-
-      if (( ${#MANAGED_MCPS[@]} > 0 )); then
-        _write_journal "apply-state" "$BACKUP_OC" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
-        _check_failpoint "move-state"
-        mv "$TMP_STATE" "$STATE_FILE"
-        chmod 600 "$STATE_FILE"
-        _check_failpoint "chmod-state"
-      fi
-
-      _clear_journal
-      summary="${MCP_ADDED} nuevos"
-      [[ $MCP_UPDATED -gt 0 ]] && summary="${summary}, ${MCP_UPDATED} existentes verificados"
-      [[ $MCP_SKIPPED -gt 0 ]] && summary="${summary}, ${MCP_SKIPPED} personalizados omitidos"
-      ok "Configuracion aplicada (${summary})"
-      info "Backup: $BACKUP_OC"
     fi
   else
     if (( ${#MANAGED_MCPS[@]} > 0 )); then
       if _build_state "$OC_FILE" "$TMP_STATE"; then
-        if [[ -f "$STATE_FILE" ]]; then
+        BACKUP_STATE=""
+        if $STATE_EXISTED_BEFORE && [[ -f "$STATE_FILE" ]]; then
           _check_failpoint "backup-state"
           BACKUP_STATE="${STATE_FILE}.bak.$(date +%s)"
-          cp "$STATE_FILE" "$BACKUP_STATE"
-          chmod 600 "$BACKUP_STATE"
+          cp "$STATE_FILE" "$BACKUP_STATE" || { critical "No se pudo crear backup de estado"; exit 1; }
+          chmod 600 "$BACKUP_STATE" || { critical "No se pudo fijar permisos del backup de estado"; exit 1; }
+          ok "Backup creado: $BACKUP_STATE"
         fi
 
         _write_journal "apply-state" "" "$BACKUP_STATE" "$OC_EXISTED_BEFORE" "$STATE_EXISTED_BEFORE"
@@ -701,7 +832,7 @@ if [[ $DRY_RUN == false ]]; then
     if [[ -n "$summary" ]]; then
       ok "MCPs: ${summary}"
     else
-      ok "No hay MCPs nuevos que agregar"
+      ok "No hay cambios en la configuracion"
     fi
   fi
 fi
@@ -715,8 +846,9 @@ phase "Verificación"
 
 if [[ -f "$ROOT_DIR/scripts/doctor.sh" ]]; then
   info 'Ejecutando doctor.sh...'
-  doctor_args=(--profile "$PROFILE" --strict --skip-oauth)
+  doctor_args=(--profile "$PROFILE" --strict --skip-oauth --install-check)
   if $SKIP_DOCKER; then doctor_args+=(--skip-docker); fi
+  $EXPERIMENTAL_DATA_TOOLS && doctor_args+=(--experimental-data-tools)
   if run bash "$ROOT_DIR/scripts/doctor.sh" "${doctor_args[@]}"; then
     ok 'Bootstrap completado y saludable'
   else
@@ -744,13 +876,13 @@ printf '\nPróximos pasos:\n'
 printf '  1. Autentica MCPs OAuth:\n'
 
 while IFS= read -r name; do
-  configured=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || false)
-  [[ $configured == true ]] || continue
+  configured=$(jq --arg n "$name" '.mcp // {} | has($n)' "$OC_FILE" 2>/dev/null || printf 'false')
+  [[ "$configured" == "true" ]] || continue
   oauth=$(parse_mcp_field "$name" "oauth_required")
   if [[ "$oauth" == "true" ]]; then
     printf '     opencode mcp auth %s\n' "$name"
   fi
-done < <(parse_mcp_names)
+done < <(parse_mcp_names) || true
 
 printf '     Configura GITHUB_PERSONAL_ACCESS_TOKEN para el MCP de GitHub\n'
 printf '     https://github.com/settings/tokens (permisos: repo, read:org, read:user)\n'

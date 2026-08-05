@@ -7,10 +7,13 @@ HARNESS_CONFIG_DIR=${DANIEL_HARNESS_CONFIG_DIR:-"$CONFIG_ROOT/daniel-harness"}
 OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$CONFIG_ROOT/opencode"}
 OPENCODE_CONFIG_FILE=${OPENCODE_CONFIG_FILE:-"$OPENCODE_CONFIG_DIR/opencode.json"}
 REPOSITORY_DIR=${DANIEL_HARNESS_REPO:-"$ROOT_DIR"}
+LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 STRICT=false
 SKIP_OAUTH=false
 SKIP_DOCKER=false
+INSTALL_CHECK=false
 PROFILE=
+EXPERIMENTAL=false
 WARNINGS=0
 CRITICAL=0
 
@@ -24,9 +27,11 @@ while [[ $# -gt 0 ]]; do
     --strict) STRICT=true; shift ;;
     --skip-oauth) SKIP_OAUTH=true; shift ;;
     --skip-docker) SKIP_DOCKER=true; shift ;;
+    --install-check) INSTALL_CHECK=true; shift ;;
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
-    --help|-h) printf 'Uso: doctor.sh [--strict] [--skip-oauth] [--profile core|alegra|migration|full]\n'; exit 0 ;;
+    --experimental-data-tools) EXPERIMENTAL=true; shift ;;
+    --help|-h) printf 'Uso: doctor.sh [--strict] [--skip-oauth] [--skip-docker] [--install-check] [--profile core|alegra|migration|full] [--experimental-data-tools]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -253,8 +258,10 @@ print_mcp_status() {
 
     if [[ $enabled == false ]]; then
       status=deshabilitado
-    elif [[ $kind == local && -n $executable ]]; then
-      if command -v "$executable" >/dev/null 2>&1; then
+    elif [[ $kind == local ]]; then
+      if [[ -z "$executable" ]]; then
+        status=comando-no-encontrado
+      elif command -v "$executable" >/dev/null 2>&1; then
         live=$(check_mcp_live "$name")
         status=$live
       else
@@ -368,42 +375,55 @@ else
   warn 'Cliente MariaDB/MySQL no encontrado'
 fi
 
-printf '\nClosed Data Tools\n'
-DATA_TOOLS_DIR="$ROOT_DIR/tools"
-if [[ -d "$DATA_TOOLS_DIR" ]]; then
-  for tool_file in "$DATA_TOOLS_DIR"/dh_*.ts; do
-    [[ -f "$tool_file" ]] || continue
-    tool_name=$(basename "$tool_file" .ts)
-    ok "Custom tool $tool_name presente"
-  done
-else
-  warn 'Directorio tools/ no encontrado'
-fi
-if [[ -f "$ROOT_DIR/agents/data-access.md" ]]; then
-  ok 'Agente data-access.md presente'
-  if grep -qE 'mode: subagent' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-    ok '  mode: subagent'
+if [[ $EXPERIMENTAL == true ]]; then
+  printf '\nClosed Data Tools (experimental — beta)\n'
+  TOOLS_INSTALLED="$OPENCODE_CONFIG_DIR/tools"
+  if [[ -d "$TOOLS_INSTALLED" ]]; then
+    for tool in dh_mysql_query dh_mongodb_query dh_dynamodb_read dh_dynamodb_write dh_object_storage_read; do
+      if [[ -f "$TOOLS_INSTALLED/$tool.ts" || -L "$TOOLS_INSTALLED/$tool.ts" ]]; then
+        ok "Custom tool $tool.ts instalado"
+      else
+        critical "Custom tool $tool.ts no instalado en $TOOLS_INSTALLED"
+      fi
+    done
   else
-    warn '  sin mode: subagent'
+    critical "Directorio $TOOLS_INSTALLED no existe (data tools no instalados)"
   fi
-  if grep -qE 'permission:' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-    ok '  permission section'
-    if grep -qE '"\*":\s+deny' "$ROOT_DIR/agents/data-access.md" 2>/dev/null; then
-      ok '  wildcard deny'
+  AGENT_FILE="$OPENCODE_CONFIG_DIR/agents/data-access.md"
+  if [[ -f "$AGENT_FILE" || -L "$AGENT_FILE" ]]; then
+    ok 'Agente data-access.md instalado'
+    if grep -qE 'mode: subagent' "$AGENT_FILE" 2>/dev/null; then
+      ok '  mode: subagent'
     else
-      warn '  sin wildcard deny'
+      warn '  sin mode: subagent'
     fi
-    TOOL_COUNT=$(grep -cE 'dh_\w+: allow' "$ROOT_DIR/agents/data-access.md" 2>/dev/null || echo 0)
-    if [[ "$TOOL_COUNT" -eq 5 ]]; then
-      ok "  5 custom tools allow"
+    if grep -qE 'permission:' "$AGENT_FILE" 2>/dev/null; then
+      ok '  permission section'
+      if grep -qE '"\*":\s+deny' "$AGENT_FILE" 2>/dev/null; then
+        ok '  wildcard deny'
+      else
+        warn '  sin wildcard deny'
+      fi
+      TOOL_COUNT=$(grep -cE 'dh_\w+: allow' "$AGENT_FILE" 2>/dev/null || echo 0)
+      if [[ "$TOOL_COUNT" -eq 5 ]]; then
+        ok "  5 custom tools allow"
+      else
+        warn "  solo $TOOL_COUNT/5 tools allow"
+      fi
     else
-      warn "  solo $TOOL_COUNT/5 tools allow"
+      warn '  sin permission section'
     fi
   else
-    warn '  sin permission section'
+    critical 'Agente data-access.md no instalado'
+  fi
+  EXECUTOR="$LOCAL_BIN/dh-data-executor"
+  if [[ -f "$EXECUTOR" || -L "$EXECUTOR" ]]; then
+    ok "Executor $EXECUTOR instalado"
+  else
+    critical "Executor $EXECUTOR no instalado"
   fi
 else
-  warn 'Agente data-access.md no encontrado'
+  printf '\nClosed Data Tools: deshabilitadas (usa --experimental-data-tools para activarlas)\n'
 fi
 
 if [[ -n "$PROFILE" ]]; then
@@ -411,6 +431,9 @@ if [[ -n "$PROFILE" ]]; then
   profile_tools=$(get_profile_tools "$PROFILE")
   if [[ -n "$profile_tools" ]]; then
     for tool in $profile_tools; do
+      if [[ "$tool" == "docker" ]] && $SKIP_DOCKER; then
+        continue
+      fi
       tool_status "$tool" "$tool" critical
     done
   fi
@@ -551,19 +574,47 @@ else
             else
               critical "MCP $mcp deshabilitado (requerido por perfil $PROFILE)"
             fi
-          else
-            live=$(check_mcp_live "$mcp")
-            case "$live" in
-              connected) ;;
-              auth-required)
-                if $SKIP_OAUTH; then
-                  warn "MCP $mcp requiere autenticacion (omitido por --skip-oauth)"
-                else
-                  critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
+            else
+              if $INSTALL_CHECK; then
+                mcp_type=$(jq -r --arg n "$mcp" '(.mcp[$n].type // "")' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+                cmd0=$(jq -r --arg n "$mcp" '(.mcp[$n].command // [])[0] // ""' "$OPENCODE_CONFIG_FILE" 2>/dev/null || true)
+                if [[ "$mcp_type" == "local" ]]; then
+                  if [[ -z "$cmd0" ]]; then
+                    critical "MCP local $mcp sin command definido"
+                    continue
+                  fi
+                  if ! command -v "$cmd0" >/dev/null 2>&1; then
+                    critical "MCP $mcp: comando '$cmd0' no encontrado en PATH"
+                    continue
+                  fi
                 fi
-                ;;
-              *) critical "MCP $mcp no accesible (estado: $live)" ;;
-            esac
+              fi
+              live=$(check_mcp_live "$mcp")
+              case "$live" in
+                connected) ;;
+                auth-required)
+                  if $SKIP_OAUTH; then
+                    warn "MCP $mcp requiere autenticacion (omitido por --skip-oauth)"
+                  else
+                    critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
+                  fi
+                  ;;
+                inaccesible)
+                  if $INSTALL_CHECK; then
+                    # Durante install-check: MCP configurado pero no conectado es esperado
+                    warn "MCP $mcp configurado, binario presente (conexion pendiente tras primer inicio de OpenCode)"
+                  else
+                    critical "MCP $mcp no accesible (estado: $live)"
+                  fi
+                  ;;
+                *)
+                  if $INSTALL_CHECK; then
+                    warn "MCP $mcp no accesible (estado: $live) — conexion pendiente"
+                  else
+                    critical "MCP $mcp no accesible (estado: $live)"
+                  fi
+                  ;;
+              esac
           fi
         fi
       done

@@ -5,16 +5,19 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 PROFILE=core
 CONNECT=false
+EXPERIMENTAL_DATA_TOOLS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
     --connect) CONNECT=true; shift ;;
+    --experimental-data-tools) EXPERIMENTAL_DATA_TOOLS=true; shift ;;
     --help|-h)
-      printf 'Uso: ./install [--profile core|alegra|migration|full] [--connect]\n'
+      printf 'Uso: ./install [--profile core|alegra|migration|full] [--connect] [--experimental-data-tools]\n'
       printf '\n  --profile   Perfil a instalar (default: core)\n'
       printf '  --connect   Autenticacion interactiva, doctor y resumen\n'
+      printf '  --experimental-data-tools   Instala closed data tools (beta)\n'
       exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
@@ -38,7 +41,9 @@ fi
 
 # Bootstrap
 printf '\n==> Ejecutando bootstrap --profile %s...\n' "$PROFILE"
-if ! bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$PROFILE"; then
+BOOTSTRAP_ARGS=(--profile "$PROFILE")
+$EXPERIMENTAL_DATA_TOOLS && BOOTSTRAP_ARGS+=(--experimental-data-tools)
+if ! bash "$ROOT_DIR/scripts/bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"; then
   printf '[error] Bootstrap falló\n' >&2
   exit 1
 fi

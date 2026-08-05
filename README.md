@@ -1,44 +1,54 @@
 # Daniel Harness
 
-Daniel Harness es la capa privada y global que coordina el trabajo agentic de Daniel Morales sobre OpenCode y Gentle AI. Resuelve contexto, repositorios, políticas, herramientas, seguimiento de tareas y seguridad sin duplicar el motor de workflow de Gentle AI.
+Daniel Harness es la capa global que coordina el trabajo agentic de Daniel Morales sobre OpenCode y Gentle AI. Resuelve contexto, repositorios, políticas, herramientas, seguimiento de tareas y seguridad sin duplicar el motor de workflow de Gentle AI.
 
 El código y los contratos viven en este repositorio. La configuración local y los secretos viven fuera, en `~/.config/daniel-harness/`.
 
 ## Instalación
 
-### Primera vez
+### Versión estable (v0.1.0)
 
 ```bash
-# Opcion 1 (recomendada): clonar con git y arrancar el instalador
+# Opcion 1 (recomendada): clonar con git
 git clone git@github.com:daniel-morales-dev/daniel-harness.git \
   "$HOME/.local/share/daniel-harness"
 cd "$HOME/.local/share/daniel-harness"
-./install --profile alegra --connect
 
-# Opcion 2 (si gh ya esta instalado):
-gh repo clone daniel-morales-dev/daniel-harness \
-  "$HOME/.local/share/daniel-harness"
-cd "$HOME/.local/share/daniel-harness"
+# Perfil core (OpenCode, Gentle AI, Engram, CodeGraph, RTK)
+./install --profile core --connect
+
+# Perfil alegra (core + GitHub CLI, AWS CLI, MCPs)
 ./install --profile alegra --connect
 ```
 
-Perfiles disponibles:
+### Perfiles disponibles
 
 | Perfil | Incluye |
 |--------|---------|
 | `core` | OpenCode, Gentle AI, Engram, CodeGraph, RTK, DH CLI + MCPs codegraph/engram |
 | `alegra` | Core + GitHub CLI, AWS CLI + MCPs linear/context7/wiki-alegra/github |
-| `migration` | Alegra + Docker, MariaDB + MCP raia-lib |
-| `full` | Migration + MCPs github/sentry |
+| `migration` | Alegra + Docker, MariaDB + MCP navi |
+| `full` | Migration + MCP sentry |
 
-Avanzado:
+### Data tools experimentales
+
+Los closed data tools (MySQL, MongoDB, DynamoDB, Object Storage) están en **beta**
+y deshabilitados por defecto. Para activarlos:
 
 ```bash
-./scripts/bootstrap.sh               # perfil core
-./scripts/bootstrap.sh --profile alegra
-./scripts/bootstrap.sh --dry-run     # simulación
-./install --profile migration        # instalador completo sin conectividad
+./install --profile <perfil> --experimental-data-tools
 ```
+
+O durante bootstrap:
+
+```bash
+./scripts/bootstrap.sh --profile full --experimental-data-tools
+```
+
+Esto crea el runtime Python, instala dependencias (boto3, pymongo, sqlglot)
+y activa los agentes, tools y comandos de acceso a datos.
+
+**Estado: experimental**. No se consideran estables en v0.1.0.
 
 ### Uso diario
 
@@ -47,7 +57,7 @@ dh update        # actualiza el harness
 dh doctor        # diagnóstico
 ```
 
-Install por pasos si ya tienes las herramientas base:
+### Instalación por pasos
 
 ```bash
 ./scripts/install.sh               # configuración local + symlinks
@@ -65,7 +75,7 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 |---|---|
 | `dh doctor` | Diagnóstico completo del harness |
 | `dh install` | Configuración local + symlinks |
-| `dh bootstrap [--profile core/alegra/migration/full] [--skip-docker]` | Instalación desde cero según perfil |
+| `dh bootstrap [--profile core/alegra/migration/full] [--skip-docker] [--experimental-data-tools]` | Instalación desde cero según perfil |
 | `dh mcp-status` | Conexión y OAuth de servidores MCP |
 | `dh tunnel list` | Lista túneles configurados |
 | `dh update` | Actualiza el harness desde Git |
@@ -73,6 +83,22 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 | `dh project init` | Asistente para registrar proyecto |
 | `dh session <issue>` | Crea brief de sesión desde Linear |
 | `dh engram-service install\|enable\|disable\|status` | Servicio systemd para Engram |
+| `dh preflight` | Contexto completo del proyecto (JSON) |
+| `dh verify` | Valida el proyecto según su contexto |
+| `dh version` | Muestra la versión actual del harness |
+
+## Variables de entorno
+
+| Variable | Uso |
+|---|---|
+| `DANIEL_HARNESS_CONFIG_DIR` | Directorio de configuración local (default: `~/.config/daniel-harness`) |
+| `DANIEL_HARNESS_BIN_DIR` | Directorio de binarios (default: `~/.local/bin`) |
+| `DANIEL_HARNESS_RUNTIME_DIR` | Directorio de runtime (default: `~/.local/share/daniel-harness/runtime-venv`) |
+| `DANIEL_HARNESS_REPO` | Ruta al repositorio (default: auto-detect) |
+| `OPENCODE_CONFIG_FILE` | Ruta a opencode.json (default: `~/.config/opencode/opencode.json`) |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | Token para MCP de GitHub |
+| `NAVI_MCP_URL` | URL del servidor MCP de Navi |
+| `NAVI_OAUTH_CLIENT_ID` | Client ID para OAuth de Navi |
 
 ## Reparto de autoridad
 
@@ -89,25 +115,12 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 | Arquitectura y blast radius | CodeGraph |
 | Memoria persistente | Engram |
 
-SDD no se activa automáticamente por tamaño o riesgo. Gentle AI lo usa cuando el usuario lo pide o acepta una propuesta que justifica artefactos durables.
-
 ## Contextos soportados
 
 - Monolito Alegra: PHP 7.0.9 y Zend Framework 1.
 - Microservicios Alegra: Node.js 24, TypeScript, Lambda/CDK, DynamoDB, Kafka, Clean Architecture y DDD.
 - Paridad y migraciones entre monolito y microservicios relacionados.
 - Proyectos freelance, inicialmente K Agencia.
-
-## Agentes y skills
-
-| Recurso | Uso |
-|---|---|
-| `php-engineer` | Cambios quirúrgicos y compatibles con PHP 7.0.9/ZF1. |
-| `alegra-microservice-engineer` | TypeScript/JavaScript, arquitectura y calidad. |
-| `alegra-microservice-test-engineer` | Estrategia y construcción de pruebas. |
-| `code-reviewer` | Revisión estricta antes de entrega. |
-| `task-lifecycle` | Lectura completa y seguimiento de tareas Linear. |
-| `monolith-to-micro-migration` | Paridad observable de PHP hacia TypeScript. |
 
 ## Configuración local
 
@@ -130,21 +143,34 @@ SDD no se activa automáticamente por tamaño o riesgo. Gentle AI lo usa cuando 
 
 Consulta `docs/configuration.md` para agregar o eliminar túneles, MCPs, proyectos y reglas.
 
-## Flujos
-
-- `docs/workflows/task-lifecycle.md`: tarea, subtareas, comentarios, avances y cierre.
-- `docs/workflows/monolith.md`: bugs y features en PHP/ZF1.
-- `docs/workflows/microservice.md`: features y fixes en Node/TypeScript.
-- `docs/workflows/freelance.md`: proyectos externos y conexiones manuales.
-- `docs/workflows/parity.md`: paridad monolito → micro y micro → monolito.
-
 ## Diagnóstico
 
-`doctor.sh` es read-only. Detecta herramientas, Gentle AI/RDD, MCPs, permisos y túneles. Si falta un túnel, informa el perfil y el archivo local que debes ejecutar; nunca abre el túnel ni imprime su comando.
+`doctor.sh` es read-only. Detecta herramientas, Gentle AI/RDD, MCPs, permisos y túneles.
 
 ```bash
 ./scripts/doctor.sh
-./scripts/redact-opencode-config.sh /ruta/explicita/opencode.json > opencode.redacted.json
+./scripts/doctor.sh --profile core --strict
+./scripts/doctor.sh --profile alegra --strict --skip-oauth
+```
+
+## Rollback y recuperación
+
+La transacción de OpenCode (plugins + MCPs) está protegida por:
+
+- **Lock**: impide ejecución simultánea de bootstrap
+- **Journal**: guarda paths exactos de archivos y backups
+- **Backups**: copias antes de cada modificación
+- **Recuperación**: si una ejecución se interrumpe, el bootstrap siguiente
+  detecta el journal y restaura el estado anterior
+
+Para recuperación manual:
+
+```bash
+# Si el bootstrap falla, ejecutar de nuevo completa la transacción
+./scripts/bootstrap.sh --profile core
+
+# Rollback manual (solo si se conoce la estructura)
+cp ~/.config/opencode/opencode.json.bak.* ~/.config/opencode/opencode.json
 ```
 
 ## Seguridad
@@ -160,6 +186,21 @@ Consulta `SECURITY.md` y `docs/security-model.md`.
 
 ## Estado
 
-La fundación, seguridad, `php-engineer`, workflows y contratos de integración están versionados. El context detector/preflight ejecutable y los data tools productivos siguen en el roadmap.
+**v0.1.0** — Estable del harness base.
 
-Este repositorio es privado y personal. No se concede licencia pública.
+| Componente | Estado |
+|---|---|
+| Instalación y perfiles | Estable |
+| OpenCode + plugins + MCPs | Estable |
+| Gentle AI + agentes + skills | Estable |
+| Reconciliación y doctor | Estable |
+| Preflight, verify, update | Estable |
+| Closed data tools | Experimental (beta) |
+
+## Soporte
+
+- Plataforma: Ubuntu 24.04 LTS
+- Reporta errores en: https://github.com/daniel-morales-dev/daniel-harness/issues
+- Smoke test de release: `docs/release-smoke.md`
+
+Ubuntu 24.04 soportado. No se concede licencia pública.

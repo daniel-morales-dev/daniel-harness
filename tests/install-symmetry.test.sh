@@ -22,18 +22,17 @@ PASS=0; FAIL=0
 pass() { printf '  [ok] %s\n' "$*"; PASS=$((PASS + 1)); }
 fail() { printf '  [FAIL] %s\n' "$*"; FAIL=$((FAIL + 1)); }
 
-echo "=== Fase 1: install crea todos los enlaces ==="
-
-bash "$ROOT_DIR/scripts/install.sh" > "$TMP_DIR/install.out" 2>&1
-INSTALL_RC=$?
-echo "install.sh exit code: $INSTALL_RC"
+echo "=== Fase 1: install crea enlaces estables ==="
 
 source "$ROOT_DIR/scripts/lib/managed-links.sh"
 
-# Las variables usadas por el inventario deben estar definidas
 OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME_DIR/.config/opencode}"
 LOCAL_BIN="${DANIEL_HARNESS_BIN_DIR:-$HOME_DIR/.local/bin}"
 HARNESS_CONFIG_DIR="${DANIEL_HARNESS_CONFIG_DIR:-$HOME_DIR/.config/daniel-harness}"
+
+bash "$ROOT_DIR/scripts/install.sh" > "$TMP_DIR/install.out" 2>&1
+INSTALL_RC=$?
+[[ $INSTALL_RC -eq 0 ]] && pass "install exit code 0" || fail "install exit code $INSTALL_RC"
 
 MISSING=0
 while IFS='|' read -r source_rel dest_var dest_rel; do
@@ -46,6 +45,21 @@ while IFS='|' read -r source_rel dest_var dest_rel; do
   fi
 done < <(list_managed_links)
 
+# Verificar que experimental NO se instalaron por defecto
+# Verificar que runtime-venv NO se creó (data tools deshabilitadas por defecto)
+VENV_DIR="${DANIEL_HARNESS_RUNTIME_DIR:-$HOME_DIR/.local/share/daniel-harness/runtime-venv}"
+[[ ! -d "$VENV_DIR" ]] && pass "runtime-venv no creado (experimental deshabilitado)" || fail "runtime-venv creado sin --experimental-data-tools"
+
+echo "=== Fase 1b: experimental no instalados por defecto ==="
+while IFS='|' read -r source_rel dest_var dest_rel; do
+  target="${!dest_var}/$dest_rel"
+  if [[ -e "$target" || -L "$target" ]]; then
+    fail "experimental instalado sin flag: $dest_rel"
+  else
+    pass "experimental no instalado: $dest_rel"
+  fi
+done < <(list_experimental_links)
+
 # Policies también deben estar
 for policy in "$ROOT_DIR/policies/"*.md; do
   pname=$(basename "$policy")
@@ -57,7 +71,7 @@ for policy in "$ROOT_DIR/policies/"*.md; do
   fi
 done
 
-echo "=== Fase 2: uninstall elimina todos los enlaces administrados ==="
+echo "=== Fase 2: uninstall elimina enlaces estables ==="
 
 # Marcamos personal files antes de uninstall
 echo "custom content" > "$DANIEL_HARNESS_CONFIG_DIR/custom-config.yaml"
@@ -66,9 +80,8 @@ echo "custom override" > "$DANIEL_HARNESS_CONFIG_DIR/policies.local/override.md"
 
 bash "$ROOT_DIR/scripts/uninstall.sh" > "$TMP_DIR/uninstall.out" 2>&1
 UNINSTALL_RC=$?
-echo "uninstall.sh exit code: $UNINSTALL_RC"
+[[ $UNINSTALL_RC -eq 0 ]] && pass "uninstall exit code 0" || fail "uninstall exit code $UNINSTALL_RC"
 
-# Verificar que enlaces administrados desaparecieron
 while IFS='|' read -r source_rel dest_var dest_rel; do
   target="${!dest_var}/$dest_rel"
   if [[ -e "$target" || -L "$target" ]]; then

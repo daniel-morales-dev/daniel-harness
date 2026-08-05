@@ -5,6 +5,7 @@ set -euo pipefail
 umask 077
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+source "$ROOT_DIR/tests/helpers/nvm-stub.sh"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -32,31 +33,7 @@ exec "$@"
 EOF
 chmod +x "$STUBS/sudo"
 
-cat > "$STUBS/curl" <<'CURLSCRIPT'
-#!/bin/bash
-cat <<'NVMSCRIPT'
-#!/bin/bash
-NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-mkdir -p "$NVM_DIR"
-cat > "$NVM_DIR/nvm.sh" <<'NVMEOF'
-nvm() {
-  case "$1" in
-    --version) echo "0.40.4" ;;
-    install) mkdir -p "$NVM_DIR/versions/node/v24.0.0/bin"
-             cat > "$NVM_DIR/versions/node/v24.0.0/bin/node" <<'NODEEOF'
-#!/bin/bash
-echo "v24.0.0"
-NODEEOF
-      chmod +x "$NVM_DIR/versions/node/v24.0.0/bin/node" ;;
-    alias) ;;
-    *) ;;
-  esac
-}
-NVMEOF
-chmod +x "$NVM_DIR/nvm.sh"
-NVMSCRIPT
-CURLSCRIPT
-chmod +x "$STUBS/curl"
+create_nvm_curl_stub "$STUBS"
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
@@ -122,10 +99,10 @@ echo "=== Test failpoints (add branch: force MCP update) ==="
 # Para alcanzar MCP_ADDED>0, limpiamos state y borramos un MCP del config
 rm -f "$STATE_FILE"
 jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-reduced.json" && mv "$TMP_DIR/oc-reduced.json" "$OC_FILE"
-# Re-baseline hash (config cambiado no debe preservarse - queremos probar fallo)
 CONFIG_HASH_ADD=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+STATE_HASH_ADD="no-file"
 
-ADD_FAILPOINTS=("backup-config" "backup-state" "move-config" "move-state" "chmod-state")
+ADD_FAILPOINTS=("backup-config" "backup-state" "journal-write" "move-config" "chmod-config" "crash-after-config" "move-state" "chmod-state" "crash-after-state")
 for fp in "${ADD_FAILPOINTS[@]}"; do
   set +e
   DH_TEST_MODE=1 DH_FAIL_AT="$fp" \
@@ -139,6 +116,7 @@ for fp in "${ADD_FAILPOINTS[@]}"; do
     fail "add-${fp}: exit 0 (expected failure)"
   fi
 
+  # v0.1.0: TODO los failpoints deben preservar hash exacto de config y state
   CONFIG_HASH_NOW=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
   if [[ -f "$STATE_FILE" ]]; then
     STATE_HASH_NOW=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
@@ -146,10 +124,9 @@ for fp in "${ADD_FAILPOINTS[@]}"; do
     STATE_HASH_NOW="no-file"
   fi
 
-  # For backup-config/backup-state/move-config: config should not change (with the new transaction,
-  # if backup fails before write, config stays at reduced version)
-  # But for move-state/chmod-state: config was already written, state fails later
-  # We accept the most important invariant: no corruption
+  [[ "$CONFIG_HASH_NOW" == "$CONFIG_HASH_ADD" ]] && pass "add-${fp}: config hash preserved" || fail "add-${fp}: config hash CHANGED"
+  [[ "$STATE_HASH_NOW" == "$STATE_HASH_ADD" ]] && pass "add-${fp}: state hash preserved" || fail "add-${fp}: state hash CHANGED"
+
   JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
   [[ ! -f "$JOURNAL" ]] && pass "add-${fp}: no journal" || fail "add-${fp}: journal present"
 done
@@ -172,6 +149,37 @@ fi
 # Journal debe estar limpio
 JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
 [[ ! -f "$JOURNAL" ]] && pass "recovery: no journal" || fail "recovery: journal present"
+
+echo "=== Plugin-only reconciliation ==="
+# Config con todos los MCPs identicos, Ponytail con version anterior
+jq '.plugin = ["@dietrichgebert/ponytail@4.0.0"]' "$OC_FILE" > "$TMP_DIR/oc-old-ponytail.json"
+mv "$TMP_DIR/oc-old-ponytail.json" "$OC_FILE"
+CONFIG_HASH_PLUGIN=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+rm -f "$STATE_FILE"
+
+# Bootstrap debe actualizar Ponytail aunque los MCPs ya existan
+set +e
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/plugin-update.out" 2>&1
+RC=$?
+set -e
+if [[ $RC -eq 0 ]]; then
+  pass "plugin-only: bootstrap OK"
+else
+  fail "plugin-only: bootstrap exit $RC"
+fi
+
+# Ponytail debe estar actualizado
+jq -e '.plugin[] == "@dietrichgebert/ponytail@4.8.4"' "$OC_FILE" >/dev/null && pass "plugin-only: Ponytail updated" || fail "plugin-only: Ponytail NOT updated"
+
+# Segunda ejecucion no debe modificar nada
+CONFIG_HASH_AFTER=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+set +e
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/plugin-idempotent.out" 2>&1
+RC=$?
+set -e
+[[ $RC -eq 0 ]] && pass "plugin-only: second bootstrap OK" || fail "plugin-only: second bootstrap exit $RC"
+CONFIG_HASH_AFTER2=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
+[[ "$CONFIG_HASH_AFTER" == "$CONFIG_HASH_AFTER2" ]] && pass "plugin-only: idempotent" || fail "plugin-only: config changed on second run"
 
 echo ""
 echo "=== Resultados: $PASS pasaron, $FAIL fallaron ==="

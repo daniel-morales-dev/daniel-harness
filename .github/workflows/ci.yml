@@ -39,10 +39,10 @@ jobs:
           bun run test:tools
 
       - name: ShellCheck scripts
-        run: shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2317 bin/dh scripts/*.sh
+        run: shellcheck -e SC1091,SC2015,SC2016,SC2154,SC2148,SC2317 bin/dh scripts/*.sh scripts/lib/*.sh
 
       - name: Bash syntax check
-        run: bash -n bin/dh scripts/*.sh
+        run: bash -n bin/dh scripts/*.sh scripts/lib/*.sh
 
       - name: Internal schemas
         run: python3 tests/test_config_schema.py && python3 tests/test_connections_schema.py && python3 tests/test_examples_schema.py
@@ -86,14 +86,26 @@ jobs:
       - name: Doctor test
         run: bash tests/doctor.test.sh
 
+      - name: Doctor install-check MCP command
+        run: bash tests/doctor-install-check.test.sh
+
       - name: Bootstrap test
         run: bash tests/bootstrap.test.sh
+
+      - name: Dry-run test
+        run: bash tests/dry-run.test.sh
+
+      - name: Release smoke test (stubs)
+        run: bash tests/release-smoke.test.sh --stubs
 
       - name: Redact config test
         run: bash tests/redact-opencode-config.test.sh
 
       - name: Clean runtime test
         run: bash tests/clean-runtime.test.sh
+
+      - name: NVM failure handling
+        run: bash tests/fail-nvm.test.sh
 
       - name: Data tools — MySQL
         run: python3 tests/test_data_mysql.py
@@ -118,6 +130,15 @@ jobs:
 
       - name: Data tools — E2E
         run: bash tests/data-e2e.test.sh
+
+      - name: Fail-closed validation
+        run: bash tests/fail-closed.test.sh
+
+      - name: First-run transactional
+        run: bash tests/first-run-transaction.test.sh
+
+      - name: Tool path exposure
+        run: bash tests/tool-path-exposure.test.sh --stubs
 
   e2e:
     timeout-minutes: 20

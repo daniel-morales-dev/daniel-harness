@@ -16,7 +16,7 @@ Reescribir historial requiere autorización separada. Rotar tiene prioridad porq
 
 ## Frontera de almacenamiento
 
-El repositorio contiene código, políticas, schemas y ejemplos sintéticos. La configuración local vive en `~/.config/daniel-harness/`; los secretos viven bajo `secrets/` con directorios `700` y archivos `600`.
+El repositorio contiene código, políticas, schemas y ejemplos sintéticos. La configuración local del usuario vive en `~/.config/daniel-harness/`; los secretos viven bajo `secrets/` con directorios `700` y archivos `600`.
 
 Nunca versiones tokens, passwords, API keys, claves privadas, URLs con credenciales, `.cnf`, comandos SSH reales, hosts internos, dumps, resultados de consultas o logs productivos.
 

@@ -122,6 +122,15 @@ if grep -F 'synthetic-password' "$OUTPUT" >/dev/null; then
   exit 1
 fi
 
+# Inject restricted model into config for this test
+python3 -c "
+import yaml
+cfg = yaml.safe_load(open('$CONFIG_DIR/config.yaml'))
+if not any(m.get('trust') == 'restricted' for m in cfg.get('models', [])):
+  cfg.setdefault('models', []).append({'id': 'test-restricted', 'trust': 'restricted', 'allowArbitraryShell': False, 'allowedCapabilities': ['repository-read-sanitized']})
+  yaml.dump(cfg, open('$CONFIG_DIR/config.yaml', 'w'))
+"
+
 printf '%s\n' '{"permission":"invalid","mcp":{}}' >"$OPENCODE_CONFIG"
 
 if DANIEL_HARNESS_CONFIG_DIR="$CONFIG_DIR" \

@@ -16,14 +16,21 @@ echo "=== Test 1: Launcher existe y es ejecutable ==="
 [[ -f "$LAUNCHER" ]] && pass "launcher exists" || fail "launcher missing"
 [[ -x "$LAUNCHER" ]] && pass "launcher is executable" || fail "launcher not executable"
 
-echo "=== Test 2: Launcher funciona desde directorio externo ==="
-# Run from /tmp to verify it resolves its own path
-echo '{"tool":"mysql-query","profile":"nope","operation":"query","params":{"sql":"SELECT 1"}}' | (
-  cd /tmp
-  RC=0
-  "$LAUNCHER" > "$TMP_DIR/launcher.out" 2>&1 || RC=$?
-  grep -q '"error"' "$TMP_DIR/launcher.out" && pass "launcher works from external dir" || fail "launcher failed from external dir"
-)
+echo "=== Test 2: Launcher funciona desde directorio externo (HOME sin connections.yaml) ==="
+printf '{"tool":"mysql-query","profile":"nope","operation":"query","params":{"sql":"SELECT 1"}}\n' > "$TMP_DIR/launcher.in"
+cd /tmp
+HOME="$TMP_DIR/clean-home" "$LAUNCHER" < "$TMP_DIR/launcher.in" > "$TMP_DIR/launcher.out" 2>&1 && RC=$? || RC=$?
+cd "$ROOT_DIR"
+LAUNCHER_RC=$RC
+if [[ $LAUNCHER_RC -eq 1 ]]; then
+  pass "launcher exit 1 from external dir (connections.yaml no encontrado)"
+else
+  fail "launcher exit $LAUNCHER_RC from external dir (esperado 1)"
+fi
+jq -e . "$TMP_DIR/launcher.out" >/dev/null 2>&1 && \
+  jq -e '.error' "$TMP_DIR/launcher.out" >/dev/null 2>&1 && \
+  pass "launcher output: JSON valido con error" || \
+  fail "launcher output: JSON invalido o sin error"
 
 echo "=== Test 3: Exit code 1 (runtime error) ==="
 echo '{"tool":"mysql-query","profile":"missing","operation":"query","params":{"sql":"SELECT 1"}}' | "$LAUNCHER" > /dev/null 2>&1 && RC=$? || RC=$?
