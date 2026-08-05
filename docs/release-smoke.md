@@ -59,8 +59,10 @@ bash tests/release-smoke.test.sh 2>&1 |
 smoke_rc=${PIPESTATUS[0]}
 set -e
 
-printf 'SMOKE_SHA=%s\n' "$actual_sha"
-printf 'SMOKE_EXIT=%s\n' "$smoke_rc"
+{
+  printf 'SMOKE_SHA=%s\n' "$actual_sha"
+  printf 'SMOKE_EXIT=%s\n' "$smoke_rc"
+} | tee -a "$HOME/release-smoke-${EXPECTED_SHA:0:7}.log"
 exit "$smoke_rc"
 INNER
 OUTER
