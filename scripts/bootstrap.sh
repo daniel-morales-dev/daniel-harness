@@ -383,8 +383,6 @@ OC_FILE="${OPENCODE_CONFIG_FILE:-$CONFIG_ROOT/opencode/opencode.json}"
 JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
 TMP_CANDIDATE=""
 TMP_STATE=""
-BACKUP_OC=""
-BACKUP_STATE=""
 
 # ── Journal allowlist de paths — validación antes de rollback ──
 JOURNAL_ALLOWLIST_PATHS=(
@@ -1091,6 +1089,19 @@ _validar_ruta_secreta() {
   return 0
 }
 
+# Mapping único de resource ID → applyOrder
+_apply_order_for_id() {
+  case "$1" in
+    githubAuthorization) echo 10 ;;
+    naviUrl)            echo 20 ;;
+    naviClientId)       echo 30 ;;
+    opencodeConfig)     echo 40 ;;
+    mcpState)           echo 50 ;;
+    managedFilesState)  echo 60 ;;
+    *)                  echo 99 ;;
+  esac
+}
+
 # Registrar secreto en journal (prepara temp, añade recurso)
 _journal_secret_resource() {
   local id=$1 final=$2 content=$3
@@ -1123,7 +1134,7 @@ _journal_secret_resource() {
     naviUrl) TMP_NAVI_URL="$tmp" ;;
     naviClientId) TMP_NAVI_CID="$tmp" ;;
   esac
-  _journal_add_resource "$id" "$final" "$tmp" "$backup" "$existed" "600" "$apply_order"
+  _journal_add_resource "$id" "$final" "$tmp" "$backup" "$existed" "600" "$(_apply_order_for_id "$id")"
   return 0
 }
 
@@ -1385,16 +1396,7 @@ _transaction_apply() {
     return 0
   fi
 
-  # ── Registrar resources en journal ──────────────────────────
-  if [[ -n "$TMP_GITHUB" ]]; then
-    _journal_add_resource "githubAuthorization" "$HARNESS_CONFIG_DIR/secrets/github/authorization" "$TMP_GITHUB" "" false "600" 10
-  fi
-  if [[ -n "$TMP_NAVI_URL" ]]; then
-    _journal_add_resource "naviUrl" "$HARNESS_CONFIG_DIR/secrets/navi/url" "$TMP_NAVI_URL" "" false "600" 20
-  fi
-  if [[ -n "$TMP_NAVI_CID" ]]; then
-    _journal_add_resource "naviClientId" "$HARNESS_CONFIG_DIR/secrets/navi/client-id" "$TMP_NAVI_CID" "" false "600" 30
-  fi
+  # ── Registrar resources en journal (secretos ya registrados por _journal_secret_resource) ──
   config_backup=""
   if $OC_EXISTED_BEFORE && [[ -f "$OC_FILE" ]]; then
     config_backup="$HARNESS_CONFIG_DIR/backups/opencode-config-pre-$(date +%s).bak"
@@ -1487,7 +1489,9 @@ _transaction_apply() {
   _journal_update "committed"
   _clear_journal
   info "Configuracion aplicada (plugins y/o MCPs actualizados)"
-  $OC_EXISTED_BEFORE && info "Backup: $config_backup"
+  if $OC_EXISTED_BEFORE; then
+    info "Backup: $config_backup"
+  fi
   return 0
 }
 
