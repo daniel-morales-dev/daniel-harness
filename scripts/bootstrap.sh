@@ -1503,18 +1503,22 @@ if [[ $DRY_RUN == false ]]; then
   set +e
   _transaction_apply; rc=$?
   set -e
+  echo "  [dbg] _transaction_apply rc=$rc" >&2
   if [[ $rc -eq 1 ]]; then
     rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+    echo "  [dbg] exit on rc=1" >&2
     exit 1
   elif [[ $rc -eq 2 ]]; then
     rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+    echo "  [dbg] exit on rc=2" >&2
     exit 1
   fi
 fi
+echo "  [dbg] post transaction block reached" >&2
 
 # ── Fase post-transacción: agentes administrados ─────────────
-# Ejecutar solo si la transacción de configuración ya está committed
 if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
+  echo "  [dbg] entering agent post-phase" >&2
   phase "Agentes administrados"
   info 'Instalando agentes administrados...'
   INSTALL_ARGS=()
