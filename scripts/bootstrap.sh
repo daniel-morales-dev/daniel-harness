@@ -285,37 +285,12 @@ source "$ROOT_DIR/scripts/lib/tool-path.sh"
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
 _ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
 
-# Version check: ensure installed OpenCode meets minimum
+# Version check: capability-based validation
 if [[ $DRY_RUN == false ]] && command -v opencode >/dev/null 2>&1; then
-  _oc_version=$(opencode --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || true)
-  if [[ -n "$_oc_version" ]]; then
-    min="0.1.0"
-    IFS=.
-    read -r ma mi pa <<< "$_oc_version"
-    read -r ma_min mi_min pa_min <<< "$min"
-    installed_num=$((ma * 10000 + mi * 100 + pa))
-    min_num=$((ma_min * 10000 + mi_min * 100 + pa_min))
-    if (( installed_num < min_num )); then
-      critical "OpenCode v$_oc_version < v$min (mínimo requerido)"
-      if [[ -t 0 ]] && [[ $NON_INTERACTIVE == false ]]; then
-        info "¿Actualizar OpenCode? [Y/n]"
-        read -r _yn
-        if [[ -z "$_yn" || "$_yn" =~ ^[Yy] ]]; then
-          run bash -c "curl -fsSL https://opencode.ai/install | bash"
-        else
-          critical "OpenCode desactualizado. Ejecuta: curl -fsSL https://opencode.ai/install | bash"
-          exit 1
-        fi
-      else
-        critical "OpenCode v$_oc_version por debajo del mínimo v$min. Actualiza con: curl -fsSL https://opencode.ai/install | bash"
-        exit 1
-      fi
-    else
-      ok "OpenCode v$_oc_version (mínimo v$min)"
-    fi
-  else
-    info "OpenCode presente pero no se pudo detectar version"
-  fi
+  _oc_version=$(opencode --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "0.0.0")
+  ok "OpenCode v$_oc_version"
+  opencode agent list >/dev/null 2>&1 || { critical "opencode agent list falló"; exit 1; }
+  ok "Capacidad: opencode agent list verificada"
 else
   info "OpenCode version check omitido (dry-run o no instalado aun)"
 fi
@@ -893,7 +868,7 @@ fi
 phase "Configuración del harness"
 
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
-  INSTALL_ARGS=(--skip-agents)
+  INSTALL_ARGS=(--skip-resources --skip-agents)
   $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
   $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
   $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
@@ -910,16 +885,20 @@ if command -v gentle-ai >/dev/null 2>&1; then
     ga_version=$(gentle-ai --version 2>/dev/null || echo "unknown")
     ok "Gentle AI $ga_version"
 
-    gentle-ai skill-registry refresh --force 2>&1 | head -3 || {
-      warn "gentle-ai skill-registry refresh falló (no crítico)"
-    }
+    if gentle-ai skill-registry refresh --force >/dev/null 2>&1; then
+      ok "Gentle AI skill-registry actualizado"
+    else
+      warn "gentle-ai skill-registry refresh falló — ejecuta manual: gentle-ai skill-registry refresh --force"
+    fi
 
-    gentle-ai sync 2>&1 | head -3 || {
-      warn "gentle-ai sync falló (no crítico)"
-    }
+    if gentle-ai sync >/dev/null 2>&1; then
+      ok "Gentle AI sincronizado"
+    else
+      critical "gentle-ai sync falló — revisa que GAIA_KEY esté configurada"
+      exit 1
+    fi
 
-    ga_agents=$(gentle-ai doctor 2>/dev/null || true)
-    if echo "$ga_agents" | grep -q "healthy"; then
+    if gentle-ai doctor 2>/dev/null | grep -q "healthy"; then
       ok "Gentle AI saludable"
     else
       warn "gentle-ai doctor no reporta healthy"
@@ -1516,8 +1495,11 @@ _transaction_apply() {
 }
 
 # ── Ejecutar transacción (dry-run salta) ──────────────────────
+rc=0
 if [[ $DRY_RUN == false ]]; then
+  set +e
   _transaction_apply; rc=$?
+  set -e
   if [[ $rc -eq 1 ]]; then
     rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     exit 1
@@ -1532,7 +1514,7 @@ fi
 if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
   phase "Agentes administrados"
   info 'Instalando agentes administrados...'
-  INSTALL_ARGS=(--skip-resources)
+  INSTALL_ARGS=()
   $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
   $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
   $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)

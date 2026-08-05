@@ -322,7 +322,7 @@ check_gentle_ai() {
     warn 'No se pudo consultar el modo RDD de Gentle AI'
   fi
 
-  doctor_output=$(gentle-ai doctor 2>/dev/null || true)
+  doctor_output=$(gentle-ai doctor 2>/dev/null || echo "")
   if grep -Fq 'Status:  healthy' <<<"$doctor_output"; then
     ok 'Ecosistema Gentle AI saludable'
   else
