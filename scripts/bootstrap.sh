@@ -888,16 +888,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 7: Configuración del harness
+# Fase 7: Configuración del harness (links y configs, NO agentes)
 # ---------------------------------------------------------------------------
 phase "Configuración del harness"
 
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
-  INSTALL_ARGS=()
+  INSTALL_ARGS=(--skip-agents)
   $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
   $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
   $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
-  info 'Ejecutando install.sh...'
+  info 'Ejecutando install.sh (configs y agentes — fase de deploy)...'
   run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
 else
   info 'install.sh no encontrado'
@@ -1525,6 +1525,22 @@ if [[ $DRY_RUN == false ]]; then
     rm -f "$TMP_CANDIDATE" "$TMP_STATE"
     exit 1
   fi
+fi
+
+# ── Fase post-transacción: agentes administrados ─────────────
+# Ejecutar solo si la transacción de configuración ya está committed
+if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
+  phase "Agentes administrados"
+  info 'Instalando agentes administrados...'
+  INSTALL_ARGS=(--skip-resources)
+  $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
+  $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
+  $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
+  if ! run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"; then
+    critical "Fallo al instalar agentes administrados"
+    exit 1
+  fi
+  _ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
 fi
 
 info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"

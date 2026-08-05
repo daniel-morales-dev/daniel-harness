@@ -9,6 +9,7 @@ LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 EXPERIMENTAL=false
 RESET_MANAGED=false
 SKIP_RESOURCES=false
+SKIP_AGENTS=false
 NON_INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
@@ -16,6 +17,7 @@ while [[ $# -gt 0 ]]; do
     --experimental-data-tools) EXPERIMENTAL=true; shift ;;
     --reset-managed) RESET_MANAGED=true; shift ;;
     --skip-resources) SKIP_RESOURCES=true; shift ;;
+    --skip-agents) SKIP_AGENTS=true; shift ;;
     --non-interactive) NON_INTERACTIVE=true; shift ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
@@ -162,17 +164,26 @@ install_managed_copy() {
   fi
 
   expected_hash=$(echo "$state_line" | cut -d'|' -f4)
+  current_hash=$(sha256sum "$target" | cut -d' ' -f1)
+
+  # Clasificar antes de actuar
+  local classification="managed-clean"
+  if [[ "$current_hash" != "$expected_hash" ]]; then
+    classification="managed-modified"
+  fi
 
   if $RESET_MANAGED; then
-    install -m 600 "$source" "$target"
-    _record_managed_state "$logical" "$source_hash" "$source_hash"
-    printf 'reinstalado (--reset-managed): %s\n' "$target"
+    if [[ "$classification" == "managed-clean" ]]; then
+      install -m 600 "$source" "$target"
+      _record_managed_state "$logical" "$source_hash" "$source_hash"
+      printf 'reinstalado (--reset-managed): %s\n' "$target"
+    else
+      printf 'conflicto: %s fue modificado, --reset-managed no sobrescribe\n' "$target"
+    fi
     return
   fi
 
-  current_hash=$(sha256sum "$target" | cut -d' ' -f1)
-
-  if [[ "$current_hash" == "$expected_hash" ]]; then
+  if [[ "$classification" == "managed-clean" ]]; then
     # File is as we left it — update to latest source
     install -m 600 "$source" "$target"
     _record_managed_state "$logical" "$source_hash" "$source_hash"
@@ -217,9 +228,13 @@ for policy in "$ROOT_DIR/policies/"*.md; do
 done
 
 # Managed COPIES — 5 agents via list_managed_files (installed as regular files with state tracking)
-while IFS='|' read -r source_rel dest_var dest_rel; do
-  install_managed_copy "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel" "$source_rel"
-done < <(list_managed_files)
+if ! $SKIP_AGENTS; then
+  while IFS='|' read -r source_rel dest_var dest_rel; do
+    install_managed_copy "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel" "$source_rel"
+  done < <(list_managed_files)
+else
+  printf '(agentes omitidos — se instalaran en la transaccion)\n'
+fi
 
 # Resources (symlinks via list_managed_links + list_experimental_links) — skipped with --skip-resources
 if ! $SKIP_RESOURCES; then
