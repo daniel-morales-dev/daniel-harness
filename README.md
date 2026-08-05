@@ -201,5 +201,6 @@ Consulta `SECURITY.md` y `docs/security-model.md`.
 
 - Plataforma: Ubuntu 24.04 LTS
 - Reporta errores en: https://github.com/daniel-morales-dev/daniel-harness/issues
+- Smoke test de release: `docs/release-smoke.md`
 
 Ubuntu 24.04 soportado. No se concede licencia pública.
