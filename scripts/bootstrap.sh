@@ -666,6 +666,7 @@ _init_journal() {
   _fsync "$tmp"
   mv "$tmp" "$JOURNAL_FILE"
   chmod 600 "$JOURNAL_FILE"
+  rm -f "$t" 2>/dev/null || true
   _fsync "$JOURNAL_FILE"
 }
 
@@ -726,7 +727,7 @@ _journal_write_full() {
 }
 
 _clear_journal() {
-  rm -f "$JOURNAL_FILE" || { critical "No se pudo eliminar journal"; return 1; }
+  rm -f "$JOURNAL_FILE" 2>/dev/null
   _fsync "$(dirname "$JOURNAL_FILE")" 2>/dev/null || true
 }
 
