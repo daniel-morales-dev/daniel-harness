@@ -623,7 +623,8 @@ _fsync_file() {
 # dst existe → verificamos hash, luego rename atómico
 _mv_safe() {
   local src=$1 dst=$2 orig_sha=${3:-}
-  python3 -c "
+  local rn=0
+  if python3 -c "
 import ctypes, os, sys, ctypes.util
 SYS = {'x86_64': 316, 'aarch64': 276}.get(os.uname().machine, 316)
 flags = int(sys.argv[3])
@@ -633,11 +634,11 @@ libc.syscall.restype = ctypes.c_long
 ret = libc.syscall(SYS, -100, src, -100, dst, flags)
 if ret != 0:
     sys.exit(ctypes.get_errno())
-" "$src" "$dst" "1"
-  local rn=$?
-  if [[ $rn -eq 0 ]]; then
+" "$src" "$dst" "1"; then
     chmod 600 "$dst"
     return 0
+  else
+    rn=$?
   fi
   if [[ $rn -eq 17 ]]; then
     if [[ -n "$orig_sha" ]]; then
@@ -1399,13 +1400,30 @@ _transaction_apply() {
 
   if ! $config_changed; then
     if (( ${#MANAGED_MCPS[@]} > 0 )) && _build_state "$OC_FILE" "$TMP_STATE"; then
+      # State idempotente: no llamar _mv_safe si el contenido es idéntico
+      if [[ -f "$STATE_FILE" ]]; then
+        local candidate_state_sha existing_state_sha
+        candidate_state_sha=$(sha256sum "$TMP_STATE" | cut -d' ' -f1)
+        existing_state_sha=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
+        if [[ "$candidate_state_sha" == "$existing_state_sha" ]]; then
+          rm -f "$TMP_STATE"
+          _journal_update "committed"
+          _clear_journal
+          ok "State sin cambios (idempotente)"
+          local summary=""
+          [[ $MCP_SKIPPED -gt 0 ]] && summary="${MCP_SKIPPED} personalizados omitidos"
+          rm -f "$TMP_CANDIDATE"
+          [[ -n "$summary" ]] && ok "MCPs: ${summary}" || ok "No hay cambios en la configuracion"
+          return 0
+        fi
+      fi
       _journal_add_resource "mcpState" "$STATE_FILE" "$TMP_STATE" "" "$STATE_EXISTED_BEFORE" "600" 50
       _journal_update "candidates-ready"
       _journal_update "" "mcpState" '{"status": "applying"}'
       local cs
       cs=$(sha256sum "$TMP_STATE" | cut -d' ' -f1)
       _journal_update "" "mcpState" '{"candidateSha256": "'"$cs"'"}'
-      _mv_safe "$TMP_STATE" "$STATE_FILE" ""
+      _mv_safe "$TMP_STATE" "$STATE_FILE" "$st_orig_sha"
       _fsync "$(dirname "$STATE_FILE")"
       _journal_update "" "mcpState" '{"status": "applied"}'
       _journal_update "committed"
