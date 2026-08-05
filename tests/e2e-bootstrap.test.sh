@@ -71,7 +71,11 @@ chmod +x "$STUBS/npm"
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 0.1.0"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
@@ -204,9 +208,25 @@ jq -e '[.mcp[] | select(.type == "remote") | .oauth == true] | any | not' "$OC_C
 
 # --- Phase 3: Agents and skills ---
 printf '\n=== Phase 3: Agents and skills ===\n'
+AGENT_DIR="$HOME_CORE/.config/opencode/agents"
 for a in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
-  [[ -L "$HOME_CORE/.config/opencode/agents/$a.md" ]] && pass "agent $a" || fail "agent $a missing"
+  f="$AGENT_DIR/$a.md"
+  [[ -f "$f" ]] && pass "agent $a: file exists" || fail "agent $a missing"
+  [[ ! -L "$f" ]] && pass "agent $a: not a symlink" || fail "agent $a: is still a symlink"
+  AGENT_MODE=$(stat -c '%a' "$f" 2>/dev/null || echo "000")
+  [[ "$AGENT_MODE" == "600" ]] && pass "agent $a: mode 600" || fail "agent $a: mode $AGENT_MODE"
 done
+# Verify managed state tracks agent hashes
+AGENT_STATE="$HOME_CORE/.config/daniel-harness/state/opencode-managed.state"
+[[ -f "$AGENT_STATE" ]] && pass "agent state file exists" || fail "agent state file missing"
+for a in alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer; do
+  grep -q "^agents/${a}.md|" "$AGENT_STATE" 2>/dev/null && pass "agent $a: tracked in state" || fail "agent $a: not tracked in state"
+done
+# Idempotence: second install should NOT re-copy
+INSTALL_OUT2="$TMP_DIR/install-idempotent.out"
+env PATH="$STUBS:$PATH" HOME="$HOME_CORE" XDG_CONFIG_HOME="$HOME_CORE/.config" \
+  bash "$ROOT_DIR/scripts/install.sh" > "$INSTALL_OUT2" 2>&1
+grep -q 'instalado:' "$INSTALL_OUT2" && fail "agent reinstall on idempotent run" || pass "agent idempotent: no reinstall"
 for s in monolith-to-micro-migration task-lifecycle; do
   [[ -d "$HOME_CORE/.config/opencode/skills/$s" ]] && pass "skill $s" || fail "skill $s missing"
 done
@@ -373,7 +393,11 @@ jq empty "$OC_CORE" >/dev/null 2>&1 || {
 }
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "auth-required"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 0.1.0"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"

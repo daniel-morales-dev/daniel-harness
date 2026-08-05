@@ -71,6 +71,10 @@ _is_harness_owned_symlink() {
   local target=$1
   [[ "$target" == "$ROOT_DIR"* ]] && return 0
   [[ "$target" == "$HOME/.local/share/daniel-harness"* ]] && return 0
+  # Check managed state for known old checkout paths
+  local state_line
+  state_line=$(_get_managed_state "agent-path:$target" 2>/dev/null || true)
+  [[ -n "$state_line" ]] && return 0
   return 1
 }
 
@@ -133,7 +137,7 @@ install_managed_copy() {
       _record_managed_state "$logical" "$source_hash" "$source_hash"
       printf 'reemplazado symlink por copia: %s\n' "$target"
     else
-      printf 'omitido: %s es symlink de terceros -> %s\n' "$target" "$link_target"
+      printf 'conflicto: %s es symlink de terceros -> %s\n' "$target" "$link_target"
     fi
     return
   fi
@@ -148,9 +152,7 @@ install_managed_copy() {
       _record_managed_state "$logical" "$source_hash" "$source_hash"
       printf 'adoptado: %s (contenido coincide)\n' "$target"
     elif $RESET_MANAGED; then
-      install -m 600 "$source" "$target"
-      _record_managed_state "$logical" "$source_hash" "$source_hash"
-      printf 'reinstalado (--reset-managed): %s\n' "$target"
+      printf 'conflicto: %s no tiene estado gestionado, no se sobreescribe (--reset-managed no fuerza)\n' "$target"
     else
       printf 'omitido: %s es propiedad del usuario (sin estado gestionado)\n' "$target"
     fi
@@ -175,6 +177,9 @@ install_managed_copy() {
     printf 'actualizado: %s\n' "$target"
   else
     printf 'conflicto: %s fue modificado por el usuario, conservado\n' "$target"
+    if [[ ${NON_INTERACTIVE:-false} == true ]]; then
+      return 1
+    fi
   fi
 }
 

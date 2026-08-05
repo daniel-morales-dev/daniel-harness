@@ -243,7 +243,7 @@ check_mcp_live() {
   local result
 
   if [[ -v MCP_LIVE_CACHE["$name"] ]]; then
-    echo "${MCP_LIVE_CACHE[$name]}"
+    MCP_LIVE_RESULT="${MCP_LIVE_CACHE[$name]}"
     return
   fi
 
@@ -252,7 +252,7 @@ check_mcp_live() {
   if ! command -v opencode >/dev/null 2>&1; then
     result="opencode-no-instalado"
     MCP_LIVE_CACHE["$name"]="$result"
-    echo "$result"
+    MCP_LIVE_RESULT="$result"
     return
   fi
 
@@ -260,7 +260,7 @@ check_mcp_live() {
   debug_out=$(timeout "${DH_MCP_PROBE_TIMEOUT_SECONDS:-3}" opencode mcp debug "$name" 2>&1 || true)
   result=$(classify_mcp_debug_output "$debug_out")
   MCP_LIVE_CACHE["$name"]="$result"
-  echo "$result"
+  MCP_LIVE_RESULT="$result"
 }
 
 print_mcp_status() {
@@ -278,7 +278,7 @@ print_mcp_status() {
         status=comando-no-encontrado
       elif command -v "$executable" >/dev/null 2>&1; then
         if ! { $INSTALL_CHECK && $SKIP_OAUTH; }; then
-          live=$(check_mcp_live "$name")
+          check_mcp_live "$name"; live="$MCP_LIVE_RESULT"
           status=$live
         fi
       else
@@ -286,7 +286,7 @@ print_mcp_status() {
       fi
     elif [[ $kind == remote ]]; then
       if ! { $INSTALL_CHECK && $SKIP_OAUTH; }; then
-        live=$(check_mcp_live "$name")
+        check_mcp_live "$name"; live="$MCP_LIVE_RESULT"
         status=$live
       fi
     fi
@@ -343,29 +343,33 @@ validate_profile_agents() {
 
   if command -v opencode >/dev/null 2>&1; then
     local agent_list
-    agent_list=$(opencode agent list 2>/dev/null || true)
-    if [[ -n "$agent_list" ]]; then
-      for agent in "${required[@]}"; do
-        if echo "$agent_list" | grep -qw "$agent"; then
-          ok "Agente $agent cargado en OpenCode"
-        else
-          critical "Agente $agent no encontrado en OpenCode (requerido)"
-          missing=$((missing + 1))
-        fi
-      done
+    agent_list=$(opencode agent list 2>/dev/null) || {
+      critical "opencode agent list falló — no se pueden verificar agentes"
+      return
+    }
+    if [[ -z "$agent_list" ]]; then
+      critical "opencode agent list devolvió lista vacía"
       return
     fi
+    for agent in "${required[@]}"; do
+      if echo "$agent_list" | grep -qw "$agent"; then
+        ok "Agente $agent cargado en OpenCode"
+      else
+        critical "Agente $agent no encontrado en OpenCode (requerido)"
+        missing=$((missing + 1))
+      fi
+    done
+  else
+    # Fallback: file-exists check (opencode no disponible)
+    for agent in "${required[@]}"; do
+      if [[ -f "$agent_dir/$agent.md" ]]; then
+        ok "Agente $agent presente (archivo)"
+      else
+        critical "Agente $agent no encontrado (requerido)"
+        missing=$((missing + 1))
+      fi
+    done
   fi
-
-  # Fallback: file-exists check
-  for agent in "${required[@]}"; do
-    if [[ -f "$agent_dir/$agent.md" || -L "$agent_dir/$agent.md" ]]; then
-      ok "Agente $agent presente (archivo)"
-    else
-      critical "Agente $agent no encontrado (requerido)"
-      missing=$((missing + 1))
-    fi
-  done
 
   if [[ -L "$agent_dir/senior-engineer.md" ]]; then
     warn "Agente legacy senior-engineer todavía presente; ejecuta install.sh para limpiar"
@@ -638,7 +642,7 @@ else
                 fi
 
                 if ! $SKIP_OAUTH; then
-                  live=$(check_mcp_live "$mcp")
+                  check_mcp_live "$mcp"; live="$MCP_LIVE_RESULT"
                   case "$live" in
                     connected) ;;
                     auth-required)
@@ -653,7 +657,7 @@ else
                   esac
                 fi
               else
-                live=$(check_mcp_live "$mcp")
+                check_mcp_live "$mcp"; live="$MCP_LIVE_RESULT"
                 case "$live" in
                   connected) ;;
                   auth-required)

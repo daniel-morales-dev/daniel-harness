@@ -605,6 +605,7 @@ phase "Configuración del harness"
 
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
   INSTALL_ARGS=()
+  $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
   $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
   info 'Ejecutando install.sh...'
   run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
@@ -778,8 +779,26 @@ while IFS= read -r name; do
 done < <(parse_mcp_names)
 
 # ── Secret migration: GitHub, Navi ──────────────────────────────
+# Uses temp files + atomic rename + checksums coordinated with journal
 SECRETS_MIGRATED=0
 SECRETS_PENDING=0
+
+_write_secret_file() {
+  local path=$1 content=$2
+  local dir
+  dir=$(dirname "$path")
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  local tmp
+  tmp=$(mktemp "$path.XXXXXXXX")
+  printf '%s\n' "$content" > "$tmp"
+  chmod 600 "$tmp"
+  local src_sum dst_sum
+  src_sum=$(printf '%s\n' "$content" | sha256sum | cut -d' ' -f1)
+  dst_sum=$(sha256sum "$tmp" | cut -d' ' -f1)
+  [[ "$src_sum" == "$dst_sum" ]] || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$path"
+}
 
 _migrate_github_secret() {
   local auth
@@ -789,21 +808,25 @@ _migrate_github_secret() {
   local secret_dir="$HARNESS_CONFIG_DIR/secrets/github"
   local secret_file="$secret_dir/authorization"
 
-  # Already file-based
+  # A) Already file-based
   if [[ "$auth" == "{file:$secret_file}" ]]; then
     if [[ -f "$secret_file" ]]; then
       local perm
       perm=$(stat -c '%a' "$secret_file" 2>/dev/null || echo "000")
       [[ "$perm" == "600" ]] && return 0
+      chmod 600 "$secret_file" && return 0
     fi
+    return 0
   fi
 
-  # env-ref or literal — create file
+  # Resolve value from current auth form
   local value=""
-  if [[ "$auth" == "{env:GITHUB_PERSONAL_ACCESS_TOKEN}" && -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+  if [[ "$auth" == "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}" && -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
     value="Bearer $GITHUB_PERSONAL_ACCESS_TOKEN"
-  elif [[ "$auth" =~ ^Bearer\  ]]; then
-    # literal token in config
+  elif [[ "$auth" == "{env:GITHUB_PERSONAL_ACCESS_TOKEN}" && -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+    value="Bearer $GITHUB_PERSONAL_ACCESS_TOKEN"
+  elif [[ "$auth" =~ ^Bearer\  && "$auth" != "Bearer {env:"* ]]; then
+    # literal Bearer token (not an env ref)
     value="$auth"
   fi
 
@@ -819,14 +842,15 @@ _migrate_github_secret() {
   fi
 
   if [[ -n "$value" ]]; then
-    mkdir -p -m 700 "$secret_dir"
-    printf '%s\n' "$value" > "$secret_file"
-    chmod 600 "$secret_file"
-    _candidate_jq --arg f "$secret_file" '.mcp.github.headers.Authorization = "{file:\($f)}"'
-    info "GitHub: token migrado a archivo persistente"
-    SECRETS_MIGRATED=$((SECRETS_MIGRATED + 1))
+    if _write_secret_file "$secret_file" "$value"; then
+      _candidate_jq --arg f "$secret_file" '.mcp.github.headers.Authorization = "{file:\($f)}"'
+      info "GitHub: token migrado a archivo persistente"
+      SECRETS_MIGRATED=$((SECRETS_MIGRATED + 1))
+    else
+      critical "GitHub: fallo al escribir secreto"
+      return 1
+    fi
   else
-    # persistent env ref is ok if env var is available at runtime
     if [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
       ok "GitHub: usando {env:GITHUB_PERSONAL_ACCESS_TOKEN}"
     else
@@ -840,56 +864,57 @@ _migrate_navi_secret() {
   local navi_dir="$HARNESS_CONFIG_DIR/secrets/navi"
   local url_file="$navi_dir/url"
   local cid_file="$navi_dir/client-id"
-  local url_was_literal=false
-  local cid_was_literal=false
+  local url_ok=false
+  local cid_ok=false
+  local all_or_nothing=true
 
-  # URL
-  local navi_url
-  navi_url=$(jq -r '.mcp.navi.url // ""' "$TMP_CANDIDATE" 2>/dev/null || echo "")
-  if [[ "$navi_url" =~ ^\{file: ]]; then
-    : # already file-based
-  elif [[ "$navi_url" == "{env:NAVI_MCP_URL}" ]]; then
-    if [[ -n "${NAVI_MCP_URL:-}" ]]; then
-      mkdir -p -m 700 "$navi_dir"
-      printf '%s\n' "$NAVI_MCP_URL" > "$url_file"
-      chmod 600 "$url_file"
-      _candidate_jq --arg f "$url_file" '.mcp.navi.url = "{file:\($f)}"'
-      url_was_literal=true
+  # Backup existing files if present
+  _backup_navi() {
+    [[ -f "$url_file" ]] && cp "$url_file" "${url_file}.bak.$(date +%s)" 2>/dev/null || true
+    [[ -f "$cid_file" ]] && cp "$cid_file" "${cid_file}.bak.$(date +%s)" 2>/dev/null || true
+  }
+
+  _resolve_write() {
+    local candidate_key=$1 file_path=$2 env_var=$3
+    local current
+    current=$(jq -r "$candidate_key" "$TMP_CANDIDATE" 2>/dev/null || echo "")
+    [[ -z "$current" || "$current" == "null" ]] && return 0
+
+    if [[ "$current" =~ ^\{file: ]]; then
+      [[ -f "$file_path" ]] && return 0
+      return 0
     fi
-  elif [[ -n "$navi_url" && "$navi_url" != "null" ]]; then
-    mkdir -p -m 700 "$navi_dir"
-    printf '%s\n' "$navi_url" > "$url_file"
-    chmod 600 "$url_file"
-    _candidate_jq --arg f "$url_file" '.mcp.navi.url = "{file:\($f)}"'
-    url_was_literal=true
-  fi
 
-  # Client ID
-  local navi_cid
-  navi_cid=$(jq -r '.mcp.navi.oauth.clientId // ""' "$TMP_CANDIDATE" 2>/dev/null || echo "")
-  if [[ "$navi_cid" =~ ^\{file: ]]; then
-    : # already file-based
-  elif [[ "$navi_cid" == "{env:NAVI_OAUTH_CLIENT_ID}" ]]; then
-    if [[ -n "${NAVI_OAUTH_CLIENT_ID:-}" ]]; then
-      mkdir -p -m 700 "$navi_dir"
-      printf '%s\n' "$NAVI_OAUTH_CLIENT_ID" > "$cid_file"
-      chmod 600 "$cid_file"
-      _candidate_jq --arg f "$cid_file" '.mcp.navi.oauth.clientId = "{file:\($f)}"'
-      cid_was_literal=true
+    local resolved=""
+    if [[ "$current" == "{env:$env_var}" && -n "${!env_var:-}" ]]; then
+      resolved="${!env_var}"
+    elif [[ "$current" != "{"* ]]; then
+      resolved="$current"
     fi
-  elif [[ -n "$navi_cid" && "$navi_cid" != "null" ]]; then
-    mkdir -p -m 700 "$navi_dir"
-    printf '%s\n' "$navi_cid" > "$cid_file"
-    chmod 600 "$cid_file"
-    _candidate_jq --arg f "$cid_file" '.mcp.navi.oauth.clientId = "{file:\($f)}"'
-    cid_was_literal=true
-  fi
 
-  if $url_was_literal && $cid_was_literal; then
+    if [[ -n "$resolved" ]]; then
+      _write_secret_file "$file_path" "$resolved" && {
+        local file_ref
+        file_ref="{file:$file_path}"
+        _candidate_jq --arg f "$file_ref" "$candidate_key = \$f"
+        return 0
+      }
+    fi
+    return 1
+  }
+
+  _backup_navi
+
+  _resolve_write '.mcp.navi.url' "$url_file" "NAVI_MCP_URL" && url_ok=true
+  _resolve_write '.mcp.navi.oauth.clientId' "$cid_file" "NAVI_OAUTH_CLIENT_ID" && cid_ok=true
+
+  if $url_ok && $cid_ok; then
     info "Navi: secretos migrados a archivos persistentes"
     SECRETS_MIGRATED=$((SECRETS_MIGRATED + 1))
-  elif $url_was_literal || $cid_was_literal; then
-    warn "Navi: migración parcial — un secreto quedó como literal"
+  elif [[ "$url_ok" != "$cid_ok" ]]; then
+    # All-or-nothing: revert partial
+    rm -f "$url_file" "$cid_file"
+    warn "Navi: migración parcial revertida — ambos secretos deben estar disponibles"
     SECRETS_PENDING=$((SECRETS_PENDING + 1))
   fi
 }

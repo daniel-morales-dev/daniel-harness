@@ -10,7 +10,8 @@ opencode_backup_create() {
   jq empty "$source" 2>/dev/null || { printf 'invalid\n' >&2; exit 1; }
 
   local backup_dir="$config_dir/backups"
-  mkdir -p -m 700 "$backup_dir"
+  mkdir -p "$backup_dir"
+  chmod 700 "$backup_dir"
 
   local sum prefix ts filename
   sum=$(sha256sum "$source" | cut -d' ' -f1)

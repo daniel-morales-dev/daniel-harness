@@ -142,55 +142,13 @@ fi
 # ── Bootstrap ───────────────────────────────────────────────────
 printf '\n==> Ejecutando bootstrap --profile %s...\n' "$PROFILE"
 BOOTSTRAP_ARGS=(--profile "$PROFILE")
+$CONNECT && BOOTSTRAP_ARGS+=(--connect)
+$RESET_MANAGED && BOOTSTRAP_ARGS+=(--reset-managed)
+$NON_INTERACTIVE && BOOTSTRAP_ARGS+=(--non-interactive)
 $EXPERIMENTAL_DATA_TOOLS && BOOTSTRAP_ARGS+=(--experimental-data-tools)
 if ! bash "$ROOT_DIR/scripts/bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"; then
   printf '[error] Bootstrap fallo\n' >&2
   exit 1
-fi
-
-# ── Reset managed ───────────────────────────────────────────────
-if [[ $RESET_MANAGED == true ]]; then
-  printf '\n==> Reinstalando recursos administrados...\n'
-  INSTALL_ARGS=()
-  $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
-  bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
-
-  printf '\n==> Reconciliando MCPs desde manifest...\n'
-  MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
-  source "$ROOT_DIR/scripts/profile-resolver.sh"
-  OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$HOME/.config/opencode"}
-  mkdir -p "$OPENCODE_CONFIG_DIR"
-  OC_JSON="$OPENCODE_CONFIG_DIR/opencode.json"
-  [[ -f "$OC_JSON" ]] || echo '{}' > "$OC_JSON"
-
-  MCP_DONE=0 MCP_SKIP=0
-  while IFS= read -r mcp_name; do
-    [[ -z "$mcp_name" ]] && continue
-    mcp_type=$(parse_mcp_field "$mcp_name" "type")
-    [[ -z "$mcp_type" ]] && { MCP_SKIP=$((MCP_SKIP + 1)); continue; }
-
-    if [[ $mcp_type == local ]]; then
-      cmd=$(parse_mcp_field "$mcp_name" "command")
-      [[ -z "$cmd" ]] && { MCP_SKIP=$((MCP_SKIP + 1)); continue; }
-      jq_body=$(printf '%s' "$cmd" | jq -R 'split(" ")')
-      desired=$(jq -n --argjson cmd "$jq_body" '{type: "local", command: $cmd, enabled: true}')
-    elif [[ $mcp_type == remote ]]; then
-      url=$(parse_mcp_field "$mcp_name" "url")
-      [[ -z "$url" ]] && { MCP_SKIP=$((MCP_SKIP + 1)); continue; }
-      desired=$(jq -n --arg u "$url" '{type: "remote", url: $u, enabled: true}')
-      oauth_json=$(parse_mcp_oauth_json "$mcp_name")
-      [[ "$oauth_json" != "{}" ]] && desired=$(printf '%s' "$desired" | jq --argjson o "$oauth_json" '. + {oauth: $o}')
-    else
-      MCP_SKIP=$((MCP_SKIP + 1)); continue
-    fi
-
-    tmp=$(mktemp)
-    jq --arg n "$mcp_name" --argjson d "$desired" '.mcp[$n] = $d' "$OC_JSON" > "$tmp" \
-      && mv "$tmp" "$OC_JSON"
-    printf '  [ok] MCP %s reconciliado\n' "$mcp_name"
-    MCP_DONE=$((MCP_DONE + 1))
-  done < <(get_profile_mcps "$PROFILE")
-  printf '  MCPs: %d reconciliados, %d omitidos\n' "$MCP_DONE" "$MCP_SKIP"
 fi
 
 # ── Connect ──────────────────────────────────────────────────────
