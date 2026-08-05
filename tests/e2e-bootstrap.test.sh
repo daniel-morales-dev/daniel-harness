@@ -463,9 +463,10 @@ echo "$MIGRATION_MCPS" | grep -qxF "sentry" && fail "migration should NOT have M
 printf '\n=== Phase 9: bootstrap --profile full ===\n'
 rc=$(run_check "bootstrap-full" bootstrap_profile full full "$HOME_FULL")
 [[ $rc -eq 0 ]] && pass "bootstrap full exit code 0" || fail "bootstrap full exit code $rc"
-grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-full.out" && pass "bootstrap full completed healthy" || {
-  cat "$TMP_DIR/bootstrap-full.out"
+grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-full.stdout" && pass "bootstrap full completed healthy" || {
+  dump_failure "bootstrap-full" "$HOME_FULL"
   fail "bootstrap full not healthy"
+  exit 1
 }
 
 OC_FULL="$HOME_FULL/.config/opencode/opencode.json"
@@ -524,7 +525,12 @@ chmod +x "$STUBS/opencode"
 
 rc=$(run_check "doctor-auth" env PATH="$STUBS:$PATH" HOME="$HOME_ALEGRA_11" XDG_CONFIG_HOME="$HOME_ALEGRA_11/.config" NVM_DIR="$HOME_ALEGRA_11/.nvm" bash "$ROOT_DIR/scripts/doctor.sh" --profile alegra --strict)
 [[ $rc -eq 1 ]] && pass "phase 11: doctor with auth-required linear exits 1" || fail "phase 11: doctor exit code $rc (expected 1)"
-grep -q 'requiere autenticacion' "$TMP_DIR/doctor-auth.out" && pass "phase 11: doctor detects auth-required MCP" || fail "phase 11: doctor did not flag auth-required MCP"
+if grep -q 'requiere autenticacion' "$TMP_DIR/doctor-auth.stdout" "$TMP_DIR/doctor-auth.stderr"; then
+  pass "phase 11: doctor detects auth-required MCP"
+else
+  dump_failure "doctor-auth" "$HOME_ALEGRA_11"
+  fail "phase 11: doctor did not flag auth-required MCP"
+fi
 
 # Restore opencode stub
 cat > "$STUBS/opencode" <<'OPENCODE'
