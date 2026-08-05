@@ -699,7 +699,9 @@ _journal_update() {
   local t="${JOURNAL_FILE}.$$.tmp"
   if [[ -n "$phase" ]]; then
     jq --arg p "$phase" '.phase = $p' "$JOURNAL_FILE" > "$t"
-    mv "$t" "$JOURNAL_FILE"
+    if [[ -s "$t" ]]; then
+      mv "$t" "$JOURNAL_FILE"
+    fi
   fi
   if [[ -n "$resource_id" && -n "$updates" ]]; then
     if echo "$updates" | jq empty >/dev/null 2>&1; then
@@ -1278,6 +1280,13 @@ _enforce_allowlist() {
   tmp_o=$(mktemp) && tmp_c=$(mktemp)
   trap 'rm -f "$tmp_o" "$tmp_c"' RETURN
 
+  if [[ ! -f "$original" || ! -s "$original" ]]; then
+    local pkg
+    pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
+    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado en candidato"; return 1; }
+    return 0
+  fi
+
   # Verificar modificación concurrente
   if [[ -f "$original" ]]; then
     local orig_sha
@@ -1290,21 +1299,9 @@ _enforce_allowlist() {
     fi
   fi
 
-  # First run: original no existe o está vacío — nada que preservar
-  if [[ ! -f "$original" || ! -s "$original" ]]; then
-    local pkg
-    pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
-    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado"; return 1; }
-    return 0
-  fi
   local o_size
   o_size=$(jq '. | length' "$original" 2>/dev/null || echo 0)
-  [[ "$o_size" -gt 0 ]] || {
-    local pkg
-    pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
-    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado"; return 1; }
-    return 0
-  }
+  [[ "$o_size" -gt 0 ]] || return 0
 
   # Copias de trabajo
   cp "$original" "$tmp_o" 2>/dev/null || printf '{}' > "$tmp_o"
@@ -1427,7 +1424,13 @@ _transaction_apply() {
     critical "Candidato no pasa schema"
     return 1
   }
-  _enforce_allowlist "$OC_FILE" "$TMP_CANDIDATE" || { critical "Allowlist: cambios no administrados"; return 1; }
+  if ! _enforce_allowlist "$OC_FILE" "$TMP_CANDIDATE"; then
+    if $OC_EXISTED_BEFORE; then
+      critical "Allowlist: cambios no administrados"
+      return 1
+    fi
+    warn "Allowlist omitida (primer arranque)"
+  fi
   _check_failpoint "allowlist-check"
 
   if (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
