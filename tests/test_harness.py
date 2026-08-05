@@ -374,10 +374,9 @@ def test_sc2168_local_outside_function():
             m = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*\)\s*[({]', line)
             if m:
                 fn_stack.append(lineno)
-                if '}' in line or ')' in line:
-                    if m.group(0).count('(') <= line.count(')'):
-                        ranges.append((fn_stack.pop(), lineno))
-            elif line.strip() in ('}', ')'):
+                if '}' in line:
+                    ranges.append((fn_stack.pop(), lineno))
+            elif not line.startswith(' ') and line.strip() in ('}', ')'):
                 if fn_stack:
                     ranges.append((fn_stack.pop(), lineno))
 
