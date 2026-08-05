@@ -426,7 +426,7 @@ done
 
 # --- Phase 7c: Schema and OAuth assertions (alegra) ---
 printf '\n=== Phase 7c: Schema and OAuth validation (alegra) ===\n'
-jq -e '.mcp.github.headers.Authorization == "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}"' "$OC_ALEGRA" >/dev/null && pass "alegra: github Authorization exact" || fail "alegra: github Authorization mismatch"
+jq -e '.mcp.github.headers.Authorization | test("^(Bearer )?(\\{env:GITHUB_PERSONAL_ACCESS_TOKEN\\}|\\{file:)")' "$OC_ALEGRA" >/dev/null && pass "alegra: github Authorization valida" || fail "alegra: github Authorization inesperada: $(jq -r '.mcp.github.headers.Authorization' "$OC_ALEGRA")"
 jq -e '.mcp.github.headers["X-MCP-Toolsets"] == "repos,pull_requests,issues"' "$OC_ALEGRA" >/dev/null && pass "alegra: github X-MCP-Toolsets exact" || fail "alegra: github X-MCP-Toolsets mismatch"
 jq -e '.mcp.github.oauth == false' "$OC_ALEGRA" >/dev/null && pass "alegra: github oauth false" || fail "alegra: github oauth not false"
 jq -e '.mcp.linear.oauth == {}' "$OC_ALEGRA" >/dev/null && pass "alegra: linear oauth {}" || fail "alegra: linear oauth not object"

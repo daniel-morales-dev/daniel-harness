@@ -1332,10 +1332,18 @@ _enforce_allowlist() (
   jq 'del(.["$schema"])' "$tmp_o" > "${tmp_o}.$$" && mv "${tmp_o}.$$" "$tmp_o"
   jq 'del(.["$schema"])' "$tmp_c" > "${tmp_c}.$$" && mv "${tmp_c}.$$" "$tmp_c"
 
-  # Retirar MCPs administrados de AMBAS
+  # Retirar MCPs administrados de AMBAS (bracket indexing para nombres con guion)
   for mcp in codegraph engram context7 github linear wiki-alegra navi sentry; do
-    jq "del(.mcp.$mcp)" "$tmp_o" > "${tmp_o}.$$" && mv "${tmp_o}.$$" "$tmp_o" 2>/dev/null || true
-    jq "del(.mcp.$mcp)" "$tmp_c" > "${tmp_c}.$$" && mv "${tmp_c}.$$" "$tmp_c" 2>/dev/null || true
+    if ! jq --arg mcp "$mcp" 'del(.mcp[$mcp])' "$tmp_o" > "${tmp_o}.next"; then
+      critical "ALLOWLIST: no se pudo retirar MCP administrado: $mcp"
+      exit 1
+    fi
+    mv "${tmp_o}.next" "$tmp_o"
+    if ! jq --arg mcp "$mcp" 'del(.mcp[$mcp])' "$tmp_c" > "${tmp_c}.next"; then
+      critical "ALLOWLIST: no se pudo retirar MCP administrado: $mcp"
+      exit 1
+    fi
+    mv "${tmp_c}.next" "$tmp_c"
   done
 
   # Retirar solo entradas Ponytail de .plugin (preservar plugins externos)
