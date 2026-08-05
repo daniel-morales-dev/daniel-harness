@@ -398,7 +398,7 @@ _journal_path_is_allowed() {
   for allowed in "${JOURNAL_ALLOWLIST_PATHS[@]}"; do
     local ap
     ap=$(readlink -f "$allowed" 2>/dev/null || echo "$allowed")
-    if [[ "$p" == "$ap"* ]]; then
+    if [[ "$p" == "$ap" ]] || [[ "$p" == "$ap/"* ]]; then
       return 0
     fi
   done
@@ -638,46 +638,66 @@ _fsync_file() {
   python3 -c "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.fsync(fd); os.close(fd)" "$1"
 }
 
-# mv con verificación post-rename
+# mv seguro: renameat2 vía Python
+# dst no existe → RENAME_NOREPLACE (falla si concurrente crea dst)
+# dst existe → verificamos hash, luego rename atómico
 _mv_safe() {
   local src=$1 dst=$2 orig_sha=${3:-}
-  if [[ -f "$dst" ]]; then
-    local displaced="${dst}.displaced.$$"
-    mv "$dst" "$displaced" || return 1
-    if [[ -n "$orig_sha" ]]; then
-      local dsha
-      dsha=$(sha256sum "$displaced" | cut -d' ' -f1)
-      if [[ "$dsha" != "$orig_sha" ]]; then
-        mv "$displaced" "$dst" 2>/dev/null || true
-        return 2
-      fi
-    fi
-    if [[ -f "$dst" ]]; then
-      mv "$displaced" "$dst" 2>/dev/null || true
-      return 2
-    fi
-    mv "$src" "$dst" || { mv "$displaced" "$dst" 2>/dev/null || true; return 1; }
+  python3 -c "
+import ctypes, os, sys, ctypes.util
+SYS = {'x86_64': 316, 'aarch64': 276}.get(os.uname().machine, 316)
+flags = int(sys.argv[3])
+libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+src, dst = sys.argv[1].encode(), sys.argv[2].encode()
+libc.syscall.restype = ctypes.c_long
+ret = libc.syscall(SYS, -100, src, -100, dst, flags)
+if ret != 0:
+    sys.exit(ctypes.get_errno())
+" "$src" "$dst" "1"
+  local rn=$?
+  if [[ $rn -eq 0 ]]; then
     chmod 600 "$dst"
-    rm -f "$displaced"
     return 0
   fi
-  if [[ -f "$dst" ]]; then
+  if [[ $rn -eq 17 ]]; then
+    if [[ -n "$orig_sha" ]]; then
+      local current
+      current=$(sha256sum "$dst" 2>/dev/null | cut -d' ' -f1 || echo "")
+      if [[ "$current" == "$orig_sha" ]]; then
+        python3 -c "
+import ctypes, os, sys, ctypes.util
+SYS = {'x86_64': 316, 'aarch64': 276}.get(os.uname().machine, 316)
+libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+src, dst = sys.argv[1].encode(), sys.argv[2].encode()
+libc.syscall.restype = ctypes.c_long
+ret = libc.syscall(SYS, -100, src, -100, dst, 0)
+if ret != 0:
+    sys.exit(1)
+" "$src" "$dst" && { chmod 600 "$dst"; rm -f "$src"; return 0; } || { rm -f "$src"; return 1; }
+      fi
+    fi
+    rm -f "$src"
     return 2
   fi
-  mv "$src" "$dst" || return 1
-  chmod 600 "$dst"
+  rm -f "$src"
+  return 1
 }
 
-# Inicializar journal como array vacío
+# Inicializar journal como array vacío (atómico: temp → fsync → rename)
 _init_journal() {
-  jq -n '{journalVersion: "2", phase: "preparing", resources: []}' > "$JOURNAL_FILE"
+  local tmp="${JOURNAL_FILE}.$$.tmp"
+  jq -n '{journalVersion: "2", phase: "preparing", resources: []}' > "$tmp"
+  chmod 600 "$tmp"
+  _fsync "$tmp"
+  mv "$tmp" "$JOURNAL_FILE"
   chmod 600 "$JOURNAL_FILE"
   _fsync "$JOURNAL_FILE"
 }
 
-# Agregar resource al journal
+# Agregar resource al journal (atómico)
 _journal_add_resource() {
   local id=$1 final=$2 tmp=$3 backup=$4 existed=$5 mode=$6 order=$7 rtype=${8:-file} linktarg=${9:-} orig_sha=${10:-}
+  local t="${JOURNAL_FILE}.$$.tmp"
   jq --arg id "$id" \
     --arg final "$final" \
     --arg tmp "$tmp" \
@@ -693,27 +713,26 @@ _journal_add_resource() {
       existedBefore: $existed, expectedMode: $mode, applyOrder: $order,
       resourceType: $rtype, linkTarget: $linktarg,
       originalSha256: $orig, candidateSha256: "", status: "prepared"
-    }]' "$JOURNAL_FILE" > "${JOURNAL_FILE}.tmp" && mv "${JOURNAL_FILE}.tmp" "$JOURNAL_FILE"
+    }]' "$JOURNAL_FILE" > "$t" && mv "$t" "$JOURNAL_FILE"
   chmod 600 "$JOURNAL_FILE"
   _fsync "$JOURNAL_FILE"
 }
 
-# Actualizar fase y/o un resource en el journal
+# Actualizar fase y/o un resource en el journal (atómico)
 _journal_update() {
   local phase=${1:-} resource_id=${2:-} updates=${3:-}
-  local tmp="${JOURNAL_FILE}.tmp"
+  local t="${JOURNAL_FILE}.$$.tmp"
   if [[ -n "$phase" ]]; then
-    jq --arg p "$phase" '.phase = $p' "$JOURNAL_FILE" > "$tmp"
-    cp "$tmp" "$JOURNAL_FILE"
+    jq --arg p "$phase" '.phase = $p' "$JOURNAL_FILE" > "$t"
+    mv "$t" "$JOURNAL_FILE"
   fi
   if [[ -n "$resource_id" && -n "$updates" ]]; then
     if echo "$updates" | jq empty >/dev/null 2>&1; then
       jq --arg id "$resource_id" --argjson upd "$updates" \
         '.resources = [.resources[] | if .id == $id then . + $upd else . end]' \
-        "$JOURNAL_FILE" > "$tmp" && cp "$tmp" "$JOURNAL_FILE"
+        "$JOURNAL_FILE" > "$t" && mv "$t" "$JOURNAL_FILE"
     fi
   fi
-  rm -f "$tmp"
   chmod 600 "$JOURNAL_FILE"
   _fsync "$JOURNAL_FILE"
 }
@@ -730,7 +749,8 @@ _journal_write_full() {
 }
 
 _clear_journal() {
-  rm -f "$JOURNAL_FILE" && _fsync "$(dirname "$JOURNAL_FILE")" 2>/dev/null || true
+  rm -f "$JOURNAL_FILE" || { critical "No se pudo eliminar journal"; return 1; }
+  _fsync "$(dirname "$JOURNAL_FILE")" 2>/dev/null || true
 }
 
 # Registrar si los archivos existían antes de la transacción
