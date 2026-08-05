@@ -29,6 +29,39 @@ run_check() {
   printf '%s' "$rc"
 }
 
+require_success() {
+  local label=$1 rc=$2
+  if [[ $rc -ne 0 ]]; then
+    printf '\n=== FAIL-FAST: %s (rc=%d) ===\n' "$label" "$rc"
+    printf '--- stdout/stderr ---\n'
+    cat "$TMP_DIR/${label// /_}.out"
+    printf '--- journal (if exists) ---\n'
+    local jf
+    jf=$(find "$HOME_CORE" -name '.bootstrap-journal.json' 2>/dev/null | head -1)
+    [[ -n "$jf" ]] && python3 -c "
+import json,sys
+try:
+    d = json.load(open('$jf'))
+    for k in ('resources','phase','journalVersion'):
+        d.pop(k,None)
+    print(json.dumps(d,indent=2)[:2000])
+except: print(sys.stdin.read()[:2000])
+" < "$jf" 2>/dev/null || echo "(no journal)"
+    echo "--- HOME_CORE contents ---"
+    ls -la "$HOME_CORE/.config/opencode/" 2>/dev/null || echo "(opencode dir not created)"
+    exit 1
+  fi
+}
+
+require_file() {
+  local label=$1 path=$2
+  [[ -f "$path" ]] && pass "$label: $path exists" || {
+    printf '=== FAIL-FAST: %s missing ===\n' "$label"
+    fail "$label: $path not found"
+    exit 1
+  }
+}
+
 # --- Setup: stubs (compartidos) ---
 printf '=== Setup: stubs ===\n'
 mkdir -p "$STUBS" "$HOME_CORE" "$HOME_ALEGRA" "$HOME_MIGRATION" "$HOME_FULL" "$CONFIG_TMP"
@@ -145,8 +178,13 @@ bootstrap_profile() {
   local profile=$1 _label=$2 home=$3 skip_docker=${4:-false}
   local extra=""
   [[ "$skip_docker" == "true" ]] && extra="--skip-docker"
-  # Navi env vars: dummy values for sandbox (stubs don't call Navi)
+  local gh_token=""
+  # Only core doesn't need GitHub; alegra/migration/full do
+  if [[ "$profile" != "core" ]]; then
+    gh_token="GITHUB_PERSONAL_ACCESS_TOKEN=ghp_fixture_not_real_123"
+  fi
   env PATH="$STUBS:$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" NVM_DIR="$home/.nvm" \
+    $gh_token \
     NAVI_MCP_URL="https://navi.example.com/mcp" \
     NAVI_OAUTH_CLIENT_ID="dummy-client-id" \
     bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$profile" $extra
@@ -155,7 +193,12 @@ bootstrap_profile() {
 # Helper: doctor a profile with isolated HOME
 doctor_profile() {
   local profile=$1 _label=$2 home=$3
+  local gh_token=""
+  if [[ "$profile" != "core" ]]; then
+    gh_token="GITHUB_PERSONAL_ACCESS_TOKEN=ghp_fixture_not_real_123"
+  fi
   env PATH="$STUBS:$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" NVM_DIR="$home/.nvm" \
+    $gh_token \
     NAVI_MCP_URL="https://navi.example.com/mcp" \
     NAVI_OAUTH_CLIENT_ID="dummy-client-id" \
     bash "$ROOT_DIR/scripts/doctor.sh" --profile "$profile" --strict
@@ -178,10 +221,12 @@ mcp_list() {
 # --- Phase 1: Bootstrap --profile core ---
 printf '\n=== Phase 1: bootstrap --profile core ===\n'
 rc=$(run_check "bootstrap-core" bootstrap_profile core core "$HOME_CORE")
-[[ $rc -eq 0 ]] && pass "bootstrap core exit code 0" || fail "bootstrap core exit code $rc"
+require_success "bootstrap-core" "$rc"
+pass "bootstrap core exit code 0"
 grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-core.out" && pass "bootstrap core completed healthy" || {
   cat "$TMP_DIR/bootstrap-core.out"
   fail "bootstrap core not healthy"
+  exit 1
 }
 
 OC_CORE="$HOME_CORE/.config/opencode/opencode.json"
@@ -264,11 +309,27 @@ echo 'nvm() { :; }' > "$TRANSITION_HOME/.nvm/nvm.sh"
 echo '#!/bin/bash; echo v24.0.0' > "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
 chmod +x "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
 # Bootstrap core first
-bootstrap_profile core core "$TRANSITION_HOME" > /dev/null 2>&1 && pass "transition: core bootstrap ok" || fail "transition: core bootstrap failed"
+rc=$(run_check "transition-core" bootstrap_profile core core "$TRANSITION_HOME")
+[[ $rc -eq 0 ]] && pass "transition: core bootstrap ok" || {
+  echo "--- transition-core.out ---"
+  cat "$TMP_DIR/transition-core.out"
+  fail "transition: core bootstrap failed"
+  rm -rf "$TRANSITION_HOME"
+  exit 1
+}
 # Pre-compute alegra MCPs (we'll validate after transition)
 TRANSITION_OC="$TRANSITION_HOME/.config/opencode/opencode.json"
 # Bootstrap alegra on same HOME
-bootstrap_profile alegra alegra "$TRANSITION_HOME" > /dev/null 2>&1 && pass "transition: alegra bootstrap ok" || fail "transition: alegra bootstrap failed"
+rc=$(run_check "transition-alegra" bootstrap_profile alegra alegra "$TRANSITION_HOME")
+[[ $rc -eq 0 ]] && pass "transition: alegra bootstrap ok" || {
+  echo "--- transition-alegra.out ---"
+  cat "$TMP_DIR/transition-alegra.out"
+  echo "--- journal (if exists) ---"
+  find "$TRANSITION_HOME" -name '.bootstrap-journal.json' 2>/dev/null | head -1 | while read -r jf; do cat "$jf"; done
+  fail "transition: alegra bootstrap failed"
+  rm -rf "$TRANSITION_HOME"
+  exit 1
+}
 # Verify alegra MCPs present (more than core)
 TRANSITION_MCPS=$(jq -r '.mcp | keys[]' "$TRANSITION_OC" 2>/dev/null | sort)
 for mcp in codegraph engram linear context7 wiki-alegra github; do
@@ -280,7 +341,12 @@ for mcp in codegraph engram linear context7 wiki-alegra github; do
   jq -e --arg n "$mcp" '.mcps | has($n)' "$STATE_FILE" >/dev/null && pass "transition: state has $mcp" || fail "transition: state missing $mcp"
 done
 # Verify doctor --profile alegra --strict passes
-doctor_profile alegra alegra "$TRANSITION_HOME" > /dev/null 2>&1 && pass "transition: doctor alegra passes" || fail "transition: doctor alegra failed"
+rc=$(run_check "transition-doctor" doctor_profile alegra alegra "$TRANSITION_HOME")
+[[ $rc -eq 0 ]] && pass "transition: doctor alegra passes" || {
+  echo "--- transition-doctor.out ---"
+  cat "$TMP_DIR/transition-doctor.out"
+  fail "transition: doctor alegra failed"
+}
 rm -rf "$TRANSITION_HOME"
 
 # --- Phase 6: Profile manifest validation ---
@@ -380,39 +446,53 @@ rc=$(run_check "bootstrap-rollback" env PATH="$STUBS:$PATH" HOME="$HOME_CORE" XD
 BACKUPS_AFTER_RB=$(find "$HOME_CORE/.config/opencode/" -name 'opencode.json.bak.*' 2>/dev/null | wc -l)
 [[ $BACKUPS_AFTER_RB -eq $((BACKUPS_BEFORE_RB + 1)) ]] && pass "backup created (before=$BACKUPS_BEFORE_RB after=$BACKUPS_AFTER_RB)" || fail "backup count mismatch expected +1: before=$BACKUPS_BEFORE_RB after=$BACKUPS_AFTER_RB"
 
-# --- Phase 11: Doctor live check (auth-required sobre HOME_CORE) ---
-printf '\n=== Phase 11: Doctor MCP live check ===\n'
-# Restore valid opencode.json (Phase 10 left it corrupt)
-rm -f "$OC_CORE"
-env PATH="$STUBS:$PATH" HOME="$HOME_CORE" XDG_CONFIG_HOME="$HOME_CORE/.config" NVM_DIR="$HOME_CORE/.nvm" \
-  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/restore.out" 2>&1 || true
-jq empty "$OC_CORE" >/dev/null 2>&1 || {
-  fail "cannot restore opencode.json for live check"
-  echo "---restore output---"
-  cat "$TMP_DIR/restore.out"
-}
+# --- Phase 11: Doctor live check (auth-required sobre alegra con linear) ---
+printf '\n=== Phase 11: Doctor MCP live check (alegra profile, linear auth-only) ===\n'
+HOME_ALEGRA_11="$TMP_DIR/home-alegra-11"
+mkdir -p "$HOME_ALEGRA_11/.config/daniel-harness/secrets/tunnels" "$HOME_ALEGRA_11/.nvm"
+cp "$CONFIG_TMP/daniel-harness/config.yaml" "$HOME_ALEGRA_11/.config/daniel-harness/config.yaml"
+env PATH="$STUBS:$PATH" HOME="$HOME_ALEGRA_11" XDG_CONFIG_HOME="$HOME_ALEGRA_11/.config" NVM_DIR="$HOME_ALEGRA_11/.nvm" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real_123" \
+  NAVI_MCP_URL="https://navi.example.com/mcp" \
+  NAVI_OAUTH_CLIENT_ID="dummy-client-id" \
+  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/bootstrap-alegra-11.out" 2>&1 && \
+  pass "phase 11: alegra bootstrap ok" || {
+    cat "$TMP_DIR/bootstrap-alegra-11.out"
+    fail "phase 11: alegra bootstrap failed"
+  }
+# OpenCode stub: solo linear requiere auth, los demas connected
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
 case "$1" in
   --version) echo "opencode 0.1.0"; exit 0 ;;
   agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
-  mcp) case "$2" in debug) echo "Authentication required"; exit 1 ;; esac ;;
+  mcp) case "$2" in debug)
+    case "$3" in
+      linear) echo "Authentication required"; exit 1 ;;
+      *) echo "connected"; exit 0 ;;
+    esac
+  esac ;;
 esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
 
-rc=$(run_check "doctor-auth" env PATH="$STUBS:$PATH" HOME="$HOME_CORE" XDG_CONFIG_HOME="$HOME_CORE/.config" NVM_DIR="$HOME_CORE/.nvm" bash "$ROOT_DIR/scripts/doctor.sh" --profile core --strict)
-[[ $rc -eq 1 ]] && pass "doctor with auth-required MCP exits code 1" || fail "doctor with auth-required MCP exit code $rc (expected 1)"
-grep -q 'requiere autenticacion' "$TMP_DIR/doctor-auth.out" && pass "doctor detects auth-required MCP" || fail "doctor did not flag auth-required MCP"
+rc=$(run_check "doctor-auth" env PATH="$STUBS:$PATH" HOME="$HOME_ALEGRA_11" XDG_CONFIG_HOME="$HOME_ALEGRA_11/.config" NVM_DIR="$HOME_ALEGRA_11/.nvm" bash "$ROOT_DIR/scripts/doctor.sh" --profile alegra --strict)
+[[ $rc -eq 1 ]] && pass "phase 11: doctor with auth-required linear exits 1" || fail "phase 11: doctor exit code $rc (expected 1)"
+grep -q 'requiere autenticacion' "$TMP_DIR/doctor-auth.out" && pass "phase 11: doctor detects auth-required MCP" || fail "phase 11: doctor did not flag auth-required MCP"
 
 # Restore opencode stub
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 0.1.0"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
+rm -rf "$HOME_ALEGRA_11"
 
 # --- Summary ---
 printf '\n========================================\n'

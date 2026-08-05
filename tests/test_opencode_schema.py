@@ -3,9 +3,10 @@
 
 import json
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 SCHEMA_FILE = ROOT_DIR / "tests" / "fixtures" / "opencode-config.schema.json"
@@ -68,10 +69,22 @@ def run_bootstrap(home_dir, stubs, profile="core"):
         timeout=60,
     )
     oc_file = home_dir / ".config" / "opencode" / "opencode.json"
+    journal_file = home_dir / ".config" / "daniel-harness" / "state" / ".bootstrap-journal.json"
     if not oc_file.exists():
-        print(f"STDOUT: {result.stdout[-2000:]}")
-        print(f"STDERR: {result.stderr[-2000:]}")
-        raise RuntimeError(f"opencode.json not created for profile {profile}")
+        detail = [
+            f"opencode.json not created (profile={profile}, rc={result.returncode})",
+            "--- STDOUT (last 100 lines) ---",
+        ]
+        detail.extend(result.stdout.splitlines()[-100:])
+        detail.append("--- STDERR (last 100 lines) ---")
+        detail.extend(result.stderr.splitlines()[-100:])
+        detail.append("--- HOME ---")
+        detail.append(str(home_dir))
+        detail.append(f"--- PROFILE: {profile} ---")
+        if journal_file.exists():
+            detail.append("--- JOURNAL ---")
+            detail.append(journal_file.read_text())
+        pytest.fail("\n".join(detail))
     return oc_file
 
 
@@ -116,42 +129,40 @@ def validate_mcp_semantics(config, profile_name):
     return errors
 
 
-def test_all_profiles():
+def test_profile_core():
+    _run_profile_test("core")
+
+
+def test_profile_alegra():
+    _run_profile_test("alegra")
+
+
+def _run_profile_test(profile):
     schema = load_schema()
     import jsonschema
 
-    profiles = ["core", "alegra"]
+    with tempfile.TemporaryDirectory(prefix=f"oc-schema-{profile}-") as tmp:
+        base = Path(tmp)
+        stubs = setup_stubs(base)
+        oc_file = run_bootstrap(base, stubs, profile)
 
-    for profile in profiles:
-        with tempfile.TemporaryDirectory(prefix=f"oc-schema-{profile}-") as tmp:
-            base = Path(tmp)
-            stubs = setup_stubs(base)
-            try:
-                oc_file = run_bootstrap(base, stubs, profile)
-            except RuntimeError as e:
-                print(f"FAIL {profile}: {e}")
-                sys.exit(1)
+        assert oc_file.exists(), f"opencode.json not created for profile {profile}"
+        config = json.loads(oc_file.read_text())
 
-            config = json.loads(oc_file.read_text())
+        try:
+            jsonschema.validate(config, schema)
+        except jsonschema.ValidationError as e:
+            lines = oc_file.read_text().splitlines()
+            detail = "\n".join(lines[:50])
+            pytest.fail(
+                f"{profile}: schema validation failed: {e.message}\n"
+                f"  path: {' → '.join(str(p) for p in e.path)}\n"
+                f"  config (first 50 lines):\n{detail}"
+            )
 
-            # Validate against schema
-            try:
-                jsonschema.validate(config, schema)
-                print(f"[ok] {profile}: schema validation passed")
-            except jsonschema.ValidationError as e:
-                print(f"[FAIL] {profile}: schema validation failed: {e.message}")
-                for p in e.path: print(f"  path: {p}")
-                sys.exit(1)
-
-            # Validate MCP semantics
-            sem_errors = validate_mcp_semantics(config, profile)
-            for err in sem_errors:
-                print(f"[FAIL] {profile}: {err}")
-            if sem_errors:
-                sys.exit(1)
-            print(f"[ok] {profile}: MCP semantics passed")
-
-
-if __name__ == "__main__":
-    test_all_profiles()
-    print("\n=== Todos los tests pasaron ===")
+        sem_errors = validate_mcp_semantics(config, profile)
+        if sem_errors:
+            pytest.fail(
+                f"{profile}: MCP semantics errors:\n" +
+                "\n".join(f"  - {e}" for e in sem_errors)
+            )

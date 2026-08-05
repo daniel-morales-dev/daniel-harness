@@ -666,8 +666,9 @@ _init_journal() {
   _fsync "$tmp"
   mv "$tmp" "$JOURNAL_FILE"
   chmod 600 "$JOURNAL_FILE"
-  rm -f "$t" 2>/dev/null || true
   _fsync "$JOURNAL_FILE"
+  _fsync "$(dirname "$JOURNAL_FILE")"
+  return 0
 }
 
 # Agregar resource al journal (atómico)
@@ -727,7 +728,8 @@ _journal_write_full() {
 }
 
 _clear_journal() {
-  rm -f "$JOURNAL_FILE" 2>/dev/null
+  [[ ! -f "$JOURNAL_FILE" ]] && return 0
+  rm -f "$JOURNAL_FILE"
   _fsync "$(dirname "$JOURNAL_FILE")" 2>/dev/null || true
 }
 
@@ -1503,19 +1505,19 @@ _transaction_apply() {
 # ── Ejecutar transacción (dry-run salta) ──────────────────────
 rc=0
 if [[ $DRY_RUN == false ]]; then
-  set +eu
-  _transaction_apply; rc=$?
-  set -eu
-  if [[ $rc -ne 0 ]]; then
-    warn "Transaccion rc=$rc — continuando bootstrap"
-  fi
+  _transaction_apply || rc=$?
+  case "$rc" in
+    0) ;;
+    2) exit 2 ;;
+    3) exit 3 ;;
+    4) exit 4 ;;
+    *) critical "Transaccion fallo (rc=$rc) — abortando bootstrap"
+       exit 1 ;;
+  esac
 fi
-# Limpiar TMP_STATE si existe (puede haber fallado antes del clear)
-[[ -f "$TMP_STATE" ]] && rm -f "$TMP_STATE" 2>/dev/null || true
 
 # ── Fase post-transacción: agentes administrados ─────────────
 if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
-  echo "  [dbg] entering agent post-phase" >&2
   phase "Agentes administrados"
   info 'Instalando agentes administrados...'
   INSTALL_ARGS=()

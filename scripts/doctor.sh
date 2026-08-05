@@ -338,7 +338,7 @@ check_gentle_ai() {
 
 validate_profile_agents() {
   local agent_dir="$OPENCODE_CONFIG_DIR/agents"
-  local required=("alegra-microservice-engineer" "code-reviewer" "alegra-microservice-test-engineer" "php-engineer" "migration-parity-reviewer")
+  local required=("alegra-microservice-engineer" "alegra-code-reviewer" "alegra-microservice-test-engineer" "php-engineer" "migration-parity-reviewer")
   local missing=0
 
   if command -v opencode >/dev/null 2>&1; then
