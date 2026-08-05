@@ -585,23 +585,52 @@ else
     fi
   fi
 
-  # Check Navi secrets when profile includes navi
+  # ── Validación de secretos (GitHub) ──────────────────────────
+  gh_file="$HARNESS_CONFIG_DIR/secrets/github/authorization"
+  if [[ -f "$gh_file" ]]; then
+    if [[ -L "$gh_file" ]]; then critical "GitHub: es symlink"; else
+    if [[ "$(stat -c '%u' "$gh_file")" != "$(id -u)" ]]; then critical "GitHub: propietario incorrecto"; else
+    if [[ "$(stat -c '%a' "$gh_file")" != "600" ]]; then critical "GitHub: modo $(stat -c '%a' "$gh_file") (req 600)"; else
+    if ! head -1 "$gh_file" | grep -q "^Bearer "; then critical "GitHub: debe comenzar con 'Bearer '"; else
+    if [[ ! -s "$gh_file" ]]; then critical "GitHub: vacío"; else
+    ok "GitHub: secreto persistente válido"
+    fi fi fi fi fi
+  elif [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+    ok "GitHub: usando variable de entorno"
+  else
+    gh_ref=$(jq -r '.mcp.github.headers.Authorization // ""' "$OPENCODE_CONFIG_FILE" 2>/dev/null || echo "")
+    if [[ "$gh_ref" =~ ^\{file: ]]; then
+      critical "GitHub: secreto referenciado como $gh_ref pero archivo no encontrado"
+    else
+      info "GitHub: token no configurado (necesario solo con perfil github)"
+    fi
+  fi
+
+  # Navi secrets
   if [[ -n "$PROFILE" ]]; then
     profile_mcps=$(get_profile_mcps "$PROFILE")
     if echo "$profile_mcps" | grep -qw "navi"; then
-      navi_url_file="$HARNESS_CONFIG_DIR/secrets/navi/url"
-      navi_client_id_file="$HARNESS_CONFIG_DIR/secrets/navi/client-id"
-
-      if [[ -f "$navi_url_file" ]]; then
-        ok "NAVI_MCP_URL leída de $navi_url_file"
+      nurl="$HARNESS_CONFIG_DIR/secrets/navi/url"
+      ncid="$HARNESS_CONFIG_DIR/secrets/navi/client-id"
+      if [[ -f "$nurl" ]]; then
+        if [[ -L "$nurl" ]]; then critical "NAVI_MCP_URL: es symlink"; else
+        if [[ "$(stat -c '%u' "$nurl")" != "$(id -u)" ]]; then critical "NAVI_MCP_URL: propietario incorrecto"; else
+        if [[ "$(stat -c '%a' "$nurl")" != "600" ]]; then critical "NAVI_MCP_URL: modo $(stat -c '%a' "$nurl") (req 600)"; else
+        if [[ ! -s "$nurl" ]]; then critical "NAVI_MCP_URL: vacío"; else
+        ok "NAVI_MCP_URL leída de $nurl"
+        fi fi fi fi
       elif [[ -n "${NAVI_MCP_URL:-}" ]]; then
         ok "NAVI_MCP_URL definida en entorno"
       else
         warn "NAVI_MCP_URL no encontrada (revisa secrets/navi/ o variable de entorno)"
       fi
-
-      if [[ -f "$navi_client_id_file" ]]; then
-        ok "NAVI_OAUTH_CLIENT_ID leída de $navi_client_id_file"
+      if [[ -f "$ncid" ]]; then
+        if [[ -L "$ncid" ]]; then critical "NAVI_OAUTH_CLIENT_ID: es symlink"; else
+        if [[ "$(stat -c '%u' "$ncid")" != "$(id -u)" ]]; then critical "NAVI_OAUTH_CLIENT_ID: propietario incorrecto"; else
+        if [[ "$(stat -c '%a' "$ncid")" != "600" ]]; then critical "NAVI_OAUTH_CLIENT_ID: modo $(stat -c '%a' "$ncid") (req 600)"; else
+        if [[ ! -s "$ncid" ]]; then critical "NAVI_OAUTH_CLIENT_ID: vacío"; else
+        ok "NAVI_OAUTH_CLIENT_ID leída de $ncid"
+        fi fi fi fi
       elif [[ -n "${NAVI_OAUTH_CLIENT_ID:-}" ]]; then
         ok "NAVI_OAUTH_CLIENT_ID definida en entorno"
       else

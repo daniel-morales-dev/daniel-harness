@@ -56,6 +56,13 @@ HELP
   esac
 done
 
+# ── Connect + non-interactive check ──────────────────────────────
+if [[ $CONNECT == true && $NON_INTERACTIVE == true ]]; then
+  printf 'Error: --connect requiere modo interactivo.\n' >&2
+  printf 'Usa --non-interactive sin --connect, o quita --non-interactive.\n' >&2
+  exit 1
+fi
+
 # ── Profile selection ───────────────────────────────────────────
 if [[ -z "$PROFILE" ]]; then
   if [[ -t 0 ]] && [[ $NON_INTERACTIVE == false ]]; then
@@ -184,11 +191,15 @@ if [[ $CONNECT == true ]]; then
   fi
 fi
 
-# ── Doctor ────────────────────────────────────────────────────────
+# ── Doctor (selección según modo) ─────────────────────────────────
 printf '\n==> Verificando instalacion...\n'
 DOCTOR_OK=false
-if bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict; then
-  DOCTOR_OK=true
+AUTH_PENDING=${AUTH_PENDING:-0}
+DOCTOR_EXIT=0
+if [[ $CONNECT == true ]]; then
+  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict && DOCTOR_OK=true || DOCTOR_EXIT=$?
+else
+  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict --install-check --skip-oauth && DOCTOR_OK=true || DOCTOR_EXIT=$?
 fi
 
 # ── Summary ───────────────────────────────────────────────────────
@@ -197,7 +208,7 @@ if [[ $DOCTOR_OK == true ]] && (( AUTH_PENDING == 0 )); then
   printf '  Harness instalado y saludable\n'
   printf '  Perfil: %s\n' "$PROFILE"
   if [[ $CONNECT == true ]]; then
-    printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "$AUTH_OK" "$AUTH_PENDING" "$AUTH_SKIP"
+    printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "${AUTH_OK:-0}" "${AUTH_PENDING}" "${AUTH_SKIP:-0}"
   fi
   printf '========================================\n'
   exit 0
@@ -205,7 +216,7 @@ elif [[ $DOCTOR_OK == true ]] && (( AUTH_PENDING > 0 )); then
   printf '\n========================================\n'
   printf '  Harness instalado con OAuth pendiente\n'
   printf '  Perfil: %s\n' "$PROFILE"
-  printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "$AUTH_OK" "$AUTH_PENDING" "$AUTH_SKIP"
+  printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "${AUTH_OK:-0}" "${AUTH_PENDING}" "${AUTH_SKIP:-0}"
   printf '========================================\n'
   printf '\nAutentica los MCPs pendientes manualmente:\n'
   printf '  opencode mcp auth <nombre>\n'

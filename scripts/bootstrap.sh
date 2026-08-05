@@ -889,16 +889,17 @@ _ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
 if command -v gentle-ai >/dev/null 2>&1; then
   info 'Verificando Gentle AI...'
   if [[ $DRY_RUN == false ]]; then
-    ga_version=$(gentle-ai version 2>/dev/null || echo "unknown")
+    ga_version=$(gentle-ai --version 2>/dev/null || echo "unknown")
     ok "Gentle AI $ga_version"
-    ga_help=$(gentle-ai --help 2>/dev/null || true)
-    if echo "$ga_help" | grep -q "opencode"; then
-      info "Gentle AI soporta OpenCode, ejecutando sync..."
-      gentle-ai skill-registry refresh --force 2>/dev/null || true
-      gentle-ai sync -skill task-lifecycle 2>/dev/null || true
-    else
-      info "Gentle AI no soporta OpenCode directamente. Skills instalados via install.sh."
-    fi
+
+    gentle-ai skill-registry refresh --force 2>&1 | head -3 || {
+      warn "gentle-ai skill-registry refresh falló (no crítico)"
+    }
+
+    gentle-ai sync 2>&1 | head -3 || {
+      warn "gentle-ai sync falló (no crítico)"
+    }
+
     ga_agents=$(gentle-ai doctor 2>/dev/null || true)
     if echo "$ga_agents" | grep -q "healthy"; then
       ok "Gentle AI saludable"
@@ -906,7 +907,7 @@ if command -v gentle-ai >/dev/null 2>&1; then
       warn "gentle-ai doctor no reporta healthy"
     fi
   else
-    info "[simulado] gentle-ai version, sync, doctor"
+    info "[simulado] gentle-ai, sync, doctor"
   fi
 fi
 
