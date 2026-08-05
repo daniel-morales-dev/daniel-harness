@@ -195,11 +195,10 @@ fi
 printf '\n==> Verificando instalacion...\n'
 DOCTOR_OK=false
 AUTH_PENDING=${AUTH_PENDING:-0}
-DOCTOR_EXIT=0
 if [[ $CONNECT == true ]]; then
-  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict && DOCTOR_OK=true || DOCTOR_EXIT=$?
+  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict && DOCTOR_OK=true || true
 else
-  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict --install-check --skip-oauth && DOCTOR_OK=true || DOCTOR_EXIT=$?
+  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict --install-check --skip-oauth && DOCTOR_OK=true || true
 fi
 
 # ── Summary ───────────────────────────────────────────────────────

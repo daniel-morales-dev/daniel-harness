@@ -72,7 +72,11 @@ printf '\n=== Test 1: Doctor detects auth-required MCP ===\n'
 setup_home "$TMP_DIR/home-auth"
 cat > "$STUBS/opencode" <<'STUB'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "authentication required"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 0.1.0"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "authentication required"; exit 0 ;; esac ;;
+esac
 exit 0
 STUB
 chmod +x "$STUBS/opencode"
@@ -93,7 +97,11 @@ printf '\n=== Test 3: All connected ===\n'
 setup_home "$TMP_DIR/home-ok"
 cat > "$STUBS/opencode" <<'STUB'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 0.1.0"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
+esac
 exit 0
 STUB
 chmod +x "$STUBS/opencode"
@@ -106,8 +114,16 @@ printf '\n=== Test 4: GitHub 401 ===\n'
 setup_home "$TMP_DIR/home-gh401"
 cat > "$STUBS/opencode" <<'STUB'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" && "$3" == "github" ]]; then echo "401 Unauthorized"; exit 0; fi
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 0.1.0"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug)
+    case "$3" in
+      github) echo "401 Unauthorized"; exit 0 ;;
+      *) echo "connected"; exit 0 ;;
+    esac
+  esac ;;
+esac
 exit 0
 STUB
 chmod +x "$STUBS/opencode"

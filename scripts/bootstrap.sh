@@ -20,6 +20,7 @@ for arg in "$@"; do
 done
 
 DRY_RUN=false
+DRY_RUN_DIR=""
 SKIP_DOCKER=false
 PROFILE=core
 CONNECT=false
@@ -41,6 +42,16 @@ while [[ $# -gt 0 ]]; do
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
+
+_cleanup_dry_run() {
+  [[ -z "$DRY_RUN_DIR" || ! -d "$DRY_RUN_DIR" ]] || rm -rf -- "$DRY_RUN_DIR"
+}
+
+if [[ $DRY_RUN == true ]]; then
+  DRY_RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/daniel-harness-dry-run.XXXXXXXX")
+  trap _cleanup_dry_run EXIT
+  trap '_cleanup_dry_run; exit 1' INT TERM
+fi
 
 LOCAL_BIN=${DANIEL_HARNESS_BIN_DIR:-"$HOME/.local/bin"}
 NPM_BIN=""
@@ -78,14 +89,19 @@ sudo_run() {
   fi
 }
 
-# Lock de arranque solo si no es dry-run
+# Lock de arranque solo si no es dry-run (stderr no redirigido)
+BOOTSTRAP_LOCK_FD=""
 if [[ $DRY_RUN == false ]]; then
   LOCK_FILE="$STATE_DIR/.bootstrap.lock"
-  mkdir -p "$STATE_DIR" 2>/dev/null || { critical "No se pudo crear $STATE_DIR"; exit 1; }
-  if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
-    critical "No se pudo crear lock (estado no escribible)"
+  if ! mkdir -p "$STATE_DIR"; then
+    critical "No se pudo crear $STATE_DIR"
     exit 1
-  elif ! flock -n 200 2>/dev/null; then
+  fi
+  if ! exec {BOOTSTRAP_LOCK_FD}>"$LOCK_FILE"; then
+    critical "No se pudo abrir el lock: $LOCK_FILE"
+    exit 1
+  fi
+  if ! flock -n "$BOOTSTRAP_LOCK_FD"; then
     critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
     exit 1
   fi
@@ -285,37 +301,12 @@ source "$ROOT_DIR/scripts/lib/tool-path.sh"
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
 _ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
 
-# Version check: ensure installed OpenCode meets minimum
+# Version check: capability-based validation
 if [[ $DRY_RUN == false ]] && command -v opencode >/dev/null 2>&1; then
-  _oc_version=$(opencode --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || true)
-  if [[ -n "$_oc_version" ]]; then
-    min="0.1.0"
-    IFS=.
-    read -r ma mi pa <<< "$_oc_version"
-    read -r ma_min mi_min pa_min <<< "$min"
-    installed_num=$((ma * 10000 + mi * 100 + pa))
-    min_num=$((ma_min * 10000 + mi_min * 100 + pa_min))
-    if (( installed_num < min_num )); then
-      critical "OpenCode v$_oc_version < v$min (mínimo requerido)"
-      if [[ -t 0 ]] && [[ $NON_INTERACTIVE == false ]]; then
-        info "¿Actualizar OpenCode? [Y/n]"
-        read -r _yn
-        if [[ -z "$_yn" || "$_yn" =~ ^[Yy] ]]; then
-          run bash -c "curl -fsSL https://opencode.ai/install | bash"
-        else
-          critical "OpenCode desactualizado. Ejecuta: curl -fsSL https://opencode.ai/install | bash"
-          exit 1
-        fi
-      else
-        critical "OpenCode v$_oc_version por debajo del mínimo v$min. Actualiza con: curl -fsSL https://opencode.ai/install | bash"
-        exit 1
-      fi
-    else
-      ok "OpenCode v$_oc_version (mínimo v$min)"
-    fi
-  else
-    info "OpenCode presente pero no se pudo detectar version"
-  fi
+  _oc_version=$(opencode --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "0.0.0")
+  ok "OpenCode v$_oc_version"
+  opencode agent list >/dev/null 2>&1 || { critical "opencode agent list falló"; exit 1; }
+  ok "Capacidad: opencode agent list verificada"
 else
   info "OpenCode version check omitido (dry-run o no instalado aun)"
 fi
@@ -383,8 +374,6 @@ OC_FILE="${OPENCODE_CONFIG_FILE:-$CONFIG_ROOT/opencode/opencode.json}"
 JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
 TMP_CANDIDATE=""
 TMP_STATE=""
-BACKUP_OC=""
-BACKUP_STATE=""
 
 # ── Journal allowlist de paths — validación antes de rollback ──
 JOURNAL_ALLOWLIST_PATHS=(
@@ -400,7 +389,7 @@ _journal_path_is_allowed() {
   for allowed in "${JOURNAL_ALLOWLIST_PATHS[@]}"; do
     local ap
     ap=$(readlink -f "$allowed" 2>/dev/null || echo "$allowed")
-    if [[ "$p" == "$ap"* ]]; then
+    if [[ "$p" == "$ap" ]] || [[ "$p" == "$ap/"* ]]; then
       return 0
     fi
   done
@@ -589,15 +578,6 @@ _rollback_resources() {
   return 0
 }
 
-# ── Detectar journal residual y recuperar ───────────────────────
-if [[ -f "$JOURNAL_FILE" ]]; then
-  _recover_journal "$JOURNAL_FILE" || exit 1
-fi
-
-# Trap para transacción actual
-trap _rollback EXIT
-trap '_rollback; exit 1' INT TERM
-
 _rollback() {
   local rc=$?
   trap '' EXIT INT TERM
@@ -640,46 +620,69 @@ _fsync_file() {
   python3 -c "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.fsync(fd); os.close(fd)" "$1"
 }
 
-# mv con verificación post-rename
+# mv seguro: renameat2 vía Python
+# dst no existe → RENAME_NOREPLACE (falla si concurrente crea dst)
+# dst existe → verificamos hash, luego rename atómico
 _mv_safe() {
   local src=$1 dst=$2 orig_sha=${3:-}
-  if [[ -f "$dst" ]]; then
-    local displaced="${dst}.displaced.$$"
-    mv "$dst" "$displaced" || return 1
+  local rn=0
+  if python3 -c "
+import ctypes, os, sys, ctypes.util
+SYS = {'x86_64': 316, 'aarch64': 276}.get(os.uname().machine, 316)
+flags = int(sys.argv[3])
+libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+src, dst = sys.argv[1].encode(), sys.argv[2].encode()
+libc.syscall.restype = ctypes.c_long
+ret = libc.syscall(SYS, -100, src, -100, dst, flags)
+if ret != 0:
+    sys.exit(ctypes.get_errno())
+" "$src" "$dst" "1"; then
+    chmod 600 "$dst"
+    return 0
+  else
+    rn=$?
+  fi
+  if [[ $rn -eq 17 ]]; then
     if [[ -n "$orig_sha" ]]; then
-      local dsha
-      dsha=$(sha256sum "$displaced" | cut -d' ' -f1)
-      if [[ "$dsha" != "$orig_sha" ]]; then
-        mv "$displaced" "$dst" 2>/dev/null || true
-        return 2
+      local current
+      current=$(sha256sum "$dst" 2>/dev/null | cut -d' ' -f1 || echo "")
+      if [[ "$current" == "$orig_sha" ]]; then
+        python3 -c "
+import ctypes, os, sys, ctypes.util
+SYS = {'x86_64': 316, 'aarch64': 276}.get(os.uname().machine, 316)
+libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+src, dst = sys.argv[1].encode(), sys.argv[2].encode()
+libc.syscall.restype = ctypes.c_long
+ret = libc.syscall(SYS, -100, src, -100, dst, 0)
+if ret != 0:
+    sys.exit(1)
+" "$src" "$dst" && { chmod 600 "$dst"; rm -f "$src"; return 0; } || { rm -f "$src"; return 1; }
       fi
     fi
-    if [[ -f "$dst" ]]; then
-      mv "$displaced" "$dst" 2>/dev/null || true
-      return 2
-    fi
-    mv "$src" "$dst" || { mv "$displaced" "$dst" 2>/dev/null || true; return 1; }
-    chmod 600 "$dst"
-    rm -f "$displaced"
-    return 0
-  fi
-  if [[ -f "$dst" ]]; then
+    rm -f "$src"
     return 2
   fi
-  mv "$src" "$dst" || return 1
-  chmod 600 "$dst"
+  rm -f "$src"
+  return 1
 }
 
-# Inicializar journal como array vacío
+# Inicializar journal como array vacío (atómico: temp → fsync → rename)
 _init_journal() {
-  jq -n '{journalVersion: "2", phase: "preparing", resources: []}' > "$JOURNAL_FILE"
+  local tmp="${JOURNAL_FILE}.$$.tmp"
+  jq -n '{journalVersion: "2", phase: "preparing", resources: []}' > "$tmp"
+  chmod 600 "$tmp"
+  _fsync "$tmp"
+  mv "$tmp" "$JOURNAL_FILE"
   chmod 600 "$JOURNAL_FILE"
   _fsync "$JOURNAL_FILE"
+  _fsync "$(dirname "$JOURNAL_FILE")"
+  return 0
 }
 
-# Agregar resource al journal
+# Agregar resource al journal (atómico)
 _journal_add_resource() {
   local id=$1 final=$2 tmp=$3 backup=$4 existed=$5 mode=$6 order=$7 rtype=${8:-file} linktarg=${9:-} orig_sha=${10:-}
+  local t="${JOURNAL_FILE}.$$.tmp"
   jq --arg id "$id" \
     --arg final "$final" \
     --arg tmp "$tmp" \
@@ -695,27 +698,28 @@ _journal_add_resource() {
       existedBefore: $existed, expectedMode: $mode, applyOrder: $order,
       resourceType: $rtype, linkTarget: $linktarg,
       originalSha256: $orig, candidateSha256: "", status: "prepared"
-    }]' "$JOURNAL_FILE" > "${JOURNAL_FILE}.tmp" && mv "${JOURNAL_FILE}.tmp" "$JOURNAL_FILE"
+    }]' "$JOURNAL_FILE" > "$t" && mv "$t" "$JOURNAL_FILE"
   chmod 600 "$JOURNAL_FILE"
   _fsync "$JOURNAL_FILE"
 }
 
-# Actualizar fase y/o un resource en el journal
+# Actualizar fase y/o un resource en el journal (atómico)
 _journal_update() {
   local phase=${1:-} resource_id=${2:-} updates=${3:-}
-  local tmp="${JOURNAL_FILE}.tmp"
+  local t="${JOURNAL_FILE}.$$.tmp"
   if [[ -n "$phase" ]]; then
-    jq --arg p "$phase" '.phase = $p' "$JOURNAL_FILE" > "$tmp"
-    cp "$tmp" "$JOURNAL_FILE"
+    jq --arg p "$phase" '.phase = $p' "$JOURNAL_FILE" > "$t"
+    if [[ -s "$t" ]]; then
+      mv "$t" "$JOURNAL_FILE"
+    fi
   fi
   if [[ -n "$resource_id" && -n "$updates" ]]; then
     if echo "$updates" | jq empty >/dev/null 2>&1; then
       jq --arg id "$resource_id" --argjson upd "$updates" \
         '.resources = [.resources[] | if .id == $id then . + $upd else . end]' \
-        "$JOURNAL_FILE" > "$tmp" && cp "$tmp" "$JOURNAL_FILE"
+        "$JOURNAL_FILE" > "$t" && mv "$t" "$JOURNAL_FILE"
     fi
   fi
-  rm -f "$tmp"
   chmod 600 "$JOURNAL_FILE"
   _fsync "$JOURNAL_FILE"
 }
@@ -732,7 +736,9 @@ _journal_write_full() {
 }
 
 _clear_journal() {
-  rm -f "$JOURNAL_FILE" && _fsync "$(dirname "$JOURNAL_FILE")" 2>/dev/null || true
+  [[ ! -f "$JOURNAL_FILE" ]] && return 0
+  rm -f "$JOURNAL_FILE"
+  _fsync "$(dirname "$JOURNAL_FILE")" 2>/dev/null || true
 }
 
 # Registrar si los archivos existían antes de la transacción
@@ -746,8 +752,15 @@ TMP_GITHUB=""
 TMP_NAVI_URL=""
 TMP_NAVI_CID=""
 
-# Inicializar journal
-_init_journal
+# Recovery y journal existen solo en modo transaccional real.
+if [[ $DRY_RUN == false ]]; then
+  if [[ -f "$JOURNAL_FILE" ]]; then
+    _recover_journal "$JOURNAL_FILE" || exit 4
+  fi
+  _init_journal
+  trap _rollback EXIT
+  trap '_rollback; exit 1' INT TERM
+fi
 
 ensure_opencode_config() {
   if [[ -f "$OC_FILE" ]]; then
@@ -755,6 +768,10 @@ ensure_opencode_config() {
       ok "opencode.json existe y es JSON válido"
       return 0
     else
+      if [[ $DRY_RUN == true ]]; then
+        critical "opencode.json existe pero no es JSON válido"
+        return 1
+      fi
       local backup
       backup="${OC_FILE}.bak.$(date +%s)"
       cp "$OC_FILE" "$backup" || { critical "No se pudo crear backup de opencode.json inválido"; return 1; }
@@ -787,9 +804,13 @@ _determine_candidate() {
   cfg_dir=$(dirname "$OC_FILE")
   local base_json='{"$schema":"https://opencode.ai/config.json","plugin":[],"mcp":{}}'
 
-  if [[ $DRY_RUN == true ]] && [[ ! -d "$cfg_dir" ]]; then
-    TMP_CANDIDATE=$(mktemp /tmp/.opencode.json.XXXXXXXX)
-    printf '{}' > "$TMP_CANDIDATE"
+  if [[ $DRY_RUN == true ]]; then
+    TMP_CANDIDATE="$DRY_RUN_DIR/opencode.json"
+    if [[ -f "$OC_FILE" ]]; then
+      cp "$OC_FILE" "$TMP_CANDIDATE"
+    else
+      printf '%s\n' "$base_json" > "$TMP_CANDIDATE"
+    fi
     return
   fi
 
@@ -844,7 +865,7 @@ phase "Plugins de OpenCode"
 
 if profile_includes "$PROFILE" "plugins" "ponytail"; then
   PLUGIN_PACKAGE=$(parse_nested_value "plugins" "ponytail" "package")
-  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$OC_FILE" 2>/dev/null || true)
+  PLUGIN_LIST=$(jq -r '(.plugin // [])[]' "$TMP_CANDIDATE" 2>/dev/null || true)
   PLUGIN_BASE="${PLUGIN_PACKAGE%@*}"
   if echo "$PLUGIN_LIST" | grep -qxF "$PLUGIN_PACKAGE"; then
     ok "Ponytail ya registrado ($PLUGIN_PACKAGE)"
@@ -870,16 +891,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Fase 7: Configuración del harness
+# Fase 7: Configuración del harness (links y configs, NO agentes)
 # ---------------------------------------------------------------------------
 phase "Configuración del harness"
 
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
-  INSTALL_ARGS=()
+  INSTALL_ARGS=(--skip-resources --skip-agents)
   $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
   $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
   $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
-  info 'Ejecutando install.sh...'
+  info 'Ejecutando install.sh (configs y agentes — fase de deploy)...'
   run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
 else
   info 'install.sh no encontrado'
@@ -892,16 +913,20 @@ if command -v gentle-ai >/dev/null 2>&1; then
     ga_version=$(gentle-ai --version 2>/dev/null || echo "unknown")
     ok "Gentle AI $ga_version"
 
-    gentle-ai skill-registry refresh --force 2>&1 | head -3 || {
-      warn "gentle-ai skill-registry refresh falló (no crítico)"
-    }
+    if gentle-ai skill-registry refresh --force >/dev/null 2>&1; then
+      ok "Gentle AI skill-registry actualizado"
+    else
+      warn "gentle-ai skill-registry refresh falló — ejecuta manual: gentle-ai skill-registry refresh --force"
+    fi
 
-    gentle-ai sync 2>&1 | head -3 || {
-      warn "gentle-ai sync falló (no crítico)"
-    }
+    if gentle-ai sync >/dev/null 2>&1; then
+      ok "Gentle AI sincronizado"
+    else
+      critical "gentle-ai sync falló — revisa que GAIA_KEY esté configurada"
+      exit 1
+    fi
 
-    ga_agents=$(gentle-ai doctor 2>/dev/null || true)
-    if echo "$ga_agents" | grep -q "healthy"; then
+    if gentle-ai doctor 2>/dev/null | grep -q "healthy"; then
       ok "Gentle AI saludable"
     else
       warn "gentle-ai doctor no reporta healthy"
@@ -1091,6 +1116,19 @@ _validar_ruta_secreta() {
   return 0
 }
 
+# Mapping único de resource ID → applyOrder
+_apply_order_for_id() {
+  case "$1" in
+    githubAuthorization) echo 10 ;;
+    naviUrl)            echo 20 ;;
+    naviClientId)       echo 30 ;;
+    opencodeConfig)     echo 40 ;;
+    mcpState)           echo 50 ;;
+    managedFilesState)  echo 60 ;;
+    *)                  echo 99 ;;
+  esac
+}
+
 # Registrar secreto en journal (prepara temp, añade recurso)
 _journal_secret_resource() {
   local id=$1 final=$2 content=$3
@@ -1123,7 +1161,7 @@ _journal_secret_resource() {
     naviUrl) TMP_NAVI_URL="$tmp" ;;
     naviClientId) TMP_NAVI_CID="$tmp" ;;
   esac
-  _journal_add_resource "$id" "$final" "$tmp" "$backup" "$existed" "600" "$apply_order"
+  _journal_add_resource "$id" "$final" "$tmp" "$backup" "$existed" "600" "$(_apply_order_for_id "$id")"
   return 0
 }
 
@@ -1261,40 +1299,47 @@ _build_state() {
   chmod 600 "$dst"
 }
 
-# ── Allowlist canónico ──────────────────────────────────────────
-_enforce_allowlist() {
-  local original=$1 candidate=$2
-  local tmp_o tmp_c
-  tmp_o=$(mktemp) && tmp_c=$(mktemp)
-  trap 'rm -f "$tmp_o" "$tmp_c"' RETURN
+# ── Allowlist canónico (subshell con cleanup propio) ────────────
+_enforce_allowlist() (
+  set -euo pipefail
+  local original=$1 candidate=$2 tmp_o="" tmp_c=""
 
-  # Verificar modificación concurrente
-  if [[ -f "$original" ]]; then
-    local orig_sha
-    orig_sha=$(sha256sum "$original" | cut -d' ' -f1)
-    local j_orig
-    j_orig=$(jq -r '.resources[] | select(.id == "opencodeConfig") | .originalSha256 // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
-    if [[ -n "$j_orig" && "$orig_sha" != "$j_orig" ]]; then
-      critical "ALLOWLIST: opencode.json cambió durante la instalación"
-      return 1
+  _cleanup_allowlist() {
+    if [[ -n "$tmp_o" && -e "$tmp_o" ]]; then
+      rm -f -- "$tmp_o"
     fi
-  fi
+    if [[ -n "$tmp_c" && -e "$tmp_c" ]]; then
+      rm -f -- "$tmp_c"
+    fi
+  }
 
-  # First run: original no existe o está vacío — nada que preservar
+  trap _cleanup_allowlist EXIT
+
+  tmp_o=$(mktemp) || { critical "ALLOWLIST: no se pudo crear temporal original"; exit 1; }
+  tmp_c=$(mktemp) || { critical "ALLOWLIST: no se pudo crear temporal candidato"; exit 1; }
+
   if [[ ! -f "$original" || ! -s "$original" ]]; then
     local pkg
     pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
-    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado"; return 1; }
-    return 0
+    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado en candidato"; exit 1; }
+    exit 0
   fi
+
+  # Verificar modificación concurrente (renombrado para evitar SC2030 vs _transaction_apply)
+  if [[ -f "$original" ]]; then
+    local allowlist_original_sha
+    allowlist_original_sha=$(sha256sum "$original" | cut -d' ' -f1)
+    local journal_original_sha
+    journal_original_sha=$(jq -r '.resources[] | select(.id == "opencodeConfig") | .originalSha256 // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    if [[ -n "$journal_original_sha" && "$allowlist_original_sha" != "$journal_original_sha" ]]; then
+      critical "ALLOWLIST: opencode.json cambió durante la instalación"
+      exit 1
+    fi
+  fi
+
   local o_size
   o_size=$(jq '. | length' "$original" 2>/dev/null || echo 0)
-  [[ "$o_size" -gt 0 ]] || {
-    local pkg
-    pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
-    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado"; return 1; }
-    return 0
-  }
+  [[ "$o_size" -gt 0 ]] || exit 0
 
   # Copias de trabajo
   cp "$original" "$tmp_o" 2>/dev/null || printf '{}' > "$tmp_o"
@@ -1304,10 +1349,18 @@ _enforce_allowlist() {
   jq 'del(.["$schema"])' "$tmp_o" > "${tmp_o}.$$" && mv "${tmp_o}.$$" "$tmp_o"
   jq 'del(.["$schema"])' "$tmp_c" > "${tmp_c}.$$" && mv "${tmp_c}.$$" "$tmp_c"
 
-  # Retirar MCPs administrados de AMBAS
+  # Retirar MCPs administrados de AMBAS (bracket indexing para nombres con guion)
   for mcp in codegraph engram context7 github linear wiki-alegra navi sentry; do
-    jq "del(.mcp.$mcp)" "$tmp_o" > "${tmp_o}.$$" && mv "${tmp_o}.$$" "$tmp_o" 2>/dev/null || true
-    jq "del(.mcp.$mcp)" "$tmp_c" > "${tmp_c}.$$" && mv "${tmp_c}.$$" "$tmp_c" 2>/dev/null || true
+    if ! jq --arg mcp "$mcp" 'del(.mcp[$mcp])' "$tmp_o" > "${tmp_o}.next"; then
+      critical "ALLOWLIST: no se pudo retirar MCP administrado: $mcp"
+      exit 1
+    fi
+    mv "${tmp_o}.next" "$tmp_o"
+    if ! jq --arg mcp "$mcp" 'del(.mcp[$mcp])' "$tmp_c" > "${tmp_c}.next"; then
+      critical "ALLOWLIST: no se pudo retirar MCP administrado: $mcp"
+      exit 1
+    fi
+    mv "${tmp_c}.next" "$tmp_c"
   done
 
   # Retirar solo entradas Ponytail de .plugin (preservar plugins externos)
@@ -1324,7 +1377,7 @@ _enforce_allowlist() {
     diff <(jq -S -c 'keys | sort[]' "$tmp_o" 2>/dev/null) \
          <(jq -S -c 'keys | sort[]' "$tmp_c" 2>/dev/null) \
          | head -20 || true
-    return 1
+    exit 1
   fi
 
   # Verificar que Ponytail administrada esté presente
@@ -1332,17 +1385,23 @@ _enforce_allowlist() {
   ponytail=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
   [[ -n "$ponytail" ]] || {
     critical "ALLOWLIST: Ponytail @4.8.4 no encontrado en .plugin"
-    return 1
+    exit 1
   }
 
-  return 0
-}
+  exit 0
+)
 
 # Run secret migration before final validation (only when not dry-run)
 if [[ $DRY_RUN == false ]]; then
-  _migrate_github_secret
+  if ! _migrate_github_secret; then
+    critical "GitHub: migración de secreto falló"
+    exit 1
+  fi
   if profile_includes "$PROFILE" "mcps" "navi"; then
-    _migrate_navi_secret
+    if ! _migrate_navi_secret; then
+      critical "Navi: migración de secretos falló"
+      exit 1
+    fi
   fi
 fi
 
@@ -1366,13 +1425,30 @@ _transaction_apply() {
 
   if ! $config_changed; then
     if (( ${#MANAGED_MCPS[@]} > 0 )) && _build_state "$OC_FILE" "$TMP_STATE"; then
+      # State idempotente: no llamar _mv_safe si el contenido es idéntico
+      if [[ -f "$STATE_FILE" ]]; then
+        local candidate_state_sha existing_state_sha
+        candidate_state_sha=$(sha256sum "$TMP_STATE" | cut -d' ' -f1)
+        existing_state_sha=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
+        if [[ "$candidate_state_sha" == "$existing_state_sha" ]]; then
+          rm -f "$TMP_STATE"
+          _journal_update "committed"
+          _clear_journal
+          ok "State sin cambios (idempotente)"
+          local summary=""
+          [[ $MCP_SKIPPED -gt 0 ]] && summary="${MCP_SKIPPED} personalizados omitidos"
+          rm -f "$TMP_CANDIDATE"
+          [[ -n "$summary" ]] && ok "MCPs: ${summary}" || ok "No hay cambios en la configuracion"
+          return 0
+        fi
+      fi
       _journal_add_resource "mcpState" "$STATE_FILE" "$TMP_STATE" "" "$STATE_EXISTED_BEFORE" "600" 50
       _journal_update "candidates-ready"
       _journal_update "" "mcpState" '{"status": "applying"}'
       local cs
       cs=$(sha256sum "$TMP_STATE" | cut -d' ' -f1)
       _journal_update "" "mcpState" '{"candidateSha256": "'"$cs"'"}'
-      _mv_safe "$TMP_STATE" "$STATE_FILE" ""
+      _mv_safe "$TMP_STATE" "$STATE_FILE" "$st_orig_sha"
       _fsync "$(dirname "$STATE_FILE")"
       _journal_update "" "mcpState" '{"status": "applied"}'
       _journal_update "committed"
@@ -1385,16 +1461,7 @@ _transaction_apply() {
     return 0
   fi
 
-  # ── Registrar resources en journal ──────────────────────────
-  if [[ -n "$TMP_GITHUB" ]]; then
-    _journal_add_resource "githubAuthorization" "$HARNESS_CONFIG_DIR/secrets/github/authorization" "$TMP_GITHUB" "" false "600" 10
-  fi
-  if [[ -n "$TMP_NAVI_URL" ]]; then
-    _journal_add_resource "naviUrl" "$HARNESS_CONFIG_DIR/secrets/navi/url" "$TMP_NAVI_URL" "" false "600" 20
-  fi
-  if [[ -n "$TMP_NAVI_CID" ]]; then
-    _journal_add_resource "naviClientId" "$HARNESS_CONFIG_DIR/secrets/navi/client-id" "$TMP_NAVI_CID" "" false "600" 30
-  fi
+  # ── Registrar resources en journal (secretos ya registrados por _journal_secret_resource) ──
   config_backup=""
   if $OC_EXISTED_BEFORE && [[ -f "$OC_FILE" ]]; then
     config_backup="$HARNESS_CONFIG_DIR/backups/opencode-config-pre-$(date +%s).bak"
@@ -1426,7 +1493,13 @@ _transaction_apply() {
     critical "Candidato no pasa schema"
     return 1
   }
-  _enforce_allowlist "$OC_FILE" "$TMP_CANDIDATE" || { critical "Allowlist: cambios no administrados"; return 1; }
+  if ! _enforce_allowlist "$OC_FILE" "$TMP_CANDIDATE"; then
+    if $OC_EXISTED_BEFORE; then
+      critical "Allowlist: cambios no administrados"
+      return 1
+    fi
+    warn "Allowlist omitida (primer arranque)"
+  fi
   _check_failpoint "allowlist-check"
 
   if (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
@@ -1487,20 +1560,30 @@ _transaction_apply() {
   _journal_update "committed"
   _clear_journal
   info "Configuracion aplicada (plugins y/o MCPs actualizados)"
-  $OC_EXISTED_BEFORE && info "Backup: $config_backup"
+  if $OC_EXISTED_BEFORE; then
+    info "Backup: $config_backup"
+  fi
   return 0
 }
 
 # ── Ejecutar transacción (dry-run salta) ──────────────────────
 if [[ $DRY_RUN == false ]]; then
-  _transaction_apply; rc=$?
-  if [[ $rc -eq 1 ]]; then
-    rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-    exit 1
-  elif [[ $rc -eq 2 ]]; then
-    rm -f "$TMP_CANDIDATE" "$TMP_STATE"
+  _transaction_apply
+fi
+
+# ── Fase post-transacción: agentes administrados ─────────────
+if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
+  phase "Agentes administrados"
+  info 'Instalando agentes administrados...'
+  INSTALL_ARGS=()
+  $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
+  $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
+  $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
+  if ! run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"; then
+    critical "Fallo al instalar agentes administrados"
     exit 1
   fi
+  _ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
 fi
 
 info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"
@@ -1564,4 +1647,9 @@ printf '     dh opencode backup\n'
 printf '\n  3. Verifica estado con doctor.sh\n'
 printf '     bash scripts/doctor.sh\n'
 printf '\n  4. Si es primera instalación, reinicia OpenCode\n'
+
+if [[ $DRY_RUN == true ]]; then
+  _cleanup_dry_run
+  trap - EXIT INT TERM
+fi
 printf '\n'

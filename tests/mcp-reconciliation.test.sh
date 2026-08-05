@@ -49,7 +49,11 @@ chmod +x "$STUBS/node"
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 0.1.0"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
