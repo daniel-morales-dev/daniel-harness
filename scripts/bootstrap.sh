@@ -1347,10 +1347,12 @@ _enforce_allowlist() {
 
 # Run secret migration before final validation (only when not dry-run)
 if [[ $DRY_RUN == false ]]; then
-  _migrate_github_secret
+  set +eu
+  _migrate_github_secret; rc=$?
   if profile_includes "$PROFILE" "mcps" "navi"; then
-    _migrate_navi_secret
+    _migrate_navi_secret; rc=$?
   fi
+  set -eu
 fi
 
 _transaction_apply() {
