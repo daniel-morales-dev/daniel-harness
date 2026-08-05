@@ -6,7 +6,15 @@ umask 077
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$ROOT_DIR/tests/helpers/nvm-stub.sh"
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+
+cleanup_test_tmp() {
+  if [[ "${DH_KEEP_TEST_TMP:-0}" == "1" ]]; then
+    printf '%s\n' "TMP_DIR preservado: $TMP_DIR" >&2
+  else
+    rm -rf "$TMP_DIR"
+  fi
+}
+trap cleanup_test_tmp EXIT
 
 # Home aislado por perfil — evita contaminación entre fases
 HOME_CORE="$TMP_DIR/home-core"
@@ -23,43 +31,86 @@ fail() { printf '  [FAIL] %s\n' "$*"; FAIL=$((FAIL + 1)); }
 
 run_check() {
   local label=$1; shift
+  local safe_label=${label// /_}
+  local stdout_file="$TMP_DIR/${safe_label}.stdout"
+  local stderr_file="$TMP_DIR/${safe_label}.stderr"
+  local rc_file="$TMP_DIR/${safe_label}.rc"
+
   set +e
-  "$@" > "$TMP_DIR/${label// /_}.out" 2>&1; local rc=$?
+  "$@" >"$stdout_file" 2>"$stderr_file"; local rc=$?
   set -e
+
+  printf '%s\n' "$rc" > "$rc_file"
   printf '%s' "$rc"
 }
 
+dump_failure() {
+  local label=$1
+  local home=$2
+  local safe_label=${label// /_}
+  local stdout_file="$TMP_DIR/${safe_label}.stdout"
+  local stderr_file="$TMP_DIR/${safe_label}.stderr"
+
+  printf '%s\n' "--- $label: stdout ---"
+  cat "$stdout_file" 2>/dev/null || true
+
+  printf '%s\n' "--- $label: stderr ---"
+  cat "$stderr_file" 2>/dev/null || true
+
+  printf '%s\n' "--- $label: journal sanitizado ---"
+  local journal="$home/.config/daniel-harness/state/.bootstrap-journal.json"
+  if [[ -f "$journal" ]]; then
+    jq '{
+      journalVersion,
+      phase,
+      resources: [
+        .resources[]? |
+        {
+          id,
+          applyOrder,
+          status,
+          resourceType,
+          existedBefore,
+          hasTemp: (.tempPath != ""),
+          hasBackup: (.backupPath != ""),
+          hasOriginalSha: (.originalSha256 != ""),
+          hasCandidateSha: (.candidateSha256 != "")
+        }
+      ]
+    }' "$journal" 2>/dev/null || cat "$journal"
+  else
+    printf '%s\n' '(sin journal)'
+  fi
+
+  printf '%s\n' "--- $label: archivos relevantes ---"
+  if [[ -d "$home/.config" ]]; then
+    find "$home/.config" -maxdepth 4 -type f -o -type l 2>/dev/null |
+      sort |
+      sed "s#^$home#\$HOME#"
+  else
+    printf '%s\n' "(.config no existe)"
+  fi
+}
+
 require_success() {
-  local label=$1 rc=$2
-  if [[ $rc -ne 0 ]]; then
-    printf '\n=== FAIL-FAST: %s (rc=%d) ===\n' "$label" "$rc"
-    printf '--- stdout/stderr ---\n'
-    cat "$TMP_DIR/${label// /_}.out"
-    printf '--- journal (if exists) ---\n'
-    local jf
-    jf=$(find "$HOME_CORE" -name '.bootstrap-journal.json' 2>/dev/null | head -1)
-    [[ -n "$jf" ]] && python3 -c "
-import json,sys
-try:
-    d = json.load(open('$jf'))
-    for k in ('resources','phase','journalVersion'):
-        d.pop(k,None)
-    print(json.dumps(d,indent=2)[:2000])
-except: print(sys.stdin.read()[:2000])
-" < "$jf" 2>/dev/null || echo "(no journal)"
-    echo "--- HOME_CORE contents ---"
-    ls -la "$HOME_CORE/.config/opencode/" 2>/dev/null || echo "(opencode dir not created)"
+  local label=$1
+  local command_rc=$2
+  local home=$3
+
+  if [[ $command_rc -ne 0 ]]; then
+    printf '\n=== FAIL-FAST: %s (rc=%s) ===\n' "$label" "$command_rc"
+    dump_failure "$label" "$home"
     exit 1
   fi
 }
 
 require_file() {
   local label=$1 path=$2
-  [[ -f "$path" ]] && pass "$label: $path exists" || {
+  if [[ ! -f "$path" ]]; then
     printf '=== FAIL-FAST: %s missing ===\n' "$label"
-    fail "$label: $path not found"
+    printf '%s\n' "  path: $path"
     exit 1
-  }
+  fi
 }
 
 # --- Setup: stubs (compartidos) ---
@@ -221,10 +272,10 @@ mcp_list() {
 # --- Phase 1: Bootstrap --profile core ---
 printf '\n=== Phase 1: bootstrap --profile core ===\n'
 rc=$(run_check "bootstrap-core" bootstrap_profile core core "$HOME_CORE")
-require_success "bootstrap-core" "$rc"
+require_success "bootstrap-core" "$rc" "$HOME_CORE"
 pass "bootstrap core exit code 0"
-grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-core.out" && pass "bootstrap core completed healthy" || {
-  cat "$TMP_DIR/bootstrap-core.out"
+grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-core.stdout" && pass "bootstrap core completed healthy" || {
+  cat "$TMP_DIR/bootstrap-core.stdout"
   fail "bootstrap core not healthy"
   exit 1
 }
@@ -282,8 +333,8 @@ done
 printf '\n=== Phase 4: doctor --profile core --strict ===\n'
 rc=$(run_check "doctor-core" doctor_profile core core "$HOME_CORE")
 [[ $rc -eq 0 ]] && pass "doctor core exit code 0" || fail "doctor core exit code $rc"
-grep -q 'Resumen: 0 crítico(s)' "$TMP_DIR/doctor-core.out" && pass "doctor --profile core --strict passed" || {
-  cat "$TMP_DIR/doctor-core.out"
+grep -q 'Resumen: 0 crítico(s)' "$TMP_DIR/doctor-core.stdout" && pass "doctor --profile core --strict passed" || {
+  cat "$TMP_DIR/doctor-core.stdout"
   fail "doctor reported criticals"
 }
 
@@ -298,7 +349,7 @@ SECOND_HASH=$(sha256sum "$CORE_OC" 2>/dev/null | cut -d' ' -f1 || echo none)
 [[ "$FIRST_HASH" == "$SECOND_HASH" ]] && pass "second bootstrap is idempotent (opencode.json unchanged)" || fail "second bootstrap modified opencode.json"
 BACKUPS_AFTER=$(find "$HOME_CORE/.config/opencode/" -name 'opencode.json.bak.*' 2>/dev/null | wc -l)
 [[ "$BACKUPS_AFTER" -eq "$BACKUPS_BEFORE" ]] && pass "no new backups created on second run" || fail "second bootstrap created unnecessary backups"
-grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-idempotent.out" && pass "second bootstrap healthy" || fail "second bootstrap failed"
+grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-idempotent.stdout" && pass "second bootstrap healthy" || fail "second bootstrap failed"
 
 # --- Phase 5c: Core → alegra transition on same HOME ---
 printf '\n=== Phase 5c: Core → alegra transition ===\n'
@@ -308,11 +359,9 @@ cp "$CONFIG_TMP/daniel-harness/config.yaml" "$TRANSITION_HOME/.config/daniel-har
 echo 'nvm() { :; }' > "$TRANSITION_HOME/.nvm/nvm.sh"
 echo '#!/bin/bash; echo v24.0.0' > "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
 chmod +x "$TRANSITION_HOME/.nvm/versions/node/v24.0.0/bin/node"
-# Bootstrap core first
 rc=$(run_check "transition-core" bootstrap_profile core core "$TRANSITION_HOME")
 [[ $rc -eq 0 ]] && pass "transition: core bootstrap ok" || {
-  echo "--- transition-core.out ---"
-  cat "$TMP_DIR/transition-core.out"
+  dump_failure "transition-core" "$TRANSITION_HOME"
   fail "transition: core bootstrap failed"
   rm -rf "$TRANSITION_HOME"
   exit 1
@@ -322,10 +371,7 @@ TRANSITION_OC="$TRANSITION_HOME/.config/opencode/opencode.json"
 # Bootstrap alegra on same HOME
 rc=$(run_check "transition-alegra" bootstrap_profile alegra alegra "$TRANSITION_HOME")
 [[ $rc -eq 0 ]] && pass "transition: alegra bootstrap ok" || {
-  echo "--- transition-alegra.out ---"
-  cat "$TMP_DIR/transition-alegra.out"
-  echo "--- journal (if exists) ---"
-  find "$TRANSITION_HOME" -name '.bootstrap-journal.json' 2>/dev/null | head -1 | while read -r jf; do cat "$jf"; done
+  dump_failure "transition-alegra" "$TRANSITION_HOME"
   fail "transition: alegra bootstrap failed"
   rm -rf "$TRANSITION_HOME"
   exit 1
@@ -343,8 +389,7 @@ done
 # Verify doctor --profile alegra --strict passes
 rc=$(run_check "transition-doctor" doctor_profile alegra alegra "$TRANSITION_HOME")
 [[ $rc -eq 0 ]] && pass "transition: doctor alegra passes" || {
-  echo "--- transition-doctor.out ---"
-  cat "$TMP_DIR/transition-doctor.out"
+  dump_failure "transition-doctor" "$TRANSITION_HOME"
   fail "transition: doctor alegra failed"
 }
 rm -rf "$TRANSITION_HOME"
@@ -362,8 +407,8 @@ done
 printf '\n=== Phase 7: bootstrap --profile alegra ===\n'
 rc=$(run_check "bootstrap-alegra" bootstrap_profile alegra alegra "$HOME_ALEGRA")
 [[ $rc -eq 0 ]] && pass "bootstrap alegra exit code 0" || fail "bootstrap alegra exit code $rc"
-grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-alegra.out" && pass "bootstrap alegra completed healthy" || {
-  cat "$TMP_DIR/bootstrap-alegra.out"
+grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-alegra.stdout" && pass "bootstrap alegra completed healthy" || {
+  dump_failure "bootstrap-alegra" "$HOME_ALEGRA"
   fail "bootstrap alegra not healthy"
 }
 
@@ -398,11 +443,11 @@ STAT_MODE=$(stat -c '%a' "$ALEGRA_STATE" 2>/dev/null || echo "000")
 printf '\n=== Phase 8: bootstrap --profile migration --skip-docker ===\n'
 rc=$(run_check "bootstrap-migration" bootstrap_profile migration migration "$HOME_MIGRATION" true)
 [[ $rc -eq 0 ]] && pass "bootstrap migration --skip-docker exit code 0" || fail "bootstrap migration --skip-docker exit code $rc"
-grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-migration.out" && pass "bootstrap migration completed healthy" || {
-  cat "$TMP_DIR/bootstrap-migration.out"
+grep -q 'Bootstrap completado y saludable' "$TMP_DIR/bootstrap-migration.stdout" && pass "bootstrap migration completed healthy" || {
+  dump_failure "bootstrap-migration" "$HOME_MIGRATION"
   fail "bootstrap migration not healthy"
 }
-grep -q 'Docker omitido' "$TMP_DIR/bootstrap-migration.out" && pass "migration --skip-docker respected" || fail "migration did not skip docker"
+grep -q 'Docker omitido' "$TMP_DIR/bootstrap-migration.stdout" && pass "migration --skip-docker respected" || fail "migration did not skip docker"
 
 OC_MIGRATION="$HOME_MIGRATION/.config/opencode/opencode.json"
 
@@ -455,9 +500,9 @@ env PATH="$STUBS:$PATH" HOME="$HOME_ALEGRA_11" XDG_CONFIG_HOME="$HOME_ALEGRA_11/
   GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real_123" \
   NAVI_MCP_URL="https://navi.example.com/mcp" \
   NAVI_OAUTH_CLIENT_ID="dummy-client-id" \
-  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/bootstrap-alegra-11.out" 2>&1 && \
+  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/bootstrap-alegra-11.stdout" 2>"$TMP_DIR/bootstrap-alegra-11.stderr" && \
   pass "phase 11: alegra bootstrap ok" || {
-    cat "$TMP_DIR/bootstrap-alegra-11.out"
+    dump_failure "bootstrap-alegra-11" "$HOME_ALEGRA_11"
     fail "phase 11: alegra bootstrap failed"
   }
 # OpenCode stub: solo linear requiere auth, los demas connected

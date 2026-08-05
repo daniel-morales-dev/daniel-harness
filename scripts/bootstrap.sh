@@ -78,14 +78,19 @@ sudo_run() {
   fi
 }
 
-# Lock de arranque solo si no es dry-run
+# Lock de arranque solo si no es dry-run (stderr no redirigido)
+BOOTSTRAP_LOCK_FD=""
 if [[ $DRY_RUN == false ]]; then
   LOCK_FILE="$STATE_DIR/.bootstrap.lock"
-  mkdir -p "$STATE_DIR" 2>/dev/null || { critical "No se pudo crear $STATE_DIR"; exit 1; }
-  if ! exec 200>"$LOCK_FILE" 2>/dev/null; then
-    critical "No se pudo crear lock (estado no escribible)"
+  if ! mkdir -p "$STATE_DIR"; then
+    critical "No se pudo crear $STATE_DIR"
     exit 1
-  elif ! flock -n 200 2>/dev/null; then
+  fi
+  if ! exec {BOOTSTRAP_LOCK_FD}>"$LOCK_FILE"; then
+    critical "No se pudo abrir el lock: $LOCK_FILE"
+    exit 1
+  fi
+  if ! flock -n "$BOOTSTRAP_LOCK_FD"; then
     critical "Otro bootstrap en ejecución (lock: $LOCK_FILE)"
     exit 1
   fi
@@ -1276,18 +1281,30 @@ _build_state() {
   chmod 600 "$dst"
 }
 
-# ── Allowlist canónico ──────────────────────────────────────────
-_enforce_allowlist() {
-  local original=$1 candidate=$2
-  local tmp_o tmp_c
-  tmp_o=$(mktemp) && tmp_c=$(mktemp)
-  trap 'rm -f "$tmp_o" "$tmp_c"' RETURN
+# ── Allowlist canónico (subshell con cleanup propio) ────────────
+_enforce_allowlist() (
+  set -euo pipefail
+  local original=$1 candidate=$2 tmp_o="" tmp_c=""
+
+  _cleanup_allowlist() {
+    if [[ -n "$tmp_o" && -e "$tmp_o" ]]; then
+      rm -f -- "$tmp_o"
+    fi
+    if [[ -n "$tmp_c" && -e "$tmp_c" ]]; then
+      rm -f -- "$tmp_c"
+    fi
+  }
+
+  trap _cleanup_allowlist EXIT
+
+  tmp_o=$(mktemp) || { critical "ALLOWLIST: no se pudo crear temporal original"; exit 1; }
+  tmp_c=$(mktemp) || { critical "ALLOWLIST: no se pudo crear temporal candidato"; exit 1; }
 
   if [[ ! -f "$original" || ! -s "$original" ]]; then
     local pkg
     pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
-    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado en candidato"; return 1; }
-    return 0
+    [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado en candidato"; exit 1; }
+    exit 0
   fi
 
   # Verificar modificación concurrente
@@ -1298,13 +1315,13 @@ _enforce_allowlist() {
     j_orig=$(jq -r '.resources[] | select(.id == "opencodeConfig") | .originalSha256 // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
     if [[ -n "$j_orig" && "$orig_sha" != "$j_orig" ]]; then
       critical "ALLOWLIST: opencode.json cambió durante la instalación"
-      return 1
+      exit 1
     fi
   fi
 
   local o_size
   o_size=$(jq '. | length' "$original" 2>/dev/null || echo 0)
-  [[ "$o_size" -gt 0 ]] || return 0
+  [[ "$o_size" -gt 0 ]] || exit 0
 
   # Copias de trabajo
   cp "$original" "$tmp_o" 2>/dev/null || printf '{}' > "$tmp_o"
@@ -1334,7 +1351,7 @@ _enforce_allowlist() {
     diff <(jq -S -c 'keys | sort[]' "$tmp_o" 2>/dev/null) \
          <(jq -S -c 'keys | sort[]' "$tmp_c" 2>/dev/null) \
          | head -20 || true
-    return 1
+    exit 1
   fi
 
   # Verificar que Ponytail administrada esté presente
@@ -1342,20 +1359,24 @@ _enforce_allowlist() {
   ponytail=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
   [[ -n "$ponytail" ]] || {
     critical "ALLOWLIST: Ponytail @4.8.4 no encontrado en .plugin"
-    return 1
+    exit 1
   }
 
-  return 0
-}
+  exit 0
+)
 
 # Run secret migration before final validation (only when not dry-run)
 if [[ $DRY_RUN == false ]]; then
-  set +eu
-  _migrate_github_secret; rc=$?
-  if profile_includes "$PROFILE" "mcps" "navi"; then
-    _migrate_navi_secret; rc=$?
+  if ! _migrate_github_secret; then
+    critical "GitHub: migración de secreto falló"
+    exit 1
   fi
-  set -eu
+  if profile_includes "$PROFILE" "mcps" "navi"; then
+    if ! _migrate_navi_secret; then
+      critical "Navi: migración de secretos falló"
+      exit 1
+    fi
+  fi
 fi
 
 _transaction_apply() {
@@ -1503,17 +1524,8 @@ _transaction_apply() {
 }
 
 # ── Ejecutar transacción (dry-run salta) ──────────────────────
-rc=0
 if [[ $DRY_RUN == false ]]; then
-  _transaction_apply || rc=$?
-  case "$rc" in
-    0) ;;
-    2) exit 2 ;;
-    3) exit 3 ;;
-    4) exit 4 ;;
-    *) critical "Transaccion fallo (rc=$rc) — abortando bootstrap"
-       exit 1 ;;
-  esac
+  _transaction_apply
 fi
 
 # ── Fase post-transacción: agentes administrados ─────────────
