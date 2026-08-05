@@ -1308,13 +1308,13 @@ _enforce_allowlist() (
     exit 0
   fi
 
-  # Verificar modificación concurrente
+  # Verificar modificación concurrente (renombrado para evitar SC2030 vs _transaction_apply)
   if [[ -f "$original" ]]; then
-    local orig_sha
-    orig_sha=$(sha256sum "$original" | cut -d' ' -f1)
-    local j_orig
-    j_orig=$(jq -r '.resources[] | select(.id == "opencodeConfig") | .originalSha256 // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
-    if [[ -n "$j_orig" && "$orig_sha" != "$j_orig" ]]; then
+    local allowlist_original_sha
+    allowlist_original_sha=$(sha256sum "$original" | cut -d' ' -f1)
+    local journal_original_sha
+    journal_original_sha=$(jq -r '.resources[] | select(.id == "opencodeConfig") | .originalSha256 // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
+    if [[ -n "$journal_original_sha" && "$allowlist_original_sha" != "$journal_original_sha" ]]; then
       critical "ALLOWLIST: opencode.json cambió durante la instalación"
       exit 1
     fi
