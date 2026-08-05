@@ -34,24 +34,36 @@ remove_managed_link() {
   local source=$1
   local target=$2
 
-  if [[ ! -L "$target" ]]; then
-    printf 'conservado: %s no es un enlace administrado\n' "$target"
+  if [[ -L "$target" ]]; then
+    if [[ $(readlink "$target") != "$source" ]]; then
+      printf 'conservado: %s apunta a otro destino\n' "$target"
+      return
+    fi
+    rm "$target"
+    printf 'eliminado: %s\n' "$target"
     return
   fi
 
-  if [[ $(readlink "$target") != "$source" ]]; then
-    printf 'conservado: %s apunta a otro destino\n' "$target"
+  # Managed copy: remove if tracked in state
+  local state_file="$HARNESS_CONFIG_DIR/state/opencode-managed.state"
+  if [[ -f "$state_file" ]] && grep -q "^${dest_rel}|" "$state_file" 2>/dev/null; then
+    rm -f "$target"
+    printf 'eliminado: %s (managed copy)\n' "$target"
     return
   fi
 
-  rm "$target"
-  printf 'eliminado: %s\n' "$target"
+  printf 'conservado: %s no es un enlace administrado\n' "$target"
 }
 
-# Managed links estables
+# Managed links estables y managed files
 while IFS='|' read -r source_rel dest_var dest_rel; do
   remove_managed_link "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel"
 done < <(list_managed_links)
+
+# Managed copies (agents as files, not symlinks)
+while IFS='|' read -r source_rel dest_var dest_rel; do
+  remove_managed_link "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel"
+done < <(list_managed_files)
 
 # Recursos experimentales
 if $EXPERIMENTAL; then

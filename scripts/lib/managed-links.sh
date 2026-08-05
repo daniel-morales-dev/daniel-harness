@@ -39,3 +39,14 @@ commands/object-storage-read.md|OPENCODE_CONFIG_DIR|commands/object-storage-read
 bin/dh-data-executor|LOCAL_BIN|dh-data-executor
 LINKS
 }
+
+# Archivos gestionados como copias (managed copies, no symlinks)
+list_managed_files() {
+  cat <<'FILES'
+agents/alegra-microservice-engineer.md|OPENCODE_CONFIG_DIR|agents/alegra-microservice-engineer.md
+agents/code-reviewer.md|OPENCODE_CONFIG_DIR|agents/code-reviewer.md
+agents/alegra-microservice-test-engineer.md|OPENCODE_CONFIG_DIR|agents/alegra-microservice-test-engineer.md
+agents/php-engineer.md|OPENCODE_CONFIG_DIR|agents/php-engineer.md
+agents/migration-parity-reviewer.md|OPENCODE_CONFIG_DIR|agents/migration-parity-reviewer.md
+FILES
+}

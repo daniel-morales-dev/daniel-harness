@@ -6,63 +6,79 @@ El código y los contratos viven en este repositorio. La configuración local y 
 
 ## Instalación
 
-### Versión estable (v0.1.0)
+### Nueva instalación (recomendado)
 
 ```bash
-# Opcion 1 (recomendada): clonar con git
+# Clonar
 git clone git@github.com:daniel-morales-dev/daniel-harness.git \
   "$HOME/.local/share/daniel-harness"
 cd "$HOME/.local/share/daniel-harness"
 
-# Perfil core (OpenCode, Gentle AI, Engram, CodeGraph, RTK)
-./install --profile core --connect
-
-# Perfil alegra (core + GitHub CLI, AWS CLI, MCPs)
-./install --profile alegra --connect
+# Selector interactivo de perfil
+./install
 ```
+
+### Instalación completa (full + connect)
+
+```bash
+./install --profile full --connect --reset-managed
+```
+
+Esto instala todos los componentes, configura secretos de forma persistente y autentica MCPs OAuth.
+
+### Modo no interactivo
+
+```bash
+./install --profile full --non-interactive
+```
+
+Requiere `--profile`. No muestra prompts.
 
 ### Perfiles disponibles
 
-| Perfil | Incluye |
-|--------|---------|
-| `core` | OpenCode, Gentle AI, Engram, CodeGraph, RTK, DH CLI + MCPs codegraph/engram |
-| `alegra` | Core + GitHub CLI, AWS CLI + MCPs linear/context7/wiki-alegra/github |
-| `migration` | Alegra + Docker, MariaDB + MCP navi |
-| `full` | Migration + MCP sentry |
+Selección interactiva al ejecutar `./install` sin argumentos en una terminal, o explícita con `--profile`:
 
-### Data tools experimentales
+| Perfil | Descripción | Herramientas | MCPs |
+|--------|-------------|-------------|------|
+| `core` | Herramientas base | OpenCode, Gentle AI, Engram, CodeGraph, RTK, DH | codegraph, engram |
+| `alegra` | Trabajo cotidiano Alegra | core + gh, aws | + linear, context7, wiki-alegra, github |
+| `migration` | Migración monolito → micros | alegra + docker | + navi |
+| `full` | Todos los MCPs y herramientas | alegra + docker | + navi, sentry |
 
-Los closed data tools (MySQL, MongoDB, DynamoDB, Object Storage) están en **beta**
-y deshabilitados por defecto. Para activarlos:
+### Flags
 
-```bash
-./install --profile <perfil> --experimental-data-tools
-```
+| Flag | Descripción |
+|------|-------------|
+| `--profile <perfil>` | Perfil a instalar. Requerido en modo `--non-interactive` |
+| `--connect` | Autenticación interactiva de MCPs, doctor y resumen final |
+| `--reset-managed` | Reinstala recursos administrados y reconcilia MCPs |
+| `--non-interactive` | No mostrar prompts. Requiere `--profile` |
+| `--experimental-data-tools` | Instala closed data tools experimentales (beta) |
 
-O durante bootstrap:
+Exit codes: `0` saludable, `1` error, `2` instalado con OAuth pendiente.
 
-```bash
-./scripts/bootstrap.sh --profile full --experimental-data-tools
-```
+### Secretos persistentes
 
-Esto crea el runtime Python, instala dependencias (boto3, pymongo, sqlglot)
-y activa los agentes, tools y comandos de acceso a datos.
-
-**Estado: experimental**. No se consideran estables en v0.1.0.
+GitHub y Navi usan almacenamiento persistente en archivos (`~/.config/daniel-harness/secrets/`),
+no requieren exportar variables en cada shell.
 
 ### Uso diario
 
 ```bash
-dh update        # actualiza el harness
-dh doctor        # diagnóstico
-```
+# Diagnóstico
+dh doctor
 
-### Instalación por pasos
+# Backup de configuración
+dh opencode backup
 
-```bash
-./scripts/install.sh               # configuración local + symlinks
-./scripts/doctor.sh                # diagnóstico
-gentle-ai skill-registry refresh --force
+# Listar backups
+dh opencode backups
+
+# Restaurar backup
+dh opencode restore <backup-id>
+
+# Actualizar harness
+dh update
 ```
 
 Reinicia OpenCode después de instalar agentes, skills o plugins.
@@ -75,30 +91,47 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 |---|---|
 | `dh doctor` | Diagnóstico completo del harness |
 | `dh install` | Configuración local + symlinks |
-| `dh bootstrap [--profile core/alegra/migration/full] [--skip-docker] [--experimental-data-tools]` | Instalación desde cero según perfil |
+| `dh bootstrap [--profile...]` | Instalación desde cero según perfil |
+| `dh opencode backup` | Crea backup de opencode.json |
+| `dh opencode backups` | Lista backups disponibles |
+| `dh opencode restore <id>` | Restaura un backup |
+| `dh opencode diff <id>` | Muestra diff estructural con un backup |
 | `dh mcp-status` | Conexión y OAuth de servidores MCP |
 | `dh tunnel list` | Lista túneles configurados |
 | `dh update` | Actualiza el harness desde Git |
 | `dh context [dir]` | Detecta contexto del proyecto |
 | `dh project init` | Asistente para registrar proyecto |
 | `dh session <issue>` | Crea brief de sesión desde Linear |
-| `dh engram-service install\|enable\|disable\|status` | Servicio systemd para Engram |
+| `dh engram-service` | Servicio systemd para Engram |
 | `dh preflight` | Contexto completo del proyecto (JSON) |
 | `dh verify` | Valida el proyecto según su contexto |
-| `dh version` | Muestra la versión actual del harness |
+| `dh version` | Versión actual del harness |
 
 ## Variables de entorno
 
 | Variable | Uso |
 |---|---|
-| `DANIEL_HARNESS_CONFIG_DIR` | Directorio de configuración local (default: `~/.config/daniel-harness`) |
+| `DANIEL_HARNESS_CONFIG_DIR` | Configuración local (default: `~/.config/daniel-harness`) |
 | `DANIEL_HARNESS_BIN_DIR` | Directorio de binarios (default: `~/.local/bin`) |
 | `DANIEL_HARNESS_RUNTIME_DIR` | Directorio de runtime (default: `~/.local/share/daniel-harness/runtime-venv`) |
 | `DANIEL_HARNESS_REPO` | Ruta al repositorio (default: auto-detect) |
 | `OPENCODE_CONFIG_FILE` | Ruta a opencode.json (default: `~/.config/opencode/opencode.json`) |
-| `GITHUB_PERSONAL_ACCESS_TOKEN` | Token para MCP de GitHub |
-| `NAVI_MCP_URL` | URL del servidor MCP de Navi |
-| `NAVI_OAUTH_CLIENT_ID` | Client ID para OAuth de Navi |
+| `DH_MCP_PROBE_TIMEOUT_SECONDS` | Timeout de probes MCP (default: 3) |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | Usado solo durante migración a archivo persistente |
+| `NAVI_MCP_URL` | URL del servidor MCP de Navi (migrable a archivo) |
+| `NAVI_OAUTH_CLIENT_ID` | Client ID para OAuth de Navi (migrable a archivo) |
+
+## Agentes del harness
+
+Los 5 agentes administrados se instalan como copias administradas (no symlinks):
+
+- `alegra-microservice-engineer`
+- `alegra-microservice-test-engineer`
+- `code-reviewer`
+- `php-engineer`
+- `migration-parity-reviewer`
+
+Modo: `subagent`, `hidden: false`. Verificables con `dh doctor` o `opencode agent list`.
 
 ## Reparto de autoridad
 
@@ -129,7 +162,15 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 ├── config.yaml
 ├── connections.yaml
 ├── project-registry.yaml
+├── state/
+│   └── opencode-managed.state
+├── backups/
+│   └── opencode-*.json
+├── policies/
+├── policies.local/
 └── secrets/
+    ├── github/
+    ├── navi/
     ├── mysql/
     ├── mongodb/
     ├── tunnels/
@@ -139,7 +180,11 @@ Después de `install.sh` o `bootstrap.sh`, `dh` queda disponible como comando gl
 - `config.yaml`: autoridad de workflow, tooling, modelos, Linear y MCP routing.
 - `connections.yaml`: endpoints locales, perfiles de datos y referencias de túneles.
 - `project-registry.yaml`: proyectos, familias, relaciones, reglas y política Git.
-- `secrets/tunnels/*.command`: comandos SSH reales, locales, modo `600`, nunca versionados.
+- `state/opencode-managed.state`: estado administrado de recursos del harness.
+- `backups/`: backups automáticos de opencode.json.
+- `secrets/github/authorization`: token persistente de GitHub (modo 600).
+- `secrets/navi/url` y `secrets/navi/client-id`: credenciales Navi (modo 600).
+- `secrets/tunnels/*.command`: comandos SSH reales, locales, modo 600, nunca versionados.
 
 Consulta `docs/configuration.md` para agregar o eliminar túneles, MCPs, proyectos y reglas.
 
@@ -151,27 +196,29 @@ Consulta `docs/configuration.md` para agregar o eliminar túneles, MCPs, proyect
 ./scripts/doctor.sh
 ./scripts/doctor.sh --profile core --strict
 ./scripts/doctor.sh --profile alegra --strict --skip-oauth
+./scripts/doctor.sh --install-check --skip-oauth  # solo validación estructural
 ```
 
-## Rollback y recuperación
+Variable `DH_MCP_PROBE_TIMEOUT_SECONDS` (default: 3) para controlar timeout de probes.
 
-La transacción de OpenCode (plugins + MCPs) está protegida por:
-
-- **Lock**: impide ejecución simultánea de bootstrap
-- **Journal**: guarda paths exactos de archivos y backups
-- **Backups**: copias antes de cada modificación
-- **Recuperación**: si una ejecución se interrumpe, el bootstrap siguiente
-  detecta el journal y restaura el estado anterior
-
-Para recuperación manual:
+## Backup y restauración
 
 ```bash
-# Si el bootstrap falla, ejecutar de nuevo completa la transacción
-./scripts/bootstrap.sh --profile core
+# Crear backup
+dh opencode backup
 
-# Rollback manual (solo si se conoce la estructura)
-cp ~/.config/opencode/opencode.json.bak.* ~/.config/opencode/opencode.json
+# Listar backups
+dh opencode backups
+
+# Restaurar por prefijo SHA
+dh opencode restore a1b2c3d4
+
+# Ver diff estructural (solo nombres, sin valores)
+dh opencode diff a1b2c3d4
 ```
+
+Los backups se almacenan en `~/.config/daniel-harness/backups/` con modo 600.
+La configuración activa se respalda automáticamente antes de cada modificación.
 
 ## Seguridad
 
@@ -181,19 +228,26 @@ cp ~/.config/opencode/opencode.json.bak.* ~/.config/opencode/opencode.json
 - Las escrituras DynamoDB requieren confirmación exacta.
 - Los túneles son manuales.
 - No edites prompts, agentes o configuración generada por Gentle AI; usa `gentle-ai install`, `sync` y sus contratos públicos.
+- Los secretos GitHub y Navi se almacenan fuera de opencode.json, en archivos modo 600.
+- `dh opencode diff` solo muestra estructura, nunca valores.
 
 Consulta `SECURITY.md` y `docs/security-model.md`.
 
 ## Estado
 
-**v0.1.0** — Estable del harness base.
+**v0.1.1** — Hotfix de instalación, migración y configuración completa.
 
 | Componente | Estado |
 |---|---|
 | Instalación y perfiles | Estable |
+| Selector interactivo de perfil | Nueva |
 | OpenCode + plugins + MCPs | Estable |
 | Gentle AI + agentes + skills | Estable |
+| Agentes como copias administradas | Nueva en v0.1.1 |
+| Secretos persistentes (GitHub, Navi) | Nueva en v0.1.1 |
+| Backup y restauración de opencode.json | Nueva en v0.1.1 |
 | Reconciliación y doctor | Estable |
+| Doctor --install-check --skip-oauth | Nueva en v0.1.1 |
 | Preflight, verify, update | Estable |
 | Closed data tools | Experimental (beta) |
 

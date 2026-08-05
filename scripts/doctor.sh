@@ -16,6 +16,7 @@ PROFILE=
 EXPERIMENTAL=false
 WARNINGS=0
 CRITICAL=0
+declare -A MCP_LIVE_CACHE
 
 # shellcheck disable=SC2034 # usado por profile-resolver.sh via source
 MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
@@ -86,7 +87,7 @@ is_port_open() {
   local host=$1
   local port=$2
 
-  command -v timeout >/dev/null 2>&1 && timeout 1 bash -c "</dev/tcp/$host/$port" 2>/dev/null
+  command -v timeout >/dev/null 2>&1 && timeout "${DH_MCP_PROBE_TIMEOUT_SECONDS:-3}" bash -c "</dev/tcp/$host/$port" 2>/dev/null
 }
 
 list_required_tunnels() {
@@ -239,13 +240,27 @@ has_restricted_models() {
 
 check_mcp_live() {
   local name=$1
-  if ! command -v opencode >/dev/null 2>&1; then
-    echo "opencode-no-instalado"
+  local result
+
+  if [[ -v MCP_LIVE_CACHE["$name"] ]]; then
+    echo "${MCP_LIVE_CACHE[$name]}"
     return
   fi
+
+  echo "Verificando MCP $name..." >&2
+
+  if ! command -v opencode >/dev/null 2>&1; then
+    result="opencode-no-instalado"
+    MCP_LIVE_CACHE["$name"]="$result"
+    echo "$result"
+    return
+  fi
+
   local debug_out
-  debug_out=$(opencode mcp debug "$name" 2>&1 || true)
-  classify_mcp_debug_output "$debug_out"
+  debug_out=$(timeout "${DH_MCP_PROBE_TIMEOUT_SECONDS:-3}" opencode mcp debug "$name" 2>&1 || true)
+  result=$(classify_mcp_debug_output "$debug_out")
+  MCP_LIVE_CACHE["$name"]="$result"
+  echo "$result"
 }
 
 print_mcp_status() {
@@ -262,14 +277,18 @@ print_mcp_status() {
       if [[ -z "$executable" ]]; then
         status=comando-no-encontrado
       elif command -v "$executable" >/dev/null 2>&1; then
-        live=$(check_mcp_live "$name")
-        status=$live
+        if ! { $INSTALL_CHECK && $SKIP_OAUTH; }; then
+          live=$(check_mcp_live "$name")
+          status=$live
+        fi
       else
         status=comando-no-encontrado
       fi
     elif [[ $kind == remote ]]; then
-      live=$(check_mcp_live "$name")
-      status=$live
+      if ! { $INSTALL_CHECK && $SKIP_OAUTH; }; then
+        live=$(check_mcp_live "$name")
+        status=$live
+      fi
     fi
 
     printf '[mcp] nombre=%s habilitado=%s tipo=%s estado=%s\n' "$name" "$enabled" "$kind" "$status"
@@ -322,9 +341,26 @@ validate_profile_agents() {
   local required=("alegra-microservice-engineer" "code-reviewer" "alegra-microservice-test-engineer" "php-engineer" "migration-parity-reviewer")
   local missing=0
 
+  if command -v opencode >/dev/null 2>&1; then
+    local agent_list
+    agent_list=$(opencode agent list 2>/dev/null || true)
+    if [[ -n "$agent_list" ]]; then
+      for agent in "${required[@]}"; do
+        if echo "$agent_list" | grep -qw "$agent"; then
+          ok "Agente $agent cargado en OpenCode"
+        else
+          critical "Agente $agent no encontrado en OpenCode (requerido)"
+          missing=$((missing + 1))
+        fi
+      done
+      return
+    fi
+  fi
+
+  # Fallback: file-exists check
   for agent in "${required[@]}"; do
     if [[ -f "$agent_dir/$agent.md" || -L "$agent_dir/$agent.md" ]]; then
-      ok "Agente $agent presente"
+      ok "Agente $agent presente (archivo)"
     else
       critical "Agente $agent no encontrado (requerido)"
       missing=$((missing + 1))
@@ -545,15 +581,27 @@ else
     fi
   fi
 
-  # Check Navi env vars are set when profile includes navi
+  # Check Navi secrets when profile includes navi
   if [[ -n "$PROFILE" ]]; then
     profile_mcps=$(get_profile_mcps "$PROFILE")
     if echo "$profile_mcps" | grep -qw "navi"; then
-      if [[ -z "${NAVI_MCP_URL:-}" ]]; then
-        critical "NAVI_MCP_URL no definida (requerida por perfil $PROFILE)"
+      navi_url_file="$HARNESS_CONFIG_DIR/secrets/navi/url"
+      navi_client_id_file="$HARNESS_CONFIG_DIR/secrets/navi/client-id"
+
+      if [[ -f "$navi_url_file" ]]; then
+        ok "NAVI_MCP_URL leída de $navi_url_file"
+      elif [[ -n "${NAVI_MCP_URL:-}" ]]; then
+        ok "NAVI_MCP_URL definida en entorno"
+      else
+        warn "NAVI_MCP_URL no encontrada (revisa secrets/navi/ o variable de entorno)"
       fi
-      if [[ -z "${NAVI_OAUTH_CLIENT_ID:-}" ]]; then
-        critical "NAVI_OAUTH_CLIENT_ID no definida (requerida por perfil $PROFILE)"
+
+      if [[ -f "$navi_client_id_file" ]]; then
+        ok "NAVI_OAUTH_CLIENT_ID leída de $navi_client_id_file"
+      elif [[ -n "${NAVI_OAUTH_CLIENT_ID:-}" ]]; then
+        ok "NAVI_OAUTH_CLIENT_ID definida en entorno"
+      else
+        warn "NAVI_OAUTH_CLIENT_ID no encontrada (revisa secrets/navi/ o variable de entorno)"
       fi
     fi
   fi
@@ -588,33 +636,41 @@ else
                     continue
                   fi
                 fi
+
+                if ! $SKIP_OAUTH; then
+                  live=$(check_mcp_live "$mcp")
+                  case "$live" in
+                    connected) ;;
+                    auth-required)
+                      critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
+                      ;;
+                    inaccesible)
+                      warn "MCP $mcp configurado, binario presente (conexion pendiente tras primer inicio de OpenCode)"
+                      ;;
+                    *)
+                      warn "MCP $mcp no accesible (estado: $live) — conexion pendiente"
+                      ;;
+                  esac
+                fi
+              else
+                live=$(check_mcp_live "$mcp")
+                case "$live" in
+                  connected) ;;
+                  auth-required)
+                    if $SKIP_OAUTH; then
+                      warn "MCP $mcp requiere autenticacion (omitido por --skip-oauth)"
+                    else
+                      critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
+                    fi
+                    ;;
+                  inaccesible)
+                    critical "MCP $mcp no accesible (estado: $live)"
+                    ;;
+                  *)
+                    critical "MCP $mcp no accesible (estado: $live)"
+                    ;;
+                esac
               fi
-              live=$(check_mcp_live "$mcp")
-              case "$live" in
-                connected) ;;
-                auth-required)
-                  if $SKIP_OAUTH; then
-                    warn "MCP $mcp requiere autenticacion (omitido por --skip-oauth)"
-                  else
-                    critical "MCP $mcp requiere autenticacion (ejecuta: opencode mcp auth $mcp)"
-                  fi
-                  ;;
-                inaccesible)
-                  if $INSTALL_CHECK; then
-                    # Durante install-check: MCP configurado pero no conectado es esperado
-                    warn "MCP $mcp configurado, binario presente (conexion pendiente tras primer inicio de OpenCode)"
-                  else
-                    critical "MCP $mcp no accesible (estado: $live)"
-                  fi
-                  ;;
-                *)
-                  if $INSTALL_CHECK; then
-                    warn "MCP $mcp no accesible (estado: $live) — conexion pendiente"
-                  else
-                    critical "MCP $mcp no accesible (estado: $live)"
-                  fi
-                  ;;
-              esac
           fi
         fi
       done

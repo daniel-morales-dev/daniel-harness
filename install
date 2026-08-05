@@ -3,34 +3,134 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
-PROFILE=core
+MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
+
+PROFILE=""
 CONNECT=false
+RESET_MANAGED=false
+NON_INTERACTIVE=false
 EXPERIMENTAL_DATA_TOOLS=false
 
+# ── Parse args ──────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --profile) PROFILE=$2; shift 2 ;;
+    --profile)   PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
-    --connect) CONNECT=true; shift ;;
+    --connect)   CONNECT=true; shift ;;
+    --reset-managed) RESET_MANAGED=true; shift ;;
+    --non-interactive) NON_INTERACTIVE=true; shift ;;
     --experimental-data-tools) EXPERIMENTAL_DATA_TOOLS=true; shift ;;
     --help|-h)
-      printf 'Uso: ./install [--profile core|alegra|migration|full] [--connect] [--experimental-data-tools]\n'
-      printf '\n  --profile   Perfil a instalar (default: core)\n'
-      printf '  --connect   Autenticacion interactiva, doctor y resumen\n'
-      printf '  --experimental-data-tools   Instala closed data tools (beta)\n'
+      cat <<'HELP'
+Uso: ./install [opciones]
+
+Opciones:
+  --profile core|alegra|migration|full
+      Perfil a instalar. Requerido en modo --non-interactive.
+      Sin --profile en TTY muestra selector interactivo.
+
+  --connect
+      Autenticacion interactiva de MCPs, doctor y resumen final.
+
+  --reset-managed
+      Reinstala recursos administrados (symlinks, configs) y reconcilia MCPs.
+
+  --non-interactive
+      No mostrar prompts. Requiere --profile.
+
+  --experimental-data-tools
+      Instala closed data tools experimentales (beta).
+
+  -h, --help
+      Este mensaje.
+
+Exit codes:
+  0  Todo saludable
+  1  Error en instalacion
+  2  Instalado con OAuth pendiente
+HELP
       exit 0 ;;
-    *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
+    *)
+      printf 'Argumento desconocido: %s\n' "$1" >&2
+      exit 1 ;;
   esac
 done
 
+# ── Profile selection ───────────────────────────────────────────
+if [[ -z "$PROFILE" ]]; then
+  if [[ -t 0 ]] && [[ $NON_INTERACTIVE == false ]]; then
+    # ── interactive selector from manifest via awk ──
+    mapfile -t _raw < <(
+      awk '
+        BEGIN { c=0 }
+        /^profiles:/ { in_p=1; next }
+        in_p && /^[a-z]/ && !/^  / { in_p=0; next }
+        !in_p { next }
+        in_p && /^  [a-z][a-z0-9_-]+:$/ {
+          if (c) print c "\t" n "\t" d "\t" t "\t" m
+          c++; n=$1; sub(/:$/,"",n); d=""; t=""; m=""; next
+        }
+        in_p && n!="" && /^    description:/ {
+          sub(/^ +description: +/,""); gsub(/^["\x27]|["\x27]$/,"")
+          d=length>60 ? substr($0,1,57)"..." : $0
+        }
+        in_p && n!="" && /^    tools:/ {
+          sub(/^ +tools: +\[/,""); sub(/\]$/,""); gsub(/["\x27]/,""); t=$0
+        }
+        in_p && n!="" && /^    mcps:/ {
+          sub(/^ +mcps: +\[/,""); sub(/\]$/,""); gsub(/["\x27]/,""); m=$0
+        }
+        END { if (c) print c "\t" n "\t" d "\t" t "\t" m }
+      ' "$MANIFEST"
+    )
+
+    if [[ ${#_raw[@]} -eq 0 ]]; then
+      printf 'Error: no se encontraron perfiles en %s\n' "$MANIFEST" >&2
+      exit 1
+    fi
+
+    declare -a _names _descs
+    for _line in "${_raw[@]}"; do
+      IFS=$'\t' read -r _n _name _desc _tools _mcps <<< "$_line"
+      _names+=("$_name"); _descs+=("$_desc")
+    done
+
+    printf '\n'
+    printf '  Perfiles disponibles:\n\n'
+    for ((i=0; i<${#_names[@]}; i++)); do
+      printf '  %d) %-11s %s\n' $((i+1)) "${_names[$i]}" "${_descs[$i]}"
+    done
+
+    printf '\n  Selecciona un perfil (1-%d): ' "${#_names[@]}"
+    read -r _sel
+    _sel=$((_sel - 1))
+    if [[ $_sel -lt 0 || $_sel -ge ${#_names[@]} ]]; then
+      printf '\n  Seleccion invalida\n' >&2
+      exit 1
+    fi
+    printf '\n'
+    PROFILE="${_names[$_sel]}"
+  else
+    cat >&2 <<'ERR'
+Error: --profile es requerido
+  Usa: ./install --profile core|alegra|migration|full
+  O ejecuta sin argumentos en una terminal para seleccion interactiva.
+ERR
+    exit 1
+  fi
+fi
+
+# ── Validate profile ────────────────────────────────────────────
 case "$PROFILE" in
   core|alegra|migration|full) ;;
-  *) printf 'Perfil invalido: %s (core|alegra|migration|full)\n' "$PROFILE" >&2; exit 1 ;;
+  *)
+    printf 'Error: perfil invalido: %s (core|alegra|migration|full)\n' "$PROFILE" >&2
+    exit 1 ;;
 esac
 
-printf '==> Daniel Harness — instalacion perfil: %s\n' "$PROFILE"
+printf '==> Daniel Harness — perfil: %s\n' "$PROFILE"
 
-# Validacion minima de plataforma
+# ── Preflight ───────────────────────────────────────────────────
 if [[ ! -f /etc/os-release ]] || ! grep -qi 'ubuntu' /etc/os-release 2>/dev/null; then
   printf '  [aviso] Sistema no verificado como Ubuntu\n'
 fi
@@ -39,30 +139,71 @@ if ! command -v sudo >/dev/null 2>&1; then
   exit 1
 fi
 
-# Bootstrap
+# ── Bootstrap ───────────────────────────────────────────────────
 printf '\n==> Ejecutando bootstrap --profile %s...\n' "$PROFILE"
 BOOTSTRAP_ARGS=(--profile "$PROFILE")
 $EXPERIMENTAL_DATA_TOOLS && BOOTSTRAP_ARGS+=(--experimental-data-tools)
 if ! bash "$ROOT_DIR/scripts/bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"; then
-  printf '[error] Bootstrap falló\n' >&2
+  printf '[error] Bootstrap fallo\n' >&2
   exit 1
 fi
 
-# Connect: auth interactivo + doctor + resumen
+# ── Reset managed ───────────────────────────────────────────────
+if [[ $RESET_MANAGED == true ]]; then
+  printf '\n==> Reinstalando recursos administrados...\n'
+  INSTALL_ARGS=()
+  $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
+  bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
+
+  printf '\n==> Reconciliando MCPs desde manifest...\n'
+  MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
+  source "$ROOT_DIR/scripts/profile-resolver.sh"
+  OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-"$HOME/.config/opencode"}
+  mkdir -p "$OPENCODE_CONFIG_DIR"
+  OC_JSON="$OPENCODE_CONFIG_DIR/opencode.json"
+  [[ -f "$OC_JSON" ]] || echo '{}' > "$OC_JSON"
+
+  MCP_DONE=0 MCP_SKIP=0
+  while IFS= read -r mcp_name; do
+    [[ -z "$mcp_name" ]] && continue
+    mcp_type=$(parse_mcp_field "$mcp_name" "type")
+    [[ -z "$mcp_type" ]] && { MCP_SKIP=$((MCP_SKIP + 1)); continue; }
+
+    if [[ $mcp_type == local ]]; then
+      cmd=$(parse_mcp_field "$mcp_name" "command")
+      [[ -z "$cmd" ]] && { MCP_SKIP=$((MCP_SKIP + 1)); continue; }
+      jq_body=$(printf '%s' "$cmd" | jq -R 'split(" ")')
+      desired=$(jq -n --argjson cmd "$jq_body" '{type: "local", command: $cmd, enabled: true}')
+    elif [[ $mcp_type == remote ]]; then
+      url=$(parse_mcp_field "$mcp_name" "url")
+      [[ -z "$url" ]] && { MCP_SKIP=$((MCP_SKIP + 1)); continue; }
+      desired=$(jq -n --arg u "$url" '{type: "remote", url: $u, enabled: true}')
+      oauth_json=$(parse_mcp_oauth_json "$mcp_name")
+      [[ "$oauth_json" != "{}" ]] && desired=$(printf '%s' "$desired" | jq --argjson o "$oauth_json" '. + {oauth: $o}')
+    else
+      MCP_SKIP=$((MCP_SKIP + 1)); continue
+    fi
+
+    tmp=$(mktemp)
+    jq --arg n "$mcp_name" --argjson d "$desired" '.mcp[$n] = $d' "$OC_JSON" > "$tmp" \
+      && mv "$tmp" "$OC_JSON"
+    printf '  [ok] MCP %s reconciliado\n' "$mcp_name"
+    MCP_DONE=$((MCP_DONE + 1))
+  done < <(get_profile_mcps "$PROFILE")
+  printf '  MCPs: %d reconciliados, %d omitidos\n' "$MCP_DONE" "$MCP_SKIP"
+fi
+
+# ── Connect ──────────────────────────────────────────────────────
+AUTH_OK=0 AUTH_PENDING=0 AUTH_SKIP=0
+
 if [[ $CONNECT == true ]]; then
   printf '\n==> Autenticacion interactiva...\n'
 
-  # shellcheck disable=SC2034 # usado por profile-resolver.sh via source
   MANIFEST="$ROOT_DIR/bootstrap/manifest.yaml"
   source "$ROOT_DIR/scripts/profile-resolver.sh"
-  AUTH_OK=0
-  AUTH_PENDING=0
-  AUTH_SKIP=0
 
-  # Extraer MCPs del perfil con herencia extends
   while IFS= read -r mcp_name; do
     [[ -z "$mcp_name" ]] && continue
-
     oauth_req=$(parse_mcp_field "$mcp_name" "oauth_required")
 
     if [[ "$oauth_req" != "true" ]]; then
@@ -87,7 +228,7 @@ if [[ $CONNECT == true ]]; then
     fi
   done < <(get_profile_mcps "$PROFILE")
 
-  # Verificar GitHub PAT solo si github está en los MCPs del perfil
+  # Verificar GitHub PAT solo si github esta en los MCPs del perfil
   if profile_includes "$PROFILE" "mcps" "github"; then
     if [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
       printf '  [ok] GITHUB_PERSONAL_ACCESS_TOKEN configurado\n'
@@ -95,26 +236,39 @@ if [[ $CONNECT == true ]]; then
       printf '  [aviso] GITHUB_PERSONAL_ACCESS_TOKEN no configurado (requerido para MCP GitHub)\n'
     fi
   fi
+fi
 
-  # Doctor despues de auth
-  printf '\n==> Verificando instalacion...\n'
-  if bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict; then
-    printf '\n========================================\n'
-    printf '  Harness instalado y saludable\n'
-    printf '  Perfil: %s\n' "$PROFILE"
+# ── Doctor ────────────────────────────────────────────────────────
+printf '\n==> Verificando instalacion...\n'
+DOCTOR_OK=false
+if bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict; then
+  DOCTOR_OK=true
+fi
+
+# ── Summary ───────────────────────────────────────────────────────
+if [[ $DOCTOR_OK == true ]] && (( AUTH_PENDING == 0 )); then
+  printf '\n========================================\n'
+  printf '  Harness instalado y saludable\n'
+  printf '  Perfil: %s\n' "$PROFILE"
+  if [[ $CONNECT == true ]]; then
     printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "$AUTH_OK" "$AUTH_PENDING" "$AUTH_SKIP"
-    printf '========================================\n'
-    exit 0
-  else
-    printf '\n========================================\n'
-    printf '  Harness instalado con acciones pendientes\n'
-    printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "$AUTH_OK" "$AUTH_PENDING" "$AUTH_SKIP"
-    printf '========================================\n'
-    if (( AUTH_PENDING > 0 )); then
-      printf '\nAutentica los MCPs pendientes manualmente:\n'
-      printf '  opencode mcp auth <nombre>\n'
-    fi
-    printf '\nRevisa: dh doctor\n'
-    exit 2
   fi
+  printf '========================================\n'
+  exit 0
+elif [[ $DOCTOR_OK == true ]] && (( AUTH_PENDING > 0 )); then
+  printf '\n========================================\n'
+  printf '  Harness instalado con OAuth pendiente\n'
+  printf '  Perfil: %s\n' "$PROFILE"
+  printf '  MCPs: %d autenticados, %d pendientes, %d sin OAuth\n' "$AUTH_OK" "$AUTH_PENDING" "$AUTH_SKIP"
+  printf '========================================\n'
+  printf '\nAutentica los MCPs pendientes manualmente:\n'
+  printf '  opencode mcp auth <nombre>\n'
+  printf '\nRevisa: dh doctor\n'
+  exit 2
+else
+  printf '\n========================================\n'
+  printf '  Error en instalacion\n'
+  printf '  Ejecuta dh doctor para diagnosticar\n'
+  printf '========================================\n'
+  exit 1
 fi

@@ -15,16 +15,11 @@ FOREIGN_TARGET="$TMP_DIR/foreign-command.md"
 
 HOME="$TMP_DIR/home" XDG_CONFIG_HOME="$CONFIG_ROOT" "$ROOT_DIR/scripts/install.sh" >"$FIRST_OUTPUT"
 
-[[ -L "$OPENCODE_CONFIG/agents/alegra-microservice-engineer.md" ]]
-[[ -e "$OPENCODE_CONFIG/agents/alegra-microservice-engineer.md" ]]
-[[ -L "$OPENCODE_CONFIG/agents/code-reviewer.md" ]]
-[[ -e "$OPENCODE_CONFIG/agents/code-reviewer.md" ]]
-[[ -L "$OPENCODE_CONFIG/agents/alegra-microservice-test-engineer.md" ]]
-[[ -e "$OPENCODE_CONFIG/agents/alegra-microservice-test-engineer.md" ]]
-[[ -L "$OPENCODE_CONFIG/agents/php-engineer.md" ]]
-[[ -e "$OPENCODE_CONFIG/agents/php-engineer.md" ]]
-[[ -L "$OPENCODE_CONFIG/agents/migration-parity-reviewer.md" ]]
-[[ -e "$OPENCODE_CONFIG/agents/migration-parity-reviewer.md" ]]
+[[ -f "$OPENCODE_CONFIG/agents/alegra-microservice-engineer.md" ]]
+[[ -f "$OPENCODE_CONFIG/agents/code-reviewer.md" ]]
+[[ -f "$OPENCODE_CONFIG/agents/alegra-microservice-test-engineer.md" ]]
+[[ -f "$OPENCODE_CONFIG/agents/php-engineer.md" ]]
+[[ -f "$OPENCODE_CONFIG/agents/migration-parity-reviewer.md" ]]
 [[ -L "$OPENCODE_CONFIG/skills/monolith-to-micro-migration" ]]
 [[ -L "$OPENCODE_CONFIG/skills/task-lifecycle" ]]
 [[ -L "$OPENCODE_CONFIG/commands/migration-gap-analysis.md" ]]

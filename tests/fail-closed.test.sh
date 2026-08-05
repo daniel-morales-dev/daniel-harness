@@ -35,6 +35,7 @@ create_nvm_curl_stub "$STUBS"
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
 if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+if [[ "$1" == "--version" ]]; then echo "opencode 0.1.0"; exit 0; fi
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
@@ -76,8 +77,13 @@ _run_and_check() {
 
 # --- Setup ---
 echo "=== Setup ==="
-bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/setup.out" 2>&1
-[[ -f "$OC_FILE" ]] && pass "setup: opencode.json" || fail "setup: opencode.json missing"
+bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/setup.out" 2>&1 || true
+if [[ -f "$OC_FILE" ]]; then
+  pass "setup: opencode.json"
+else
+  cat "$TMP_DIR/setup.out"
+  fail "setup: opencode.json missing"
+fi
 [[ -f "$STATE_FILE" ]] && pass "setup: state" || fail "setup: state missing"
 
 # --- Test 1: Schema invalido ---

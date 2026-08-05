@@ -5,6 +5,8 @@ ROOT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 HARNESS_DIR=${DANIEL_HARNESS_CONFIG_DIR:-$HOME/.config/daniel-harness}
 OC_FILE="${OPENCODE_CONFIG_FILE:-$HOME/.config/opencode/opencode.json}"
 
+source "$ROOT_DIR/scripts/lib/opencode-backup.sh"
+
 show_help() {
   printf 'Uso: dh <comando> [argumentos]\n\n'
   printf 'Comandos:\n'
@@ -21,6 +23,10 @@ printf '  session scaffold <issue>  Crea plantilla de brief\n'
 printf '  session read <issue>      Plantilla + agente lee Linear via MCP\n'
 printf '  session close <issue>     Cierra sesion: resumen para Engram + Linear\n'
   printf '  engram-service   Instala/systemd user service para Engram\n'
+  printf '  opencode backup   Crea backup de opencode.json\n'
+  printf '  opencode backups  Lista backups disponibles\n'
+  printf '  opencode restore <backup-id>  Restaura un backup por ID\n'
+  printf '  opencode diff <backup-id>     Muestra diff estructural con un backup\n'
   printf '  preflight        Contexto completo del proyecto (JSON)\n'
   printf '  verify           Valida el proyecto según su contexto\n'
   printf '  context          Detecta el contexto del proyecto actual\n'
@@ -732,6 +738,59 @@ verify_cmd() {
   printf '\n[ok] Todas las verificaciones pasaron\n'
 }
 
+_opencode_resolve_backup() {
+  local input=$1
+  [[ -f "$input" ]] && { printf '%s\n' "$input"; return 0; }
+  local backup_dir="$HARNESS_DIR/backups"
+  [[ -d "$backup_dir" ]] || return 1
+  local matches=()
+  while IFS= read -r -d '' f; do
+    matches+=("$f")
+  done < <(find "$backup_dir" -maxdepth 1 -name "opencode-${input}*.json" -print0 2>/dev/null)
+  [[ ${#matches[@]} -eq 1 ]] || return 1
+  printf '%s\n' "${matches[0]}"
+}
+
+opencode_cmd() {
+  local subcmd=${1:-help}
+  local backup_id=${2:-}
+
+  case "$subcmd" in
+    backup)
+      opencode_backup_create "$OC_FILE" "$HARNESS_DIR"
+      ;;
+    backups)
+      opencode_backup_list "$HARNESS_DIR"
+      ;;
+    restore)
+      [[ -n "$backup_id" ]] || { printf 'Uso: dh opencode restore <backup-id>\n' >&2; exit 1; }
+      opencode_backup_restore "$backup_id" "$OC_FILE" "$HARNESS_DIR"
+      ;;
+    diff)
+      [[ -n "$backup_id" ]] || { printf 'Uso: dh opencode diff <backup-id>\n' >&2; exit 1; }
+      local backup
+      backup=$(_opencode_resolve_backup "$backup_id") || {
+        printf '[error] backup no encontrado o ambiguo: %s\n' "$backup_id" >&2
+        exit 1
+      }
+      opencode_backup_diff "$backup" "$OC_FILE"
+      ;;
+    help|--help|-h|"")
+      printf 'Uso: dh opencode <subcomando>\n\n'
+      printf 'Subcomandos:\n'
+      printf '  backup             Crea backup de la configuración opencode actual\n'
+      printf '  backups            Lista backups disponibles\n'
+      printf '  restore <backup-id>  Restaura un backup por prefijo SHA o ruta\n'
+      printf '  diff <backup-id>   Muestra diferencias estructurales con un backup\n'
+      ;;
+    *)
+      printf 'Subcomando desconocido: %s\n\n' "$subcmd" >&2
+      opencode_cmd help
+      exit 1
+      ;;
+  esac
+}
+
 case "${1:-help}" in
   root) printf '%s\n' "$ROOT_DIR" ;;
   preflight) preflight ;;
@@ -755,6 +814,7 @@ case "${1:-help}" in
   project) shift; project_init "$@" ;;
   session) shift; session_start "$@" ;;
   engram-service) shift; engram_service "$@" ;;
+  opencode) shift; opencode_cmd "$@" ;;
   help|--help|-h) show_help ;;
   *)
     printf 'Comando desconocido: %s\n\n' "$1" >&2

@@ -93,8 +93,8 @@ def validate_mcp_semantics(config, profile_name):
         if gh.get("oauth") is not False:
             errors.append("alegra: github oauth must be false")
         auth = gh.get("headers", {}).get("Authorization", "")
-        if "GITHUB_PERSONAL_ACCESS_TOKEN" not in auth:
-            errors.append("alegra: github Authorization must reference GITHUB_PERSONAL_ACCESS_TOKEN")
+        if "GITHUB_PERSONAL_ACCESS_TOKEN" not in auth and "{file:" not in auth:
+            errors.append("alegra: github Authorization must reference GITHUB_PERSONAL_ACCESS_TOKEN or {file:...}")
         if "X-MCP-Toolsets" not in gh.get("headers", {}):
             errors.append("alegra: github must have X-MCP-Toolsets header")
 

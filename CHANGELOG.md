@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.1.1 (2026-08-04)
+
+### Added
+
+- Selector interactivo de perfil en `./install` cuando no se pasa `--profile`
+- Flag `--non-interactive`: falla si falta `--profile`, no hace prompts
+- Flag `--reset-managed`: reinstala solo recursos administrados del harness
+- Flag `--connect` en bootstrap: autenticación interactiva de MCPs
+- GitHub secret migration: token literal/env → archivo persistente (600)
+- Navi secret migration: URL/clientId literal/env → archivos persistentes (600)
+- Sentry MCP siempre en perfil full, sin preguntar
+- Backup/restauración de opencode.json via `dh opencode backup|backups|restore|diff`
+- Agentes como copias administradas (no symlinks) con estado y detección de conflicto
+- Managed state: `state/opencode-managed.state` con hashes por recurso
+- Version check de OpenCode (mínimo 0.1.0)
+- Gentle AI flow: inspección de versión/help, sync solo si soporta OpenCode
+- Doctor `--install-check --skip-oauth`: solo validación estructural, sin probes
+- `DH_MCP_PROBE_TIMEOUT_SECONDS` (default 3) para timeout de probes MCP
+- Cache de probes MCP en doctor (cada MCP consultado máximo una vez)
+- `list_managed_files()` en managed-links.sh para recursos como copias
+- `opencode_backup_create/list/restore/diff` en `scripts/lib/opencode-backup.sh`
+- Validación estructural de secretos migrados en doctor
+- Secretos GitHub y Navi en `~/.config/daniel-harness/secrets/`
+
+### Changed
+
+- `install` ya no usa PROFILE=core como default silencioso
+- Perfiles migración y full ahora extienden alegra (no core)
+- Bootstrap respeta dry-run para version check de OpenCode
+- Doctor reporta Navi desde archivos primero, env como fallback
+- Doctor verifica agentes cargados por OpenCode (no solo existencia de archivo)
+- `uninstall.sh` elimina managed files (copias) además de symlinks
+- Tests actualizados para managed copies en lugar de symlinks
+- Stubs de opencode en tests soportan `--version`
+
+### Removed
+
+- Default silencioso PROFILE=core en install
+
+### Security
+
+- Secretos GitHub/Navi fuera de opencode.json, en archivos modo 600
+- `dh opencode diff` solo muestra estructura, nunca valores
+- Directorios de secretos: modo 700
+- Backup de configuración antes de cada modificación de opencode.json
+
+### Fixed
+
+- `local` fuera de función en bootstrap.sh (bash 5.2 no lo permite)
+- Dry-run ya no invoca gentle-ai real (evita state files en HOME falso)
+- Stubs de opencode en tests ahora soportan `--version`
+
 ## 0.1.0 (2026-08-04)
 
 ### Added

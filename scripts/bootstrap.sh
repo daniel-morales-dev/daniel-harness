@@ -14,7 +14,7 @@ MANAGED_MCPS=()
 # --help debe ejecutarse antes de crear cualquier estado o lock
 for arg in "$@"; do
   if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
-    printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--experimental-data-tools]\n'
+    printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--reset-managed] [--non-interactive] [--experimental-data-tools]\n'
     exit 0
   fi
 done
@@ -22,16 +22,22 @@ done
 DRY_RUN=false
 SKIP_DOCKER=false
 PROFILE=core
+CONNECT=false
+RESET_MANAGED=false
+NON_INTERACTIVE=false
 EXPERIMENTAL_DATA_TOOLS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --skip-docker) SKIP_DOCKER=true; shift ;;
+    --connect) CONNECT=true; shift ;;
+    --reset-managed) RESET_MANAGED=true; shift ;;
+    --non-interactive) NON_INTERACTIVE=true; shift ;;
     --profile) PROFILE=$2; shift 2 ;;
     --profile=*) PROFILE=${1#*=}; shift ;;
     --experimental-data-tools) EXPERIMENTAL_DATA_TOOLS=true; shift ;;
-    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--experimental-data-tools]\n'; exit 0 ;;
+    --help|-h) printf 'Uso: bootstrap.sh [--dry-run] [--profile core|alegra|migration|full] [--skip-docker] [--connect] [--reset-managed] [--non-interactive] [--experimental-data-tools]\n'; exit 0 ;;
     *) printf 'Argumento desconocido: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -278,6 +284,41 @@ source "$ROOT_DIR/scripts/lib/tool-path.sh"
 
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
 _ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
+
+# Version check: ensure installed OpenCode meets minimum
+if [[ $DRY_RUN == false ]] && command -v opencode >/dev/null 2>&1; then
+  _oc_version=$(opencode --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || true)
+  if [[ -n "$_oc_version" ]]; then
+    min="0.1.0"
+    IFS=.
+    read -r ma mi pa <<< "$_oc_version"
+    read -r ma_min mi_min pa_min <<< "$min"
+    installed_num=$((ma * 10000 + mi * 100 + pa))
+    min_num=$((ma_min * 10000 + mi_min * 100 + pa_min))
+    if (( installed_num < min_num )); then
+      critical "OpenCode v$_oc_version < v$min (mínimo requerido)"
+      if [[ -t 0 ]] && [[ $NON_INTERACTIVE == false ]]; then
+        info "¿Actualizar OpenCode? [Y/n]"
+        read -r _yn
+        if [[ -z "$_yn" || "$_yn" =~ ^[Yy] ]]; then
+          run bash -c "curl -fsSL https://opencode.ai/install | bash"
+        else
+          critical "OpenCode desactualizado. Ejecuta: curl -fsSL https://opencode.ai/install | bash"
+          exit 1
+        fi
+      else
+        critical "OpenCode v$_oc_version por debajo del mínimo v$min. Actualiza con: curl -fsSL https://opencode.ai/install | bash"
+        exit 1
+      fi
+    else
+      ok "OpenCode v$_oc_version (mínimo v$min)"
+    fi
+  else
+    info "OpenCode presente pero no se pudo detectar version"
+  fi
+else
+  info "OpenCode version check omitido (dry-run o no instalado aun)"
+fi
 
 install_tool_if_in_profile "gentle-ai" "Gentle AI" "command -v gentle-ai" "curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash"
 _ensure_tool_visible "gentle-ai" "$LOCAL_BIN/gentle-ai" || exit 1
@@ -573,9 +614,27 @@ fi
 _ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
 
 if command -v gentle-ai >/dev/null 2>&1; then
-  info 'Sincronizando skills con Gentle AI...'
-  run gentle-ai skill-registry refresh --force 2>/dev/null || true
-  run gentle-ai sync -skill task-lifecycle 2>/dev/null || true
+  info 'Verificando Gentle AI...'
+  if [[ $DRY_RUN == false ]]; then
+    ga_version=$(gentle-ai version 2>/dev/null || echo "unknown")
+    ok "Gentle AI $ga_version"
+    ga_help=$(gentle-ai --help 2>/dev/null || true)
+    if echo "$ga_help" | grep -q "opencode"; then
+      info "Gentle AI soporta OpenCode, ejecutando sync..."
+      gentle-ai skill-registry refresh --force 2>/dev/null || true
+      gentle-ai sync -skill task-lifecycle 2>/dev/null || true
+    else
+      info "Gentle AI no soporta OpenCode directamente. Skills instalados via install.sh."
+    fi
+    ga_agents=$(gentle-ai doctor 2>/dev/null || true)
+    if echo "$ga_agents" | grep -q "healthy"; then
+      ok "Gentle AI saludable"
+    else
+      warn "gentle-ai doctor no reporta healthy"
+    fi
+  else
+    info "[simulado] gentle-ai version, sync, doctor"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -718,6 +777,133 @@ while IFS= read -r name; do
   MANAGED_MCPS+=("$name")
 done < <(parse_mcp_names)
 
+# ── Secret migration: GitHub, Navi ──────────────────────────────
+SECRETS_MIGRATED=0
+SECRETS_PENDING=0
+
+_migrate_github_secret() {
+  local auth
+  auth=$(jq -r '.mcp.github.headers.Authorization // ""' "$TMP_CANDIDATE" 2>/dev/null || echo "")
+  [[ -z "$auth" || "$auth" == "null" ]] && return 0
+
+  local secret_dir="$HARNESS_CONFIG_DIR/secrets/github"
+  local secret_file="$secret_dir/authorization"
+
+  # Already file-based
+  if [[ "$auth" == "{file:$secret_file}" ]]; then
+    if [[ -f "$secret_file" ]]; then
+      local perm
+      perm=$(stat -c '%a' "$secret_file" 2>/dev/null || echo "000")
+      [[ "$perm" == "600" ]] && return 0
+    fi
+  fi
+
+  # env-ref or literal — create file
+  local value=""
+  if [[ "$auth" == "{env:GITHUB_PERSONAL_ACCESS_TOKEN}" && -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+    value="Bearer $GITHUB_PERSONAL_ACCESS_TOKEN"
+  elif [[ "$auth" =~ ^Bearer\  ]]; then
+    # literal token in config
+    value="$auth"
+  fi
+
+  if [[ -z "$value" ]]; then
+    if [[ $CONNECT == true && $NON_INTERACTIVE == false && -t 0 ]]; then
+      info "GitHub PAT requerido (input oculto):"
+      read -r -s _gh_token
+      if [[ -n "$_gh_token" ]]; then
+        value="Bearer $_gh_token"
+        unset _gh_token
+      fi
+    fi
+  fi
+
+  if [[ -n "$value" ]]; then
+    mkdir -p -m 700 "$secret_dir"
+    printf '%s\n' "$value" > "$secret_file"
+    chmod 600 "$secret_file"
+    _candidate_jq --arg f "$secret_file" '.mcp.github.headers.Authorization = "{file:\($f)}"'
+    info "GitHub: token migrado a archivo persistente"
+    SECRETS_MIGRATED=$((SECRETS_MIGRATED + 1))
+  else
+    # persistent env ref is ok if env var is available at runtime
+    if [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+      ok "GitHub: usando {env:GITHUB_PERSONAL_ACCESS_TOKEN}"
+    else
+      warn "GitHub: token no disponible, MCP requerirá config manual"
+      SECRETS_PENDING=$((SECRETS_PENDING + 1))
+    fi
+  fi
+}
+
+_migrate_navi_secret() {
+  local navi_dir="$HARNESS_CONFIG_DIR/secrets/navi"
+  local url_file="$navi_dir/url"
+  local cid_file="$navi_dir/client-id"
+  local url_was_literal=false
+  local cid_was_literal=false
+
+  # URL
+  local navi_url
+  navi_url=$(jq -r '.mcp.navi.url // ""' "$TMP_CANDIDATE" 2>/dev/null || echo "")
+  if [[ "$navi_url" =~ ^\{file: ]]; then
+    : # already file-based
+  elif [[ "$navi_url" == "{env:NAVI_MCP_URL}" ]]; then
+    if [[ -n "${NAVI_MCP_URL:-}" ]]; then
+      mkdir -p -m 700 "$navi_dir"
+      printf '%s\n' "$NAVI_MCP_URL" > "$url_file"
+      chmod 600 "$url_file"
+      _candidate_jq --arg f "$url_file" '.mcp.navi.url = "{file:\($f)}"'
+      url_was_literal=true
+    fi
+  elif [[ -n "$navi_url" && "$navi_url" != "null" ]]; then
+    mkdir -p -m 700 "$navi_dir"
+    printf '%s\n' "$navi_url" > "$url_file"
+    chmod 600 "$url_file"
+    _candidate_jq --arg f "$url_file" '.mcp.navi.url = "{file:\($f)}"'
+    url_was_literal=true
+  fi
+
+  # Client ID
+  local navi_cid
+  navi_cid=$(jq -r '.mcp.navi.oauth.clientId // ""' "$TMP_CANDIDATE" 2>/dev/null || echo "")
+  if [[ "$navi_cid" =~ ^\{file: ]]; then
+    : # already file-based
+  elif [[ "$navi_cid" == "{env:NAVI_OAUTH_CLIENT_ID}" ]]; then
+    if [[ -n "${NAVI_OAUTH_CLIENT_ID:-}" ]]; then
+      mkdir -p -m 700 "$navi_dir"
+      printf '%s\n' "$NAVI_OAUTH_CLIENT_ID" > "$cid_file"
+      chmod 600 "$cid_file"
+      _candidate_jq --arg f "$cid_file" '.mcp.navi.oauth.clientId = "{file:\($f)}"'
+      cid_was_literal=true
+    fi
+  elif [[ -n "$navi_cid" && "$navi_cid" != "null" ]]; then
+    mkdir -p -m 700 "$navi_dir"
+    printf '%s\n' "$navi_cid" > "$cid_file"
+    chmod 600 "$cid_file"
+    _candidate_jq --arg f "$cid_file" '.mcp.navi.oauth.clientId = "{file:\($f)}"'
+    cid_was_literal=true
+  fi
+
+  if $url_was_literal && $cid_was_literal; then
+    info "Navi: secretos migrados a archivos persistentes"
+    SECRETS_MIGRATED=$((SECRETS_MIGRATED + 1))
+  elif $url_was_literal || $cid_was_literal; then
+    warn "Navi: migración parcial — un secreto quedó como literal"
+    SECRETS_PENDING=$((SECRETS_PENDING + 1))
+  fi
+}
+
+# ── Pre-apply summary ──────────────────────────────────────────────
+if [[ $RESET_MANAGED == true && $DRY_RUN == false ]]; then
+  printf '\n==> Resumen de cambios:\n'
+  printf '  Recursos agregados: %d MCP(s)\n' "$MCP_ADDED"
+  printf '  Recursos actualizados: %d MCP(s)\n' "$MCP_UPDATED"
+  printf '  Recursos preservados: %d MCP(s)\n' "$MCP_SKIPPED"
+  printf '  Secretos migrados: %d\n' "$SECRETS_MIGRATED"
+  printf '  OAuth pendiente: %d\n' "$SECRETS_PENDING"
+fi
+
 _build_state() {
   local src=$1 dst=$2
   _check_failpoint "build-state"
@@ -732,6 +918,14 @@ _build_state() {
   echo "$existing" "$new_state" | jq -s '.[0] * .[1]' > "$dst"
   chmod 600 "$dst"
 }
+
+# Run secret migration before final validation (only when not dry-run)
+if [[ $DRY_RUN == false ]]; then
+  _migrate_github_secret
+  if profile_includes "$PROFILE" "mcps" "navi"; then
+    _migrate_navi_secret
+  fi
+fi
 
 if [[ $DRY_RUN == false ]]; then
   OC_SCHEMA="${DH_OC_SCHEMA:-$ROOT_DIR/tests/fixtures/opencode-config.schema.json}"
@@ -884,10 +1078,18 @@ while IFS= read -r name; do
   fi
 done < <(parse_mcp_names) || true
 
-printf '     Configura GITHUB_PERSONAL_ACCESS_TOKEN para el MCP de GitHub\n'
-printf '     https://github.com/settings/tokens (permisos: repo, read:org, read:user)\n'
+if [[ "$(jq -r '.mcp.github.headers.Authorization // ""' "$OC_FILE" 2>/dev/null)" == "{env:GITHUB_PERSONAL_ACCESS_TOKEN}" ]]; then
+  printf '     Configura GITHUB_PERSONAL_ACCESS_TOKEN o ejecuta: dh opencode install --connect\n'
+elif ! grep -q 'file:' "$OC_FILE" 2>/dev/null; then
+  printf '     GitHub: token no persistido. Usa: dh opencode install --connect\n'
+fi
+if [[ -d "$HARNESS_CONFIG_DIR/secrets/github" ]]; then
+  printf '     GitHub: token persistido en archivo seguro\n'
+fi
 
-printf '\n  2. Verifica estado con doctor.sh\n'
+printf '\n  2. Crea un backup de la configuracion:\n'
+printf '     dh opencode backup\n'
+printf '\n  3. Verifica estado con doctor.sh\n'
 printf '     bash scripts/doctor.sh\n'
-printf '\n  3. Si es primera instalación, reinicia OpenCode\n'
+printf '\n  4. Si es primera instalación, reinicia OpenCode\n'
 printf '\n'
