@@ -127,11 +127,14 @@ Los 5 agentes administrados se instalan como copias administradas (no symlinks):
 
 - `alegra-microservice-engineer`
 - `alegra-microservice-test-engineer`
-- `code-reviewer`
+- `alegra-code-reviewer`
 - `php-engineer`
 - `migration-parity-reviewer`
 
 Modo: `subagent`, `hidden: false`. Verificables con `dh doctor` o `opencode agent list`.
+
+El agente `code-reviewer` que pueda instalar Gentle AI es independiente y el
+harness nunca lo modifica.
 
 ## Reparto de autoridad
 

@@ -1,6 +1,38 @@
 # Changelog
 
-## 0.1.1 (2026-08-04)
+## 0.1.1 (2026-08-05)
+
+### Added (tercera ronda)
+
+- Journal como array ordenado con resources[], cada recurso tiene applyOrder,
+  status (prepared→applying→applied), candidateSha256 y originalSha256
+- `_mv_safe`: desplaza original, publica candidato, detecta modificación concurrente
+- `_fsync`: helper Python con path como argv, fail-closed
+- `_enforce_allowlist`: comparación canónica de .agent, .permission, .provider,
+  .model, plugins externos, MCPs personalizados y claves desconocidas
+- Backup con metadata JSON (.meta) usando ID único timestamp+random
+- `opencode_backup_find_all`: busca backups modernos y legacy
+- `alegra-code-reviewer`: nuevo nombre para evitar colisión con Gentle AI
+- `_validate_secret_file` en doctor: modo 600, ownership, no symlinks, Bearer prefix
+- `--connect + --non-interactive` detectado como error inmediato
+- `tests/managed-state.test.sh`: 21 tests de transacción, allowlist, perfiles, secretos
+
+### Changed (tercera ronda)
+
+- Transacción: ahora coordina opencode.json, state, secretos GitHub/Navi y managed files
+- Secretos: temp en mismo directorio que destino, no en /tmp
+- `full` perfil ahora extiende `migration`, que extiende `alegra`, que extiende `core`
+- Profile selector usa `profile-resolver.sh` para mostrar valores efectivos heredados
+- Gentle AI: comandos reales verificados (--version, sync, skill-registry)
+- Doctor: sin debilitamiento para full sin --connect (exit 2, no saludable)
+
+### Fixed (tercera ronda)
+
+- SC2034: eliminada variable `all_or_nothing` no usada
+- SC2168: `local` fuera de función en apply block movido a función
+- Diff estructural: `.plugins` → `.plugin` (singular), añadidas más secciones
+- Allowlist primer arranque: salta cuando no existe config previa
+- E2E Phase 11: ahora usa perfil alegra + linear auth-required
 
 ### Added
 
