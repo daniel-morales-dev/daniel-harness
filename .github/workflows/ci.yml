@@ -153,6 +153,8 @@ jobs:
           python-version: '3.12'
       - name: Install deps
         run: pip install -r requirements-dev.txt
+      - name: Bootstrap core characterization
+        run: bash tests/bootstrap-core-characterization.test.sh
       - name: E2E bootstrap
         run: bash tests/e2e-bootstrap.test.sh
       - name: MCP reconciliation
