@@ -12,6 +12,10 @@
 - [ ] Secret leak scan sin coincidencias fuera de archivos intencionales
 - [ ] Documentación y CHANGELOG `0.1.1 (Unreleased)` actualizados
 - [ ] Worktree limpio y body de PR con evidencia real
+- [ ] `transaction.py` coordinó config, secretos, cinco agentes y managed state
+- [ ] GitHub/Navi `{file:...}` inválidos fallan cerrado; Navi parcial devuelve `2`
+- [ ] Managed-modified y symlink de terceros devuelven `3` sin sobrescritura
+- [ ] Hard crash/recovery y CAS concurrente verificados
 
 ### Release
 

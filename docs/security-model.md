@@ -38,8 +38,10 @@ Durante `--connect`, el instalador detecta:
 - Referencias a archivo existentes → valida permisos y reutiliza
 
 La referencia efectiva de OpenCode debe apuntar al archivo administrado exacto.
-No se consideran saludables symlinks, archivos vacíos, permisos distintos de `600`,
-padres inseguros ni formatos que no comiencen con `Bearer `.
+No se consideran saludables symlinks, archivos ausentes o vacíos, permisos distintos de
+`600`, padres inseguros, referencias a otro path ni formatos GitHub que no comiencen con
+`Bearer `. Estos casos fallan cerrados sin `chmod` correctivo ni reescritura fuera de la
+transacción.
 
 ## Backups
 
@@ -99,6 +101,14 @@ Los 5 agentes del harness se instalan como copias regulares (no symlinks):
 - Si un agente fue modificado localmente, no se sobrescribe (conflicto).
 - Si es un symlink propiedad del harness, se migra a copia.
 - El estado administrado registra hashes para detectar modificaciones.
+- `--reset-managed` tampoco sobrescribe un agente modified.
+
+## Transacción persistente
+
+`scripts/transaction.py` es el único coordinador de recovery, journal, CAS, rollback y
+apply persistente. El plan incluye secretos, `opencode.json`, estado MCP, los cinco
+agentes y `opencode-managed.state`; el estado administrado es el último recurso. Un
+commit se considera correcto solo después de `verify --mode committed`.
 
 ## Commit de secretos
 

@@ -22,6 +22,16 @@ enumera y repetí la instalación.
 `./install` devuelve `3` para un recurso administrado modificado y `4` cuando el
 rollback/recovery no terminó. No borres journal ni sobrescribas el recurso: ejecutá
 de nuevo el bootstrap para recuperación y conservá el archivo modificado para revisión.
+`--reset-managed` no fuerza un archivo managed-modified.
+
+## Referencia GitHub o Navi `{file:...}` inválida
+
+El bootstrap devuelve `1` si la referencia apunta a otro path, falta el archivo, es
+symlink, tiene propietario/permisos incorrectos o contenido inválido. Corregí los
+permisos o recreá el archivo con valores válidos; el bootstrap no lo repara en silencio.
+
+Si Navi carece de URL o client ID, devuelve `2`: exportá ambos valores y repetí. No se
+escribe un secreto Navi mientras el par esté incompleto.
 
 **Permisos incorrectos**: Verifica que `~/.config/daniel-harness/` sea `700` y los archivos `600`:
 

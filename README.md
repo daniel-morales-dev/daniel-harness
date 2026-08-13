@@ -63,6 +63,10 @@ Exit codes: `0` saludable, `1` error técnico, `2` onboarding/OAuth pendiente,
 GitHub y Navi usan almacenamiento persistente en archivos (`~/.config/daniel-harness/secrets/`),
 no requieren exportar variables en cada shell.
 
+`scripts/transaction.py` coordina de forma atómica secretos, `opencode.json`, estado MCP,
+los cinco agentes y `opencode-managed.state`. Un secreto `{file:...}` roto falla cerrado;
+Navi solo migra URL y client ID juntos. `--reset-managed` nunca sobrescribe un agente modificado.
+
 OpenCode `1.18.18` es la mínima versión probada. El instalador verifica `agent list`,
 MCP, `mcp debug`, `mcp auth` y `debug config` antes de continuar.
 

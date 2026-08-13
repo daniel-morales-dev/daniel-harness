@@ -178,6 +178,21 @@ git pull
 instalador valida `secrets/github/authorization` y la referencia `{file:...}` de
 OpenCode sin requerir la variable en el entorno.
 
+Los valores de Navi se migran juntos o no se migran. Si falta URL o client ID, el
+bootstrap termina con `2` y no escribe un secreto parcial. Un `{file:...}` persistido
+debe apuntar exactamente al archivo administrado, ser regular, propietario del usuario,
+modo `600` y con padres reales modo `700`.
+
+## Estados de salida
+
+| Código | Significado |
+|---|---|
+| `0` | Instalación saludable |
+| `1` | Error técnico o secreto persistido inválido |
+| `2` | Onboarding/OAuth legítimamente pendiente |
+| `3` | Conflicto managed o modificación concurrente |
+| `4` | Recovery o rollback incompleto |
+
 ## Directorios creados
 
 | Directorio | Propósito | Permisos |
@@ -206,3 +221,5 @@ Los 5 agentes administrados se instalan como copias regulares:
 
 Modo: `subagent`. Verificables con `dh doctor` o `opencode agent list`.
 Un `code-reviewer` instalado por Gentle AI permanece fuera de la administración del harness.
+Los agentes, su estado y `opencode.json` se publican dentro de la misma transacción Python;
+una segunda ejecución no reescribe los agentes limpios ni cambia sus mtimes.
