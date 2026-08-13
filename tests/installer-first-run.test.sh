@@ -68,6 +68,7 @@ chmod +x "$STUBS/gentle-ai"
 bootstrap() {
   local profile=$1 home=$2
   env PATH="$STUBS:$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" NVM_DIR="$home/.nvm" \
+    GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
     bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$profile"
 }
 
