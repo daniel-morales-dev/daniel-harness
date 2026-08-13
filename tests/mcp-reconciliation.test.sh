@@ -185,6 +185,7 @@ jq -n '{
 
 # Bootstrap alegra (github is in alegra profile, but no state file)
 env PATH="$STUBS:$PATH" HOME="$CUSTOM_HOME" XDG_CONFIG_HOME="$CUSTOM_HOME/.config" NVM_DIR="$CUSTOM_HOME/.nvm" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/custom-bootstrap.out" 2>&1 || true
 # Custom github should NOT be overwritten (different URL than manifest, no state)
 CUSTOM_URL=$(jq -r '.mcp.github.url // "missing"' "$CUSTOM_HOME/.config/opencode/opencode.json" 2>/dev/null || echo "missing")
@@ -206,6 +207,7 @@ printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' ' 
 
 # Bootstrap core → alegra (establish state with hashes)
 env PATH="$STUBS:$PATH" HOME="$DRIFT_HOME" XDG_CONFIG_HOME="$DRIFT_HOME/.config" NVM_DIR="$DRIFT_HOME/.nvm" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > /dev/null 2>&1
 
 # Now modify github URL manually
@@ -213,6 +215,7 @@ jq '.mcp.github.url = "https://evil.example/mcp"' "$DRIFT_HOME/.config/opencode/
 
 # Second bootstrap should detect drift
 env PATH="$STUBS:$PATH" HOME="$DRIFT_HOME" XDG_CONFIG_HOME="$DRIFT_HOME/.config" NVM_DIR="$DRIFT_HOME/.nvm" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/drift-bootstrap.out" 2>&1 || true
 # GitHub should still be custom URL (not overwritten)
 DRIFT_URL=$(jq -r '.mcp.github.url // "missing"' "$DRIFT_HOME/.config/opencode/opencode.json" 2>/dev/null || echo "missing")
