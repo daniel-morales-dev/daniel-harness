@@ -41,7 +41,7 @@ chmod +x "$STUBS/sudo"
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "--version" ]]; then echo "opencode 1.18.13"; exit 0; fi
+if [[ "$1" == "--version" ]]; then echo "opencode 1.18.18"; exit 0; fi
 if [[ "$1" == "agent" && "$2" == "list" ]]; then
   echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"
   exit 0
@@ -179,6 +179,13 @@ if cd "$ROOT_DIR" && bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile c
   pass "7: dry-run no ejecuta gentle-ai (no falla)"
 else
   fail "7: dry-run falló"
+fi
+
+# En una instalación real, ambos fallos técnicos bloquean la instalación.
+if cd "$ROOT_DIR" && bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/gentle-ai-failure.out" 2>&1; then
+  fail "7: bootstrap real ocultó fallo de Gentle AI"
+else
+  pass "7: bootstrap real falla cerrado ante Gentle AI"
 fi
 
 # Restore default stub
