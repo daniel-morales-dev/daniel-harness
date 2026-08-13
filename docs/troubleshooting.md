@@ -10,6 +10,19 @@ El doctor puede reportar críticos por varias razones:
 sudo apt-get install jq gh
 ```
 
+## Gentle AI no reporta `healthy`
+
+La instalación falla cerrada si `gentle-ai skill-registry refresh --force`,
+`gentle-ai sync` o `gentle-ai doctor` no completan saludables. `gentle-ai doctor`
+puede devolver cero aun con `Status:  degraded`; corregí primero los warnings que
+enumera y repetí la instalación.
+
+## Conflicto o recovery incompleto
+
+`./install` devuelve `3` para un recurso administrado modificado y `4` cuando el
+rollback/recovery no terminó. No borres journal ni sobrescribas el recurso: ejecutá
+de nuevo el bootstrap para recuperación y conservá el archivo modificado para revisión.
+
 **Permisos incorrectos**: Verifica que `~/.config/daniel-harness/` sea `700` y los archivos `600`:
 
 ```bash

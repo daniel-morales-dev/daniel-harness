@@ -174,6 +174,10 @@ git pull
 | `NAVI_MCP_URL` | — | URL del servidor Navi (migrable) |
 | `NAVI_OAUTH_CLIENT_ID` | — | Client ID de OAuth Navi (migrable) |
 
+`GITHUB_PERSONAL_ACCESS_TOKEN` solo sirve para la migración inicial. Después, el
+instalador valida `secrets/github/authorization` y la referencia `{file:...}` de
+OpenCode sin requerir la variable en el entorno.
+
 ## Directorios creados
 
 | Directorio | Propósito | Permisos |
@@ -196,8 +200,9 @@ Los 5 agentes administrados se instalan como copias regulares:
 |---|---|
 | `alegra-microservice-engineer` | Microservicios TypeScript Alegra |
 | `alegra-microservice-test-engineer` | Tests de microservicios |
-| `code-reviewer` | Code review estricto |
+| `alegra-code-reviewer` | Code review estricto para Alegra |
 | `php-engineer` | PHP 7.0.9 / ZF1 |
 | `migration-parity-reviewer` | Paridad PHP ↔ TS |
 
 Modo: `subagent`. Verificables con `dh doctor` o `opencode agent list`.
+Un `code-reviewer` instalado por Gentle AI permanece fuera de la administración del harness.

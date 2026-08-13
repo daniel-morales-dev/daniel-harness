@@ -3,6 +3,18 @@
 Procedimiento canónico para ejecutar `tests/release-smoke.test.sh`
 sobre un SHA exacto en un entorno Ubuntu 24.04 limpio.
 
+## v0.1.1 gates
+
+Antes de declarar release readiness, ejecutar dos smokes sobre el mismo SHA final:
+
+- Smoke A: instalación limpia, segundo run, doctor, agentes, MCPs, permisos y
+  `bash tests/opencode-file-refs-runtime.test.sh` con OpenCode real.
+- Smoke B: fixture de migración; preservar configuración no administrada,
+  conflictos managed, symlinks de terceros, recovery, CAS e idempotencia.
+
+Los logs sanitizados se guardan fuera del repositorio como `smoke-a-<sha>.log` y
+`smoke-b-<sha>.log`. Nunca registrar valores de secretos; solo estados PASS/FAIL.
+
 ## Entorno
 
 - Ubuntu 24.04 LTS limpio (contenedor o VM)

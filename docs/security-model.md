@@ -37,6 +37,10 @@ Durante `--connect`, el instalador detecta:
 - Variables de entorno (`{env:GITHUB_PERSONAL_ACCESS_TOKEN}`) → migra a archivo
 - Referencias a archivo existentes → valida permisos y reutiliza
 
+La referencia efectiva de OpenCode debe apuntar al archivo administrado exacto.
+No se consideran saludables symlinks, archivos vacíos, permisos distintos de `600`,
+padres inseguros ni formatos que no comiencen con `Bearer `.
+
 ## Backups
 
 Los backups de opencode.json se crean automáticamente antes de cada
@@ -100,3 +104,6 @@ Los 5 agentes del harness se instalan como copias regulares (no symlinks):
 
 Ningún fixture, test, log, diff, backup, estado, PR body o GitHub Action
 debe contener secretos reales.
+
+El gate manual `bash tests/opencode-file-refs-runtime.test.sh` usa valores dummy y
+un HOME aislado para comprobar `{file:...}` en Authorization, URL y oauth.clientId.

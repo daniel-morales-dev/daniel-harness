@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.1.1 (2026-08-05)
+## 0.1.1 (Unreleased)
+
+### Fixed (release readiness)
+
+- `install` preserva los códigos `0/1/2/3/4` de bootstrap y no ejecuta doctor
+  después de onboarding pendiente, conflicto o recovery incompleto.
+- El resumen de GitHub reconoce la autorización persistente segura sin depender
+  de `GITHUB_PERSONAL_ACCESS_TOKEN`.
+- OpenCode exige la versión mínima probada `1.18.18` y capabilities reales.
+- Gentle AI falla cerrada ante registry, sync o doctor no saludables.
+
+### Added (release readiness)
+
+- Gate runtime con OpenCode real para `{file:...}` en Authorization, URL y
+  oauth.clientId; URL y Authorization verifican recarga dinámica.
 
 ### Added (tercera ronda)
 
