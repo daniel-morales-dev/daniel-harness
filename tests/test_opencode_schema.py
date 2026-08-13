@@ -35,13 +35,31 @@ exec "$@"
         (stubs / stub).chmod(0o755)
     (stubs / "node").write_text("#!/bin/bash\necho v24.0.0\n")
     (stubs / "node").chmod(0o755)
-    # opencode stub that reports connected
+    # OpenCode capabilities required by the production compatibility gate.
     oc_stub = """#!/bin/bash
+if [[ "$1" == "--version" ]]; then echo "opencode 1.18.18"; exit 0; fi
+if [[ "$1" == "agent" && "$2" == "list" ]]; then
+  if [[ "$3" == "--help" ]]; then exit 0; fi
+  printf '%s\\n' alegra-microservice-engineer alegra-microservice-test-engineer alegra-code-reviewer php-engineer migration-parity-reviewer
+  exit 0
+fi
+if [[ "$1" == "mcp" && ( "$2" == "--help" || "$2" == "auth" || ( "$2" == "debug" && "$3" == "--help" ) ) ]]; then exit 0; fi
 if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+if [[ "$1" == "debug" && "$2" == "config" && "$3" == "--help" ]]; then exit 0; fi
 exit 0
 """
     (stubs / "opencode").write_text(oc_stub)
     (stubs / "opencode").chmod(0o755)
+    gentle_stub = """#!/bin/bash
+case "$1" in
+  --version|version) echo "gentle-ai 2.3.0" ;;
+  skill-registry|sync) exit 0 ;;
+  doctor) echo "Status:  healthy" ;;
+esac
+exit 0
+"""
+    (stubs / "gentle-ai").write_text(gentle_stub)
+    (stubs / "gentle-ai").chmod(0o755)
     return stubs
 
 
@@ -82,8 +100,20 @@ def run_bootstrap(home_dir, stubs, profile="core"):
         detail.append(str(home_dir))
         detail.append(f"--- PROFILE: {profile} ---")
         if journal_file.exists():
-            detail.append("--- JOURNAL ---")
-            detail.append(journal_file.read_text())
+            try:
+                journal = json.loads(journal_file.read_text())
+                resources = journal.get("resources", [])
+                detail.append(
+                    "--- JOURNAL SUMMARY --- "
+                    f"phase={journal.get('phase')} resources="
+                    + ", ".join(
+                        f"{item.get('id')}:{item.get('status')}:{item.get('type')}:"
+                        f"final={bool(item.get('finalPath'))}:candidate={bool(item.get('tempPath'))}"
+                        for item in resources
+                    )
+                )
+            except (OSError, ValueError):
+                detail.append("--- JOURNAL SUMMARY --- unreadable")
         pytest.fail("\n".join(detail))
     return oc_file
 
