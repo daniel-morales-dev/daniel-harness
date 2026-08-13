@@ -28,6 +28,7 @@ export DANIEL_HARNESS_CONFIG_DIR="$HOME_DIR/.config/daniel-harness"
 export DANIEL_HARNESS_BIN_DIR="$HOME_DIR/.local/bin"
 export OPENCODE_CONFIG_DIR="$HOME_DIR/.config/opencode"
 export PATH="$HOME_DIR/.local/bin:$PATH"
+export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real"
 export NAVI_MCP_URL="https://navi.example.com/mcp"
 export NAVI_OAUTH_CLIENT_ID="dummy-client-id"
 
