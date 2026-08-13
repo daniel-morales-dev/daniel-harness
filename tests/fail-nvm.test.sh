@@ -48,13 +48,25 @@ TOOLSCRIPT
 
 cat > "$stubs/opencode" <<'OPENCODE'
 #!/bin/bash
-case "$1" in
-  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
-  mcp) if [[ "$2" == "debug" ]]; then echo "connected"; exit 0; fi ;;
+case "$1:${2:-}:${3:-}" in
+  --version::) echo "opencode 1.18.18"; exit 0 ;;
+  agent:list:--help|mcp:--help:|mcp:debug:--help|mcp:auth:--help|debug:config:--help) exit 0 ;;
+  agent:list:*) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp:debug:*) echo "connected"; exit 0 ;;
 esac
 exit 0
 OPENCODE
   chmod +x "$stubs/opencode"
+
+  cat > "$stubs/gentle-ai" <<'GENTLE'
+#!/bin/bash
+case "$1" in
+  --version) echo "gentle-ai 2.3.0" ;;
+  skill-registry|sync) exit 0 ;;
+  doctor) echo "Status:  healthy" ;;
+esac
+GENTLE
+  chmod +x "$stubs/gentle-ai"
 
   python3 -c "
 import yaml

@@ -71,6 +71,7 @@ export PATH="$STUBS:$PATH"
 export HOME="$HOME_DIR"
 export XDG_CONFIG_HOME="$HOME_DIR/.config"
 export NVM_DIR="$HOME_DIR/.nvm"
+export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real"
 
 OC_FILE="$HOME_DIR/.config/opencode/opencode.json"
 STATE_FILE="$HOME_DIR/.config/daniel-harness/state/opencode-managed.json"

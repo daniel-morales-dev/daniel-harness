@@ -795,7 +795,7 @@ _validar_ruta_secreta() {
 }
 
 _validar_secreto_persistido() {
-  local path=$1 expected=$2 kind=$3 content
+  local path=$1 expected=$2 kind=$3 content lines
   [[ "$expected" == "{file:$path}" ]] || {
     critical "$kind: referencia {file} inválida"
     return 1
@@ -820,7 +820,8 @@ _validar_secreto_persistido() {
     critical "$kind: no se pudo leer el secreto persistido"
     return 1
   }
-  [[ -n "$content" && "$content" != *$'\n'* ]] || {
+  lines=$(wc -l < "$path" 2>/dev/null) || return 1
+  [[ -n "$content" && "$lines" -le 1 ]] || {
     critical "$kind: contenido persistido vacío o multilínea"
     return 1
   }
@@ -897,8 +898,10 @@ _plan_secret_resource() {
 }
 
 _migrate_github_secret() {
-  local auth
+  local auth existing_auth
   auth=$(jq -r '.mcp.github.headers.Authorization // ""' "$TMP_CANDIDATE" 2>/dev/null || echo "")
+  existing_auth=$(jq -r '.mcp.github.headers.Authorization // ""' "$OC_FILE" 2>/dev/null || echo "")
+  [[ "$existing_auth" == "{file:"* ]] && auth="$existing_auth"
   [[ -z "$auth" || "$auth" == "null" ]] && return 0
 
   local secret_dir="$HARNESS_CONFIG_DIR/secrets/github"
@@ -908,6 +911,7 @@ _migrate_github_secret() {
   # outside the durable transaction.
   if [[ "$auth" == "{file:"* ]]; then
     _validar_secreto_persistido "$secret_file" "$auth" "GitHub"
+    _candidate_jq --arg f "$auth" '.mcp.github.headers.Authorization = $f'
     return $?
   fi
 
@@ -964,10 +968,14 @@ _migrate_navi_secret() {
     local candidate_key=$1 file_path=$2 env_var=$3 output_var=$4
     local current
     current=$(jq -r "$candidate_key" "$TMP_CANDIDATE" 2>/dev/null || echo "")
+    local existing
+    existing=$(jq -r "$candidate_key" "$OC_FILE" 2>/dev/null || echo "")
+    [[ "$existing" == "{file:"* ]] && current="$existing"
     [[ -z "$current" || "$current" == "null" ]] && return 2
 
     if [[ "$current" =~ ^\{file: ]]; then
       _validar_secreto_persistido "$file_path" "$current" "Navi" || return 1
+      _candidate_jq --arg f "$current" "$candidate_key = \$f"
       printf -v "$output_var" '%s' persisted
       return 0
     fi
@@ -1180,7 +1188,7 @@ _plan_managed_agents() {
 }
 
 _run_planned_transaction() {
-  local oc_schema="$ROOT_DIR/tests/fixtures/opencode-config.schema.json" original_hash candidate_hash
+  local oc_schema="${DH_OC_SCHEMA:-$ROOT_DIR/tests/fixtures/opencode-config.schema.json}" original_hash candidate_hash
   if [[ "${DH_TEST_MODE:-0}" == 1 && "${DH_FAIL_AT:-}" == invalid-candidate ]]; then printf '}}}}INVALID' >> "$TMP_CANDIDATE"; fi
   jq empty "$TMP_CANDIDATE" >/dev/null 2>&1 || { critical "Candidato JSON inválido"; return 1; }
   python3 "$ROOT_DIR/scripts/validate-opencode-config.py" --config "$TMP_CANDIDATE" --schema "$oc_schema" >/dev/null || return 1
@@ -1208,6 +1216,10 @@ _run_planned_transaction() {
 
 if [[ $DRY_RUN == false ]]; then
   _run_planned_transaction
+  if (( SECRETS_PENDING > 0 )); then
+    info "Onboarding pendiente: no se publicaron secretos parciales"
+    exit 2
+  fi
 fi
 
 _ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1

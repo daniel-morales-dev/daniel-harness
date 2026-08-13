@@ -68,9 +68,11 @@ done
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-case "$1" in
-  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
-  mcp) if [[ "$2" == "debug" ]]; then echo "connected"; exit 0; fi ;;
+case "$1:${2:-}:${3:-}" in
+  --version::) echo "opencode 1.18.18"; exit 0 ;;
+  agent:list:--help|mcp:--help:|mcp:debug:--help|mcp:auth:--help|debug:config:--help) exit 0 ;;
+  agent:list:*) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp:debug:*) echo "connected"; exit 0 ;;
 esac
 exit 0
 OPENCODE
@@ -79,7 +81,7 @@ chmod +x "$STUBS/opencode"
 cat > "$STUBS/gentle-ai" <<'GENTLE'
 #!/bin/bash
 case "$1" in
-  version) echo "gentle-ai 9.9.9 (stub)" ;;
+  --version|version) echo "gentle-ai 2.3.0" ;;
   doctor) echo "Status:  healthy" ;;
   review) if [[ "$2" == "mode" ]]; then echo "receipt-driven development: on (decided by default)"; fi ;;
   skill-registry) mkdir -p "$ROOT_DIR/.atl" 2>/dev/null; touch "$ROOT_DIR/.atl/skill-registry.md" 2>/dev/null; echo "ok" ;;

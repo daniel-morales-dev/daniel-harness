@@ -140,6 +140,9 @@ jobs:
       - name: First-run transactional
         run: bash tests/first-run-transaction.test.sh
 
+      - name: Typed coordinator integration
+        run: bash tests/bootstrap-transaction-coordinator.test.sh
+
       - name: Tool path exposure
         run: bash tests/tool-path-exposure.test.sh --stubs
 

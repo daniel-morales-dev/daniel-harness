@@ -69,6 +69,7 @@ export PATH="$STUBS:$PATH"
 export HOME="$HOME_DIR"
 export XDG_CONFIG_HOME="$HOME_DIR/.config"
 export NVM_DIR="$HOME_DIR/.nvm"
+export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real"
 
 OC_FILE="$HOME_DIR/.config/opencode/opencode.json"
 STATE_FILE="$HOME_DIR/.config/daniel-harness/state/opencode-managed.json"
@@ -119,18 +120,18 @@ jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-t2.json" && mv "$TMP_DIR/oc-t
 _run_and_check "t2" env DH_TEST_MODE=1 DH_FAIL_AT=invalid-candidate \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra
 
-# --- Test 3: State builder falla (failpoint build-state) ---
-echo "=== Test 3: state builder failed ==="
+# --- Test 3: Coordinador falla antes de publicar ---
+echo "=== Test 3: coordinator before apply ==="
 # Full baseline restore so state file is valid
 bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > /dev/null 2>&1
 jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-t3.json" && mv "$TMP_DIR/oc-t3.json" "$OC_FILE"
-_run_and_check "t3" env DH_TEST_MODE=1 DH_FAIL_AT=build-state \
+_run_and_check "t3" env DH_TEST_MODE=1 DH_FAIL_AT=before-apply-opencodeConfig \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra
-grep -q 'Failpoint alcanzado: build-state' "$TMP_DIR/t3.out" 2>/dev/null && \
-  pass "t3: alcanzó failpoint build-state" || \
-  fail "t3: no alcanzó failpoint build-state"
+grep -q 'controlled failpoint: before-apply-opencodeConfig' "$TMP_DIR/t3.out" 2>/dev/null && \
+  pass "t3: alcanzó failpoint del coordinador" || \
+  fail "t3: no alcanzó failpoint del coordinador"
 JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
-[[ ! -f "$JOURNAL" ]] && pass "t3: no journal" || fail "t3: journal presente"
+[[ -f "$JOURNAL" ]] && pass "t3: journal recuperable" || fail "t3: journal ausente"
 
 echo ""
 echo "=== Resultados: $PASS pasaron, $FAIL fallaron ==="
