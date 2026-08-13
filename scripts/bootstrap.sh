@@ -377,9 +377,10 @@ TMP_STATE=""
 
 # ── Journal allowlist de paths — validación antes de rollback ──
 JOURNAL_ALLOWLIST_PATHS=(
-  "$CONFIG_ROOT/opencode/opencode.json"
+  "$CONFIG_ROOT/opencode/"
   "$HARNESS_CONFIG_DIR/state/"
   "$HARNESS_CONFIG_DIR/secrets/"
+  "$HARNESS_CONFIG_DIR/backups/"
   "$CONFIG_ROOT/opencode/agents/"
 )
 
@@ -418,7 +419,7 @@ _validate_journal() {
   while [[ $i -lt $count ]]; do
     for ftype in finalPath tempPath backupPath; do
       local fp
-      fp=$(jq -r ".resources[$i].$ftype // ''" "$jf" 2>/dev/null || echo "")
+      fp=$(jq -r ".resources[$i].$ftype // \"\"" "$jf" 2>/dev/null || echo "")
       [[ -z "$fp" ]] && continue
       _journal_path_is_allowed "$fp" || {
         critical "Journal: path no permitido en resources[$i].$ftype: $fp"
@@ -427,7 +428,7 @@ _validate_journal() {
     done
     # IDs únicos
     local id
-    id=$(jq -r ".resources[$i].id // ''" "$jf" 2>/dev/null || echo "")
+    id=$(jq -r ".resources[$i].id // \"\"" "$jf" 2>/dev/null || echo "")
     [[ -n "$id" ]] || { critical "Journal: resources[$i] sin id"; return 1; }
     # applyOrder único
     local order
@@ -473,8 +474,8 @@ _recover_journal() {
     local all_ok=true
     while [[ $i -lt $count ]]; do
       local final candid_sha
-      final=$(jq -r ".resources[$i].finalPath // ''" "$jf" 2>/dev/null || echo "")
-      candid_sha=$(jq -r ".resources[$i].candidateSha256 // ''" "$jf" 2>/dev/null || echo "")
+      final=$(jq -r ".resources[$i].finalPath // \"\"" "$jf" 2>/dev/null || echo "")
+      candid_sha=$(jq -r ".resources[$i].candidateSha256 // \"\"" "$jf" 2>/dev/null || echo "")
       if [[ -f "$final" && -n "$candid_sha" ]]; then
         local actual_sha
         actual_sha=$(sha256sum "$final" | cut -d' ' -f1)
@@ -561,8 +562,8 @@ _rollback_resources() {
         restore_failed=true
       fi
     elif [[ "$existed" == "false" ]]; then
-      # Solo eliminar si el hash actual coincide con candidateSha256 (no fue modificado externamente)
-      if [[ "$actual_sha" == "$cand_sha" ]]; then
+      # Ausente significa que el recurso nunca llegó a aplicarse.
+      if [[ ! -e "$final" || "$actual_sha" == "$cand_sha" ]]; then
         rm -f "$final" || { critical "Rollback: no se pudo eliminar $final"; restore_failed=true; }
       else
         critical "Rollback: $final no existía antes y fue modificado externamente — conservando"

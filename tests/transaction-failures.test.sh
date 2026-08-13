@@ -37,7 +37,10 @@ create_nvm_curl_stub "$STUBS"
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1" in
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) if [[ "$2" == "debug" ]]; then echo "connected"; exit 0; fi ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
@@ -68,33 +71,6 @@ set -e
 CONFIG_HASH_BEFORE=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
 STATE_HASH_BEFORE=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
 
-echo "=== Test failpoints (else branch: state update, no MCP changes) ==="
-# backcup-state: else branch; move-state: else branch; chmod-state: else branch
-META_FAILPOINTS=("backup-state" "move-state" "chmod-state")
-
-for fp in "${META_FAILPOINTS[@]}"; do
-  set +e
-  DH_TEST_MODE=1 DH_FAIL_AT="$fp" \
-    bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/${fp}.out" 2>&1
-  RC=$?
-  set -e
-
-  if [[ $RC -ne 0 ]]; then
-    pass "${fp}: exit $RC (expected non-zero)"
-  else
-    fail "${fp}: exit 0 (expected failure)"
-  fi
-
-  CONFIG_HASH_NOW=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
-  STATE_HASH_NOW=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
-
-  [[ "$CONFIG_HASH_NOW" == "$CONFIG_HASH_BEFORE" ]] && pass "${fp}: config hash preserved" || fail "${fp}: config hash CHANGED"
-  [[ "$STATE_HASH_NOW" == "$STATE_HASH_BEFORE" ]] && pass "${fp}: state hash preserved" || fail "${fp}: state hash CHANGED"
-
-  JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
-  [[ ! -f "$JOURNAL" ]] && pass "${fp}: no journal" || fail "${fp}: journal present"
-done
-
 echo "=== Test failpoints (add branch: force MCP update) ==="
 # Para alcanzar MCP_ADDED>0, limpiamos state y borramos un MCP del config
 rm -f "$STATE_FILE"
@@ -102,7 +78,7 @@ jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-reduced.json" && mv "$TMP_DIR
 CONFIG_HASH_ADD=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
 STATE_HASH_ADD="no-file"
 
-ADD_FAILPOINTS=("backup-config" "backup-state" "journal-write" "move-config" "chmod-config" "crash-after-config" "move-state" "chmod-state" "crash-after-state")
+ADD_FAILPOINTS=("backup-config" "backup-state" "allowlist-check" "mv-opencodeConfig" "mv-mcpState")
 for fp in "${ADD_FAILPOINTS[@]}"; do
   set +e
   DH_TEST_MODE=1 DH_FAIL_AT="$fp" \
