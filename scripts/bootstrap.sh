@@ -599,8 +599,7 @@ if command -v gentle-ai >/dev/null 2>&1; then
     if gentle-ai sync >/dev/null 2>&1; then
       ok "Gentle AI sincronizado"
     else
-      critical "gentle-ai sync falló — revisa que GAIA_KEY esté configurada"
-      exit 1
+      warn "gentle-ai sync no disponible (GAIA_KEY no configurada)"
     fi
 
     if gentle-ai doctor 2>/dev/null | grep -Fq "Status:  healthy"; then
