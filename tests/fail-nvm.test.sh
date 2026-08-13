@@ -46,9 +46,12 @@ TOOLSCRIPT
     chmod +x "$stubs/$tool"
   done
 
-  cat > "$stubs/opencode" <<'OPENCODE'
+cat > "$stubs/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1" in
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) if [[ "$2" == "debug" ]]; then echo "connected"; exit 0; fi ;;
+esac
 exit 0
 OPENCODE
   chmod +x "$stubs/opencode"
