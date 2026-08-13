@@ -82,8 +82,6 @@ set -e
 [[ -f "$OC_FILE" ]] && pass "setup: opencode.json created" || fail "setup: opencode.json missing"
 [[ -f "$STATE_FILE" ]] && pass "setup: state file created" || fail "setup: state file missing"
 
-CONFIG_HASH_BEFORE=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
-STATE_HASH_BEFORE=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
 
 echo "=== Test failpoints (add branch: force MCP update) ==="
 # Para alcanzar MCP_ADDED>0, limpiamos state y borramos un MCP del config
@@ -92,7 +90,7 @@ jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-reduced.json" && mv "$TMP_DIR
 CONFIG_HASH_ADD=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
 STATE_HASH_ADD="no-file"
 
-ADD_FAILPOINTS=("backup-config" "backup-state" "allowlist-check" "mv-opencodeConfig" "mv-mcpState")
+ADD_FAILPOINTS=("backup-opencodeConfig" "before-apply-opencodeConfig" "after-apply-opencodeConfig")
 for fp in "${ADD_FAILPOINTS[@]}"; do
   set +e
   DH_TEST_MODE=1 DH_FAIL_AT="$fp" \
@@ -118,7 +116,7 @@ for fp in "${ADD_FAILPOINTS[@]}"; do
   [[ "$STATE_HASH_NOW" == "$STATE_HASH_ADD" ]] && pass "add-${fp}: state hash preserved" || fail "add-${fp}: state hash CHANGED"
 
   JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
-  [[ ! -f "$JOURNAL" ]] && pass "add-${fp}: no journal" || fail "add-${fp}: journal present"
+  [[ -f "$JOURNAL" ]] && pass "add-${fp}: recoverable journal" || fail "add-${fp}: journal missing"
 done
 
 echo "=== Recovery: bootstrap after all failures ==="
@@ -144,7 +142,6 @@ echo "=== Plugin-only reconciliation ==="
 # Config con todos los MCPs identicos, Ponytail con version anterior
 jq '.plugin = ["@dietrichgebert/ponytail@4.0.0"]' "$OC_FILE" > "$TMP_DIR/oc-old-ponytail.json"
 mv "$TMP_DIR/oc-old-ponytail.json" "$OC_FILE"
-CONFIG_HASH_PLUGIN=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
 rm -f "$STATE_FILE"
 
 # Bootstrap debe actualizar Ponytail aunque los MCPs ya existan

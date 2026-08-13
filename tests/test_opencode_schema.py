@@ -69,6 +69,7 @@ def run_bootstrap(home_dir, stubs, profile="core"):
         "HOME": str(home_dir),
         "XDG_CONFIG_HOME": str(home_dir / ".config"),
         "NVM_DIR": str(home_dir / ".nvm"),
+        "DH_TEST_MODE": "1",
     }
     # Setup nvm and config
     (home_dir / ".nvm").mkdir(parents=True)

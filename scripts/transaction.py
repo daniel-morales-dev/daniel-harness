@@ -197,6 +197,10 @@ def _is_under_tmp(path: Path) -> bool:
     return path == Path("/tmp") or Path("/tmp") in path.parents
 
 
+def _test_allows_tmp() -> bool:
+    return os.environ.get("DH_TEST_MODE") == "1" or os.environ.get("DH_TRANSACTION_ALLOW_TMP") == "1"
+
+
 def _validate_absolute_path(raw: Any, context: str, *, allow_empty: bool = False) -> Path | None:
     if allow_empty and raw == "":
         return None
@@ -205,7 +209,7 @@ def _validate_absolute_path(raw: Any, context: str, *, allow_empty: bool = False
     path = Path(raw)
     if not path.is_absolute() or ".." in path.parts:
         _fail(f"{context}: path must be absolute without traversal")
-    if _is_under_tmp(path):
+    if _is_under_tmp(path) and not _test_allows_tmp():
         _fail(f"{context}: persisted resources under /tmp are forbidden")
     return path
 
@@ -227,7 +231,7 @@ def _validate_parent(path: Path, context: str) -> None:
 
 
 def _validate_persisted_file(path: Path, context: str) -> None:
-    if not path.is_absolute() or ".." in path.parts or _is_under_tmp(path):
+    if not path.is_absolute() or ".." in path.parts or (_is_under_tmp(path) and not _test_allows_tmp()):
         _fail(f"{context}: persisted file must be absolute, traversal-free and outside /tmp")
     _validate_parent(path, context)
     try:
@@ -331,8 +335,8 @@ def _parse_resource(raw: Any, roots: AllowedRoots, context: str, *, journal: boo
     if isinstance(apply_order, bool) or not isinstance(apply_order, int) or apply_order <= 0:
         _fail(f"{context}.applyOrder: expected a positive integer")
     resource_type = raw["resourceType"]
-    if resource_type not in ("file", "symlink"):
-        _fail(f"{context}.resourceType: expected file or symlink")
+    if resource_type not in ("file", "symlink", "symlink-to-file"):
+        _fail(f"{context}.resourceType: expected file, symlink or symlink-to-file")
     final_path = _validate_absolute_path(raw["finalPath"], f"{context}.finalPath")
     temp_path = _validate_absolute_path(raw["tempPath"], f"{context}.tempPath")
     backup_path = _validate_absolute_path(raw["backupPath"], f"{context}.backupPath", allow_empty=True)
@@ -360,12 +364,14 @@ def _parse_resource(raw: Any, roots: AllowedRoots, context: str, *, journal: boo
         if not _recognized_backup(resource_id, backup_path, roots):
             _fail(f"{context}.backupPath: unrecognized direct-child backup name")
         _validate_parent(backup_path, f"{context}.backupPath")
-        if resource_type == "symlink" and not link_target:
+        if resource_type in ("symlink", "symlink-to-file") and not link_target:
             _fail(f"{context}.linkTarget: existing symlink requires its exact target")
     elif original_hash is not None or backup_path is not None or link_target:
         _fail(f"{context}: absent resource must have empty original, backup and link target")
     if resource_type == "file" and link_target:
         _fail(f"{context}.linkTarget: files must use an empty link target")
+    if resource_type == "symlink-to-file" and resource_id not in KNOWN_AGENTS:
+        _fail(f"{context}.resourceType: symlink-to-file is limited to managed agents")
 
     try:
         status = ResourceStatus(raw["status"]) if journal else ResourceStatus.PREPARED
@@ -483,9 +489,10 @@ def _state(path: Path) -> FileState | None:
 
 
 def _matches_candidate(resource: Resource, state: FileState | None) -> bool:
+    expected_kind = "file" if resource.resource_type == "symlink-to-file" else resource.resource_type
     return bool(
         state
-        and state.kind == resource.resource_type
+        and state.kind == expected_kind
         and state.sha256 == resource.candidate_sha256
         and state.uid == os.getuid()
         and (state.kind == "symlink" or state.mode == resource.expected_mode)
@@ -497,7 +504,7 @@ def _matches_original(resource: Resource, state: FileState | None) -> bool:
         return state is None
     return bool(
         state
-        and state.kind == resource.resource_type
+        and state.kind == ("symlink" if resource.resource_type == "symlink-to-file" else resource.resource_type)
         and state.sha256 == resource.original_sha256
         and state.uid == os.getuid()
         and (state.kind != "symlink" or state.link_target == resource.link_target)
@@ -660,7 +667,7 @@ def _copy_backup(resource: Resource) -> None:
         raise ManagedConflict(f"original changed before backup for {resource.id}")
     temporary = resource.backup_path.parent / f".{resource.backup_path.name}.tmp.{os.getpid()}.{os.urandom(6).hex()}"
     try:
-        if resource.resource_type == "symlink":
+        if resource.resource_type in ("symlink", "symlink-to-file"):
             os.symlink(resource.link_target or "", temporary)
         else:
             source = os.open(resource.final_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))

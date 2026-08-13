@@ -240,6 +240,7 @@ fi
 if ! $SKIP_RESOURCES; then
   install -d -m 700 "$LOCAL_BIN"
   while IFS='|' read -r source_rel dest_var dest_rel; do
+    [[ $SKIP_AGENTS == true && "$source_rel" == agents/* ]] && continue
     dest_dir=$(dirname "${!dest_var}/$dest_rel")
     [[ -d "$dest_dir" ]] || mkdir -p "$dest_dir"
     link_if_missing "$ROOT_DIR/$source_rel" "${!dest_var}/$dest_rel"

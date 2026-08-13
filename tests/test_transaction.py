@@ -440,6 +440,31 @@ def test_symlink_recovery_restores_exact_target_without_following(workspace):
     assert os.readlink(resource["finalPath"]) == "../../original-target"
 
 
+def test_agent_symlink_to_file_recovery_restores_exact_target(workspace):
+    base, roots = workspace
+    resource = make_resource(
+        roots,
+        "php-engineer",
+        original=b"present",
+        candidate=b"managed agent",
+    )
+    final = Path(resource["finalPath"])
+    final.unlink()
+    final.symlink_to("../../legacy-agent")
+    resource["resourceType"] = "symlink-to-file"
+    resource["originalSha256"] = sha_bytes(b"../../legacy-agent")
+    resource["linkTarget"] = "../../legacy-agent"
+    candidate = Path(resource["tempPath"])
+    plan, _ = write_plan(base, roots, [resource])
+    journal = journal_path(base)
+
+    transaction.apply_plan(plan, journal)
+    assert Path(resource["finalPath"]).read_bytes() == b"managed agent"
+    rewrite_json(journal, lambda raw: raw.update(phase="applying"))
+    assert transaction.main(["recover", "--journal", str(journal)]) == 0
+    assert os.readlink(resource["finalPath"]) == "../../legacy-agent"
+
+
 @pytest.mark.parametrize(
     "point",
     [

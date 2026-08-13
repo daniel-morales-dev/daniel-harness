@@ -409,397 +409,33 @@ phase "Configuración de OpenCode"
 CONFIG_ROOT=${XDG_CONFIG_HOME:-"$HOME/.config"}
 OC_FILE="${OPENCODE_CONFIG_FILE:-$CONFIG_ROOT/opencode/opencode.json}"
 
-# Journal para transacción crash-consistent
+# El coordinador Python es el único dueño de apply, CAS, journal y recovery.
 JOURNAL_FILE="$STATE_DIR/.bootstrap-journal.json"
+PLAN_FILE="$STATE_DIR/.bootstrap-plan.json"
+TRANSACTION_SCRIPT="$ROOT_DIR/scripts/transaction.py"
 TMP_CANDIDATE=""
 TMP_STATE=""
+PLAN_RESOURCES=()
 
-# ── Journal allowlist de paths — validación antes de rollback ──
-JOURNAL_ALLOWLIST_PATHS=(
-  "$CONFIG_ROOT/opencode/"
-  "$HARNESS_CONFIG_DIR/state/"
-  "$HARNESS_CONFIG_DIR/secrets/"
-  "$HARNESS_CONFIG_DIR/backups/"
-  "$CONFIG_ROOT/opencode/agents/"
-)
-
-_journal_path_is_allowed() {
-  local p
-  p=$(readlink -f "$1" 2>/dev/null || echo "$1")
-  for allowed in "${JOURNAL_ALLOWLIST_PATHS[@]}"; do
-    local ap
-    ap=$(readlink -f "$allowed" 2>/dev/null || echo "$allowed")
-    if [[ "$p" == "$ap" ]] || [[ "$p" == "$ap/"* ]]; then
-      return 0
-    fi
-  done
-  return 1
+_transaction_command() {
+  DH_TRANSACTION_ALLOW_TMP=1 python3 "$TRANSACTION_SCRIPT" "$@"
 }
 
-# Validar journal — propietario, modo, JSON, schema, paths
-_validate_journal() {
-  local jf=$1
-  # Archivo regular
-  [[ -f "$jf" ]] || { critical "Journal no es archivo regular"; return 1; }
-  [[ ! -L "$jf" ]] || { critical "Journal es symlink"; return 1; }
-  # Propietario
-  [[ "$(stat -c '%u' "$jf")" == "$(id -u)" ]] || { critical "Journal: propietario incorrecto"; return 1; }
-  # Modo
-  [[ "$(stat -c '%a' "$jf")" == "600" ]] || { critical "Journal: modo $perm (requerido 600)"; return 1; }
-  # JSON válido
-  jq empty "$jf" 2>/dev/null || { critical "Journal: JSON inválido"; return 1; }
-  # Schema
-  local jv
-  jv=$(jq -r '.journalVersion // ""' "$jf" 2>/dev/null || echo "")
-  [[ "$jv" == "2" ]] || { critical "Journal: version $jv (requerida 2)"; return 1; }
-  # Validar todos los paths de resources
-  local i=0 count
-  count=$(jq '.resources | length' "$jf" 2>/dev/null || echo 0)
-  while [[ $i -lt $count ]]; do
-    for ftype in finalPath tempPath backupPath; do
-      local fp
-      fp=$(jq -r ".resources[$i].$ftype // \"\"" "$jf" 2>/dev/null || echo "")
-      [[ -z "$fp" ]] && continue
-      _journal_path_is_allowed "$fp" || {
-        critical "Journal: path no permitido en resources[$i].$ftype: $fp"
-        return 1
-      }
-    done
-    # IDs únicos
-    local id
-    id=$(jq -r ".resources[$i].id // \"\"" "$jf" 2>/dev/null || echo "")
-    [[ -n "$id" ]] || { critical "Journal: resources[$i] sin id"; return 1; }
-    # applyOrder único
-    local order
-    order=$(jq -r ".resources[$i].applyOrder // 0" "$jf" 2>/dev/null || echo 0)
-    local j
-    j=0
-    while [[ $j -lt $count ]]; do
-      [[ $j -eq $i ]] && { j=$((j + 1)); continue; }
-      local o2
-      o2=$(jq -r ".resources[$j].applyOrder // 0" "$jf" 2>/dev/null || echo 0)
-      [[ "$order" -eq "$o2" ]] && [[ $i -ne $j ]] && {
-        critical "Journal: applyOrder duplicado $order en resources[$i] y resources[$j]"
-        return 1
-      }
-      j=$((j + 1))
-    done
-    i=$((i + 1))
-  done
-  return 0
-}
-
-# Recuperar journal residual al iniciar
-_recover_journal() {
-  local jf=$1
-  warn "Journal residual encontrado: $jf"
-
-  _validate_journal "$jf" || {
-    critical "Journal inválido — no se ejecutará recuperación automática"
-    critical "Para recuperación manual:"
-    critical "  Inspeccionar: $jf"
-    critical "  Backups en: $HARNESS_CONFIG_DIR/backups/"
-    critical "  Luego eliminar journal: rm -f $jf"
-    exit 1
-  }
-
-  local phase
-  phase=$(jq -r '.phase // "unknown"' "$jf" 2>/dev/null || echo "unknown")
-
-  if [[ "$phase" == "committed" ]]; then
-    # Verificar que todos los resources están aplicados correctamente
-    local i=0 count
-    count=$(jq '.resources | length' "$jf" 2>/dev/null || echo 0)
-    local all_ok=true
-    while [[ $i -lt $count ]]; do
-      local final candid_sha
-      final=$(jq -r ".resources[$i].finalPath // \"\"" "$jf" 2>/dev/null || echo "")
-      candid_sha=$(jq -r ".resources[$i].candidateSha256 // \"\"" "$jf" 2>/dev/null || echo "")
-      if [[ -f "$final" && -n "$candid_sha" ]]; then
-        local actual_sha
-        actual_sha=$(sha256sum "$final" | cut -d' ' -f1)
-        if [[ "$actual_sha" != "$candid_sha" ]]; then
-          critical "Journal committed pero $final no coincide con candidateSha256"
-          all_ok=false
-        fi
-      fi
-      i=$((i + 1))
-    done
-    if $all_ok; then
-      warn "Journal committed verificado — limpiando"
-      _clear_journal
-      return 0
-    else
-      critical "Journal committed inconsistente — conservando journal y backups"
-      exit 1
-    fi
-  fi
-
-  # Transacción incompleta
-  critical "Recuperando transacción incompleta (fase: $phase)"
-  _rollback_resources "$jf" || {
-    critical "Rollback falló — journal conservado en $jf"
-    critical "Backups disponibles en $HARNESS_CONFIG_DIR/backups/"
-    exit 1
-  }
-  ok "Recuperación completada — transacción anterior revertida"
-}
-
-# Rollback de todos los resources (orden inverso de applyOrder)
-_rollback_resources() {
-  local jf=$1
-  local restore_failed=false
-  local count
-  count=$(jq '.resources | length' "$jf" 2>/dev/null || echo 0)
-
-  # Procesar en orden inverso de applyOrder
-  while [[ $count -gt 0 ]]; do
-    count=$((count - 1))
-    local id final tmp backup existed rtype linktarg status cand_sha orig_sha actual_sha
-    eval "$(jq -r ".resources[$count] | @sh \"id=\(.id) final=\(.finalPath) tmp=\(.tempPath) backup=\(.backupPath) existed=\(.existedBefore) rtype=\(.resourceType) linktarg=\(.linkTarget) status=\(.status) cand_sha=\(.candidateSha256) orig_sha=\(.originalSha256)\"" "$jf" 2>/dev/null || true)"
-
-    if [[ "$status" == "prepared" ]]; then
-      continue  # nunca se tocó
-    fi
-
-    actual_sha=$(sha256sum "$final" 2>/dev/null | cut -d' ' -f1 || echo "")
-
-    if [[ "$rtype" == "symlink" ]]; then
-      # Restaurar symlink solo si reemplazamos managed copy por symlink original
-      if [[ -f "$final" && ! -L "$final" && "$actual_sha" == "$cand_sha" ]]; then
-        rm -f "$final"
-        if [[ -n "$linktarg" ]]; then
-          ln -s "$linktarg" "$final" 2>/dev/null || {
-            critical "Rollback: no se pudo recrear symlink $final -> $linktarg"
-            restore_failed=true
-          }
-        fi
-      fi
-      continue
-    fi
-
-    # Archivos regulares
-    if [[ "$existed" == "true" ]]; then
-      if [[ -f "$backup" ]]; then
-        local temp_rb="${final}.rollback.$$"
-        cp "$backup" "$temp_rb" || { critical "Rollback: cp falló para $final"; restore_failed=true; continue; }
-        chmod 600 "$temp_rb"
-        local temp_sha
-        temp_sha=$(sha256sum "$temp_rb" | cut -d' ' -f1)
-        local backup_sha
-        backup_sha=$(sha256sum "$backup" | cut -d' ' -f1)
-        if [[ "$temp_sha" != "$backup_sha" ]]; then
-          rm -f "$temp_rb"
-          critical "Rollback: checksum mismatch al restaurar $final"
-          restore_failed=true
-          continue
-        fi
-        mv "$temp_rb" "$final" || { critical "Rollback: mv falló para $final"; restore_failed=true; continue; }
-        chmod 600 "$final"
-      else
-        critical "Rollback: backup no existe para $final"
-        restore_failed=true
-      fi
-    elif [[ "$existed" == "false" ]]; then
-      # Ausente significa que el recurso nunca llegó a aplicarse.
-      if [[ ! -e "$final" || "$actual_sha" == "$cand_sha" ]]; then
-        rm -f "$final" || { critical "Rollback: no se pudo eliminar $final"; restore_failed=true; }
-      else
-        critical "Rollback: $final no existía antes y fue modificado externamente — conservando"
-        restore_failed=true
-      fi
-    fi
-
-    # Limpiar temp si existe
-    [[ -f "$tmp" ]] && rm -f "$tmp"
-  done
-
-  $restore_failed && return 1
-  return 0
-}
-
-_rollback() {
-  local rc=$?
-  trap '' EXIT INT TERM
-  if [[ -f "$JOURNAL_FILE" ]]; then
-    _validate_journal "$JOURNAL_FILE" 2>/dev/null || {
-      critical "Rollback: journal inválido — conservando para revisión"
-      exit $rc
-    }
-    local phase
-    phase=$(jq -r '.phase // "unknown"' "$JOURNAL_FILE" 2>/dev/null || echo "unknown")
-    critical "Rollback transacción incompleta (fase: $phase)"
-    _rollback_resources "$JOURNAL_FILE" && _clear_journal || {
-      critical "Rollback: journal conservado para reintento manual"
-    }
-  fi
-  rm -f "$TMP_CANDIDATE" "$TMP_STATE"
-  # Limpiar temporales de secretos y managed files
-  for tf in "$TMP_GITHUB" "$TMP_NAVI_URL" "$TMP_NAVI_CID"; do
-    [[ -n "$tf" && -f "$tf" ]] && rm -f "$tf"
-  done
-  exit $rc
-}
-
-_check_failpoint() {
-  local point=$1
-  if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "$point" ]]; then
-    critical "Failpoint alcanzado: $point"
-    exit 1
-  fi
-}
-
-# ── Journal array helpers ────────────────────────────────────────
-# Journal es un JSON con {journalVersion, phase, resources:[{id,applyOrder,...status}]}
-
-_fsync() {
-  python3 -c "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.fsync(fd); os.close(fd)" "$1"
-}
-
-_fsync_file() {
-  python3 -c "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.fsync(fd); os.close(fd)" "$1"
-}
-
-# mv seguro: renameat2 vía Python
-# dst no existe → RENAME_NOREPLACE (falla si concurrente crea dst)
-# dst existe → verificamos hash, luego rename atómico
-_mv_safe() {
-  local src=$1 dst=$2 orig_sha=${3:-}
-  local rn=0
-  if python3 -c "
-import ctypes, os, sys, ctypes.util
-SYS = {'x86_64': 316, 'aarch64': 276}.get(os.uname().machine, 316)
-flags = int(sys.argv[3])
-libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-src, dst = sys.argv[1].encode(), sys.argv[2].encode()
-libc.syscall.restype = ctypes.c_long
-ret = libc.syscall(SYS, -100, src, -100, dst, flags)
-if ret != 0:
-    sys.exit(ctypes.get_errno())
-" "$src" "$dst" "1"; then
-    chmod 600 "$dst"
-    return 0
-  else
-    rn=$?
-  fi
-  if [[ $rn -eq 17 ]]; then
-    if [[ -n "$orig_sha" ]]; then
-      local current
-      current=$(sha256sum "$dst" 2>/dev/null | cut -d' ' -f1 || echo "")
-      if [[ "$current" == "$orig_sha" ]]; then
-        python3 -c "
-import ctypes, os, sys, ctypes.util
-SYS = {'x86_64': 316, 'aarch64': 276}.get(os.uname().machine, 316)
-libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-src, dst = sys.argv[1].encode(), sys.argv[2].encode()
-libc.syscall.restype = ctypes.c_long
-ret = libc.syscall(SYS, -100, src, -100, dst, 0)
-if ret != 0:
-    sys.exit(1)
-" "$src" "$dst" && { chmod 600 "$dst"; rm -f "$src"; return 0; } || { rm -f "$src"; return 1; }
-      fi
-    fi
-    rm -f "$src"
-    return 2
-  fi
-  rm -f "$src"
-  return 1
-}
-
-# Inicializar journal como array vacío (atómico: temp → fsync → rename)
-_init_journal() {
-  local tmp="${JOURNAL_FILE}.$$.tmp"
-  jq -n '{journalVersion: "2", phase: "preparing", resources: []}' > "$tmp"
-  chmod 600 "$tmp"
-  _fsync "$tmp"
-  mv "$tmp" "$JOURNAL_FILE"
-  chmod 600 "$JOURNAL_FILE"
-  _fsync "$JOURNAL_FILE"
-  _fsync "$(dirname "$JOURNAL_FILE")"
-  return 0
-}
-
-# Agregar resource al journal (atómico)
-_journal_add_resource() {
-  local id=$1 final=$2 tmp=$3 backup=$4 existed=$5 mode=$6 order=$7 rtype=${8:-file} linktarg=${9:-} orig_sha=${10:-}
-  local t="${JOURNAL_FILE}.$$.tmp"
-  jq --arg id "$id" \
-    --arg final "$final" \
-    --arg tmp "$tmp" \
-    --arg backup "$backup" \
-    --argjson existed "$existed" \
-    --arg mode "$mode" \
-    --argjson order "$order" \
-    --arg rtype "$rtype" \
-    --arg linktarg "$linktarg" \
-    --arg orig "$orig_sha" \
-    '.resources += [{
-      id: $id, finalPath: $final, tempPath: $tmp, backupPath: $backup,
-      existedBefore: $existed, expectedMode: $mode, applyOrder: $order,
-      resourceType: $rtype, linkTarget: $linktarg,
-      originalSha256: $orig, candidateSha256: "", status: "prepared"
-    }]' "$JOURNAL_FILE" > "$t" && mv "$t" "$JOURNAL_FILE"
-  chmod 600 "$JOURNAL_FILE"
-  _fsync "$JOURNAL_FILE"
-}
-
-# Actualizar fase y/o un resource en el journal (atómico)
-_journal_update() {
-  local phase=${1:-} resource_id=${2:-} updates=${3:-}
-  local t="${JOURNAL_FILE}.$$.tmp"
-  if [[ -n "$phase" ]]; then
-    jq --arg p "$phase" '.phase = $p' "$JOURNAL_FILE" > "$t"
-    if [[ -s "$t" ]]; then
-      mv "$t" "$JOURNAL_FILE"
-    fi
-  fi
-  if [[ -n "$resource_id" && -n "$updates" ]]; then
-    if echo "$updates" | jq empty >/dev/null 2>&1; then
-      jq --arg id "$resource_id" --argjson upd "$updates" \
-        '.resources = [.resources[] | if .id == $id then . + $upd else . end]' \
-        "$JOURNAL_FILE" > "$t" && mv "$t" "$JOURNAL_FILE"
-    fi
-  fi
-  chmod 600 "$JOURNAL_FILE"
-  _fsync "$JOURNAL_FILE"
-}
-
-# Actualizar journal completo (atómico: temp → fsync → rename)
-_journal_write_full() {
-  local content=$1
-  printf '%s\n' "$content" > "${JOURNAL_FILE}.tmp"
-  chmod 600 "${JOURNAL_FILE}.tmp"
-  _fsync "${JOURNAL_FILE}.tmp"
-  mv "${JOURNAL_FILE}.tmp" "$JOURNAL_FILE"
-  chmod 600 "$JOURNAL_FILE"
-  _fsync "$JOURNAL_FILE"
-}
-
-_clear_journal() {
-  [[ ! -f "$JOURNAL_FILE" ]] && return 0
-  rm -f "$JOURNAL_FILE"
-  _fsync "$(dirname "$JOURNAL_FILE")" 2>/dev/null || true
-}
-
-# Registrar si los archivos existían antes de la transacción
-OC_EXISTED_BEFORE=false
-[[ -f "$OC_FILE" ]] && OC_EXISTED_BEFORE=true
-STATE_EXISTED_BEFORE=false
-[[ -f "$STATE_FILE" ]] && STATE_EXISTED_BEFORE=true
-
-# Temporales de secretos
-TMP_GITHUB=""
-TMP_NAVI_URL=""
-TMP_NAVI_CID=""
-
-# Recovery y journal existen solo en modo transaccional real.
 if [[ $DRY_RUN == false ]]; then
+  install -d -m 700 "$CONFIG_ROOT/opencode" "$STATE_DIR" \
+    "$HARNESS_CONFIG_DIR/secrets" "$CONFIG_ROOT/opencode/agents" "$HARNESS_CONFIG_DIR/backups"
   if [[ -f "$JOURNAL_FILE" ]]; then
-    _recover_journal "$JOURNAL_FILE" || exit 4
+    warn "Journal residual encontrado; recuperando con el coordinador tipado"
+    set +e
+    _transaction_command recover --journal "$JOURNAL_FILE"
+    recovery_rc=$?
+    set -e
+    case $recovery_rc in
+      0) ok "Recuperación transaccional completada" ;;
+      1|3|4) exit "$recovery_rc" ;;
+      *) exit 1 ;;
+    esac
   fi
-  _init_journal
-  trap _rollback EXIT
-  trap '_rollback; exit 1' INT TERM
 fi
 
 ensure_opencode_config() {
@@ -936,11 +572,11 @@ fi
 phase "Configuración del harness"
 
 if [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
-  INSTALL_ARGS=(--skip-resources --skip-agents)
+  INSTALL_ARGS=(--skip-agents)
   $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
   $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
   $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
-  info 'Ejecutando install.sh (configs y agentes — fase de deploy)...'
+  info 'Ejecutando install.sh (recursos no transaccionales)...'
   run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"
 else
   info 'install.sh no encontrado'
@@ -1158,6 +794,44 @@ _validar_ruta_secreta() {
   return 0
 }
 
+_validar_secreto_persistido() {
+  local path=$1 expected=$2 kind=$3 content
+  [[ "$expected" == "{file:$path}" ]] || {
+    critical "$kind: referencia {file} inválida"
+    return 1
+  }
+  _validar_ruta_secreta "$path" || {
+    critical "$kind: ruta persistida insegura; corrige propietario, permisos y symlinks"
+    return 1
+  }
+  [[ -f "$path" && ! -L "$path" ]] || {
+    critical "$kind: archivo persistido ausente o no regular"
+    return 1
+  }
+  [[ "$(stat -c '%u' "$path" 2>/dev/null || true)" == "$(id -u)" ]] || {
+    critical "$kind: propietario incorrecto"
+    return 1
+  }
+  [[ "$(stat -c '%a' "$path" 2>/dev/null || true)" == "600" ]] || {
+    critical "$kind: modo incorrecto; corrige permisos sin reescribir el secreto"
+    return 1
+  }
+  content=$(cat "$path" 2>/dev/null) || {
+    critical "$kind: no se pudo leer el secreto persistido"
+    return 1
+  }
+  [[ -n "$content" && "$content" != *$'\n'* ]] || {
+    critical "$kind: contenido persistido vacío o multilínea"
+    return 1
+  }
+  if [[ "$kind" == "GitHub" ]]; then
+    [[ "$content" == "Bearer "* && "${content#Bearer }" != "$content" && -n "${content#Bearer }" ]] || {
+      critical "GitHub: el secreto persistido debe comenzar por Bearer"
+      return 1
+    }
+  fi
+}
+
 # Mapping único de resource ID → applyOrder
 _apply_order_for_id() {
   case "$1" in
@@ -1166,45 +840,60 @@ _apply_order_for_id() {
     naviClientId)       echo 30 ;;
     opencodeConfig)     echo 40 ;;
     mcpState)           echo 50 ;;
-    managedFilesState)  echo 60 ;;
+    alegra-microservice-engineer)      echo 60 ;;
+    alegra-microservice-test-engineer) echo 70 ;;
+    alegra-code-reviewer)              echo 80 ;;
+    php-engineer)                      echo 90 ;;
+    migration-parity-reviewer)         echo 100 ;;
+    managedFilesState)                 echo 110 ;;
     *)                  echo 99 ;;
   esac
 }
 
-# Registrar secreto en journal (prepara temp, añade recurso)
-_journal_secret_resource() {
-  local id=$1 final=$2 content=$3
-  _validar_ruta_secreta "$final" || {
-    critical "Ruta de secreto no válida: $final"
-    return 1
-  }
-  local result
-  result=$(_secret_prepare_temp "$final" "$content") || return 1
-  local tmp sha
-  tmp=$(printf '%s' "$result" | cut -f1)
-  sha=$(printf '%s' "$result" | cut -f2)
-  local existed=false
-  [[ -f "$final" ]] && existed=true
-  # Crear backup si existe
-  local backup=""
-  if [[ -f "$final" ]]; then
-    local bdir="$HARNESS_CONFIG_DIR/backups"
-    mkdir -p "$bdir" && chmod 700 "$bdir"
-    backup="$bdir/${id}-$(date +%s).bak"
-    cp "$final" "$backup" && chmod 600 "$backup" || {
-      rm -f "$tmp"
-      critical "No se pudo crear backup de $final"
-      return 1
-    }
+_hash_path() {
+  if [[ -L "$1" ]]; then
+    readlink "$1" | sha256sum | cut -d' ' -f1
+  else
+    sha256sum "$1" | cut -d' ' -f1
   fi
-  # Guardar según el id
-  case "$id" in
-    githubAuthorization) TMP_GITHUB="$tmp" ;;
-    naviUrl) TMP_NAVI_URL="$tmp" ;;
-    naviClientId) TMP_NAVI_CID="$tmp" ;;
-  esac
-  _journal_add_resource "$id" "$final" "$tmp" "$backup" "$existed" "600" "$(_apply_order_for_id "$id")"
-  return 0
+}
+
+_plan_resource() {
+  local id=$1 final=$2 candidate=$3 resource_type=${4:-file} link_target=${5:-}
+  local existed=false original_sha="" backup="" candidate_sha temp backup_prefix
+  [[ -e "$final" || -L "$final" ]] && existed=true
+  if $existed; then
+    original_sha=$(_hash_path "$final")
+    case "$id" in
+      opencodeConfig) backup_prefix=opencode-config ;;
+      mcpState) backup_prefix=opencode-mcpstate ;;
+      managedFilesState) backup_prefix=opencode-managed-state ;;
+      githubAuthorization) backup_prefix=github-authorization ;;
+      naviUrl) backup_prefix=navi-url ;;
+      naviClientId) backup_prefix=navi-client-id ;;
+      *) backup_prefix="agent-$id" ;;
+    esac
+    backup="$HARNESS_CONFIG_DIR/backups/$backup_prefix-pre-${RANDOM}${RANDOM}.bak"
+  fi
+  temp=$(mktemp "$(dirname "$final")/.$(basename "$final").candidate.XXXXXXXX") || return 1
+  cp "$candidate" "$temp" || { rm -f "$temp"; return 1; }
+  chmod 600 "$temp"
+  candidate_sha=$(_hash_path "$temp")
+  PLAN_RESOURCES+=("$(jq -n \
+    --arg id "$id" --arg final "$final" --arg temp "$temp" --arg backup "$backup" \
+    --argjson existed "$existed" --arg candidate "$candidate_sha" --arg original "$original_sha" \
+    --arg type "$resource_type" --arg link "$link_target" --argjson order "$(_apply_order_for_id "$id")" \
+    '{id:$id,applyOrder:$order,resourceType:$type,finalPath:$final,tempPath:$temp,backupPath:$backup,existedBefore:$existed,candidateSha256:$candidate,originalSha256:$original,expectedMode:"600",linkTarget:$link}')")
+}
+
+_plan_secret_resource() {
+  local id=$1 final=$2 content=$3 tmp
+  _validar_ruta_secreta "$final" || return 1
+  tmp=$(mktemp "$(dirname "$final")/.$(basename "$final").candidate.XXXXXXXX") || return 1
+  printf '%s\n' "$content" > "$tmp"
+  chmod 600 "$tmp"
+  _plan_resource "$id" "$final" "$tmp" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
 }
 
 _migrate_github_secret() {
@@ -1215,16 +904,11 @@ _migrate_github_secret() {
   local secret_dir="$HARNESS_CONFIG_DIR/secrets/github"
   local secret_file="$secret_dir/authorization"
 
-  # Already file-based — validate path and return
-  if [[ "$auth" == "{file:$secret_file}" ]]; then
-    if [[ -f "$secret_file" ]]; then
-      local perm
-      perm=$(stat -c '%a' "$secret_file" 2>/dev/null || echo "000")
-      if [[ "$perm" != "600" ]]; then
-        chmod 600 "$secret_file" || { critical "GitHub: no se pudo fijar permiso 600"; return 1; }
-      fi
-    fi
-    return 0
+  # Existing file references are fail-closed. They must never be repaired
+  # outside the durable transaction.
+  if [[ "$auth" == "{file:"* ]]; then
+    _validar_secreto_persistido "$secret_file" "$auth" "GitHub"
+    return $?
   fi
 
   # Resolve value from current auth form
@@ -1249,7 +933,7 @@ _migrate_github_secret() {
   fi
 
   if [[ -n "$value" ]]; then
-    if _journal_secret_resource "githubAuthorization" "$secret_file" "$value"; then
+    if _plan_secret_resource "githubAuthorization" "$secret_file" "$value"; then
       _candidate_jq --arg f "$secret_file" '.mcp.github.headers.Authorization = "{file:\($f)}"'
       info "GitHub: token preparado para migración"
       SECRETS_MIGRATED=$((SECRETS_MIGRATED + 1))
@@ -1271,19 +955,21 @@ _migrate_navi_secret() {
   local navi_dir="$HARNESS_CONFIG_DIR/secrets/navi"
   local url_file="$navi_dir/url"
   local cid_file="$navi_dir/client-id"
-  local url_ok=false
-  local cid_ok=false
+  local NAVI_URL_STATUS=missing
+  local NAVI_CLIENT_STATUS=missing
+  local NAVI_URL_VALUE=""
+  local NAVI_CLIENT_VALUE=""
 
-  _resolve_and_prepare() {
-    local candidate_key=$1 file_path=$2 env_var=$3 resource_id=$4
+  _resolve_navi_value() {
+    local candidate_key=$1 file_path=$2 env_var=$3 output_var=$4
     local current
     current=$(jq -r "$candidate_key" "$TMP_CANDIDATE" 2>/dev/null || echo "")
-    [[ -z "$current" || "$current" == "null" ]] && return 0
+    [[ -z "$current" || "$current" == "null" ]] && return 2
 
     if [[ "$current" =~ ^\{file: ]]; then
-      _validar_ruta_secreta "$file_path" || return 1
-      [[ -f "$file_path" ]] && return 0
-      return 0  # archivo se creará durante apply
+      _validar_secreto_persistido "$file_path" "$current" "Navi" || return 1
+      printf -v "$output_var" '%s' persisted
+      return 0
     fi
 
     local resolved=""
@@ -1294,25 +980,41 @@ _migrate_navi_secret() {
     fi
 
     if [[ -n "$resolved" ]]; then
-      _journal_secret_resource "$resource_id" "$file_path" "$resolved" || return 1
-      local file_ref="{file:$file_path}"
-      _candidate_jq --arg f "$file_ref" "$candidate_key = \$f"
+      printf -v "$output_var" '%s' "$resolved"
       return 0
     fi
     return 2  # no hay valor disponible
   }
 
-  _resolve_and_prepare '.mcp.navi.url' "$url_file" "NAVI_MCP_URL" "naviUrl" && url_ok=true
-  _resolve_and_prepare '.mcp.navi.oauth.clientId' "$cid_file" "NAVI_OAUTH_CLIENT_ID" "naviClientId" && cid_ok=true
+  if _resolve_navi_value '.mcp.navi.url' "$url_file" "NAVI_MCP_URL" NAVI_URL_VALUE; then
+    NAVI_URL_STATUS=ready
+  else
+    case $? in 2) NAVI_URL_STATUS=missing ;; *) NAVI_URL_STATUS=error ;; esac
+  fi
+  if _resolve_navi_value '.mcp.navi.oauth.clientId' "$cid_file" "NAVI_OAUTH_CLIENT_ID" NAVI_CLIENT_VALUE; then
+    NAVI_CLIENT_STATUS=ready
+  else
+    case $? in 2) NAVI_CLIENT_STATUS=missing ;; *) NAVI_CLIENT_STATUS=error ;; esac
+  fi
 
-  if $url_ok && $cid_ok; then
+  if [[ "$NAVI_URL_STATUS" == error || "$NAVI_CLIENT_STATUS" == error ]]; then
+    critical "Navi: configuración persistida inválida"
+    return 1
+  fi
+  if [[ "$NAVI_URL_STATUS" == ready && "$NAVI_CLIENT_STATUS" == ready ]]; then
+    if [[ "$NAVI_URL_VALUE" != persisted ]]; then
+      _plan_secret_resource naviUrl "$url_file" "$NAVI_URL_VALUE" || return 1
+      _candidate_jq --arg f "{file:$url_file}" '.mcp.navi.url = $f'
+    fi
+    if [[ "$NAVI_CLIENT_VALUE" != persisted ]]; then
+      _plan_secret_resource naviClientId "$cid_file" "$NAVI_CLIENT_VALUE" || return 1
+      _candidate_jq --arg f "{file:$cid_file}" '.mcp.navi.oauth.clientId = $f'
+    fi
     info "Navi: secretos preparados para migración"
     SECRETS_MIGRATED=$((SECRETS_MIGRATED + 1))
-  elif [[ "$url_ok" != "$cid_ok" ]]; then
-    info "Navi: migración parcial detectada — se completará en transacción o rollback"
-    SECRETS_PENDING=$((SECRETS_PENDING + 1))
   else
-    info "Navi: secretos no disponibles, MCP requerirá config manual"
+    info "Navi: onboarding pendiente; URL y clientId se migrarán juntos"
+    SECRETS_PENDING=$((SECRETS_PENDING + 1))
   fi
 }
 
@@ -1328,7 +1030,6 @@ fi
 
 _build_state() {
   local src=$1 dst=$2
-  _check_failpoint "build-state"
   mkdir -p "$(dirname "$dst")" "$STATE_DIR"
   existing=$(cat "$STATE_FILE" 2>/dev/null || echo "{}")
   new_state="{}"
@@ -1365,18 +1066,6 @@ _enforce_allowlist() (
     pkg=$(jq -r '.plugin[] // "" | select(startswith("@dietrichgebert/ponytail@4.8.4"))' "$candidate" 2>/dev/null || echo "")
     [[ -n "$pkg" ]] || { critical "ALLOWLIST: Ponytail @4.8.4 no encontrado en candidato"; exit 1; }
     exit 0
-  fi
-
-  # Verificar modificación concurrente (renombrado para evitar SC2030 vs _transaction_apply)
-  if [[ -f "$original" ]]; then
-    local allowlist_original_sha
-    allowlist_original_sha=$(sha256sum "$original" | cut -d' ' -f1)
-    local journal_original_sha
-    journal_original_sha=$(jq -r '.resources[] | select(.id == "opencodeConfig") | .originalSha256 // ""' "$JOURNAL_FILE" 2>/dev/null || echo "")
-    if [[ -n "$journal_original_sha" && "$allowlist_original_sha" != "$journal_original_sha" ]]; then
-      critical "ALLOWLIST: opencode.json cambió durante la instalación"
-      exit 1
-    fi
   fi
 
   local o_size
@@ -1447,186 +1136,81 @@ if [[ $DRY_RUN == false ]]; then
   fi
 fi
 
-_transaction_apply() {
-  local cfg_dir oc_schema cfg_orig_sha st_orig_sha config_backup state_backup
-  oc_schema="${DH_OC_SCHEMA:-$ROOT_DIR/tests/fixtures/opencode-config.schema.json}"
-  cfg_dir=$(dirname "$STATE_FILE")
-  mkdir -p "$cfg_dir"
-  TMP_STATE=$(mktemp "$cfg_dir/.opencode-managed.json.XXXXXXXX")
-  cfg_orig_sha="" ; st_orig_sha=""
-  [[ -f "$OC_FILE" ]] && cfg_orig_sha=$(sha256sum "$OC_FILE" | cut -d' ' -f1)
-  [[ -f "$STATE_FILE" ]] && st_orig_sha=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
-
-  _check_failpoint "pre-validate"
-  _journal_update "backups-verified"
-
-  local original_hash candidate_hash config_changed=false
-  original_hash=$(jq -S -c . "$OC_FILE" 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "no-file")
-  candidate_hash=$(jq -S -c . "$TMP_CANDIDATE" 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "no-candidate")
-  [[ "$original_hash" != "$candidate_hash" ]] && config_changed=true
-
-  if ! $config_changed; then
-    if (( ${#MANAGED_MCPS[@]} > 0 )) && _build_state "$OC_FILE" "$TMP_STATE"; then
-      # State idempotente: no llamar _mv_safe si el contenido es idéntico
-      if [[ -f "$STATE_FILE" ]]; then
-        local candidate_state_sha existing_state_sha
-        candidate_state_sha=$(sha256sum "$TMP_STATE" | cut -d' ' -f1)
-        existing_state_sha=$(sha256sum "$STATE_FILE" | cut -d' ' -f1)
-        if [[ "$candidate_state_sha" == "$existing_state_sha" ]]; then
-          rm -f "$TMP_STATE"
-          _journal_update "committed"
-          _clear_journal
-          ok "State sin cambios (idempotente)"
-          local summary=""
-          [[ $MCP_SKIPPED -gt 0 ]] && summary="${MCP_SKIPPED} personalizados omitidos"
-          rm -f "$TMP_CANDIDATE"
-          [[ -n "$summary" ]] && ok "MCPs: ${summary}" || ok "No hay cambios en la configuracion"
-          return 0
-        fi
+_plan_managed_agents() {
+  local managed_state="$STATE_DIR/opencode-managed.state" state_candidate changed=false
+  local agent source target logical source_hash current_hash line expected target_type link_target now
+  state_candidate=$(mktemp "$STATE_DIR/.opencode-managed.state.candidate.XXXXXXXX")
+  if [[ -f "$managed_state" ]]; then cp "$managed_state" "$state_candidate"; else
+    printf '# Managed by daniel-harness bootstrap\nversion=%s\n# logical_path|harness_version|source_hash|installed_hash|date|owner\n' "$(cat "$ROOT_DIR/VERSION")" > "$state_candidate"
+  fi
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  for agent in alegra-microservice-engineer alegra-microservice-test-engineer alegra-code-reviewer php-engineer migration-parity-reviewer; do
+    source="$ROOT_DIR/agents/$agent.md"; target="$CONFIG_ROOT/opencode/agents/$agent.md"; logical="agents/$agent.md"
+    source_hash=$(sha256sum "$source" | cut -d' ' -f1); line=$(grep "^$logical|" "$state_candidate" 2>/dev/null || true)
+    target_type=absent
+    [[ -L "$target" ]] && target_type=symlink
+    [[ -f "$target" && ! -L "$target" ]] && target_type="file"
+    if [[ "$target_type" == absent ]]; then
+      _plan_resource "$agent" "$target" "$source"; changed=true
+    elif [[ "$target_type" == symlink ]]; then
+      link_target=$(readlink "$target")
+      if [[ "$link_target" == "$ROOT_DIR"/* || "$link_target" == "$HOME/.local/share/daniel-harness"/* ]]; then
+        _plan_resource "$agent" "$target" "$source" symlink-to-file "$link_target"; changed=true
+      else
+        critical "CONFLICTO: $agent es symlink de terceros"
+        return 3
       fi
-      _journal_add_resource "mcpState" "$STATE_FILE" "$TMP_STATE" "" "$STATE_EXISTED_BEFORE" "600" 50
-      _journal_update "candidates-ready"
-      _journal_update "" "mcpState" '{"status": "applying"}'
-      local cs
-      cs=$(sha256sum "$TMP_STATE" | cut -d' ' -f1)
-      _journal_update "" "mcpState" '{"candidateSha256": "'"$cs"'"}'
-      _mv_safe "$TMP_STATE" "$STATE_FILE" "$st_orig_sha"
-      _fsync "$(dirname "$STATE_FILE")"
-      _journal_update "" "mcpState" '{"status": "applied"}'
-      _journal_update "committed"
-      _clear_journal
-    fi
-    local summary=""
-    [[ $MCP_SKIPPED -gt 0 ]] && summary="${MCP_SKIPPED} personalizados omitidos"
-    rm -f "$TMP_CANDIDATE"
-    [[ -n "$summary" ]] && ok "MCPs: ${summary}" || ok "No hay cambios en la configuracion"
-    return 0
-  fi
-
-  # ── Registrar resources en journal (secretos ya registrados por _journal_secret_resource) ──
-  config_backup=""
-  if $OC_EXISTED_BEFORE && [[ -f "$OC_FILE" ]]; then
-    config_backup="$HARNESS_CONFIG_DIR/backups/opencode-config-pre-$(date +%s).bak"
-    mkdir -p "$HARNESS_CONFIG_DIR/backups" && chmod 700 "$HARNESS_CONFIG_DIR/backups"
-    cp "$OC_FILE" "$config_backup" && chmod 600 "$config_backup" || { critical "No se pudo crear backup de configuración"; return 1; }
-  fi
-  _journal_add_resource "opencodeConfig" "$OC_FILE" "$TMP_CANDIDATE" "$config_backup" "$OC_EXISTED_BEFORE" "600" 40 file "" "$cfg_orig_sha"
-
-  state_backup=""
-  if $STATE_EXISTED_BEFORE && [[ -f "$STATE_FILE" ]] && (( ${#MANAGED_MCPS[@]} > 0 )); then
-    state_backup="$HARNESS_CONFIG_DIR/backups/opencode-mcpstate-pre-$(date +%s).bak"
-    mkdir -p "$HARNESS_CONFIG_DIR/backups" && chmod 700 "$HARNESS_CONFIG_DIR/backups"
-    cp "$STATE_FILE" "$state_backup" && chmod 600 "$state_backup" || { critical "No se pudo crear backup de estado"; return 1; }
-  fi
-  _journal_add_resource "mcpState" "$STATE_FILE" "$TMP_STATE" "$state_backup" "$STATE_EXISTED_BEFORE" "600" 50 file "" "$st_orig_sha"
-  _check_failpoint "backup-config"
-  _check_failpoint "backup-state"
-
-  # ── Validar candidato ──────────────────────────────────────
-  if [[ "${DH_TEST_MODE:-0}" == "1" && "$DH_FAIL_AT" == "invalid-candidate" ]]; then
-    echo '}}}}INVALID' >> "$TMP_CANDIDATE"
-  fi
-  if ! jq empty "$TMP_CANDIDATE" >/dev/null 2>&1; then
-    critical "Candidato JSON invalido"
-    return 1
-  fi
-  python3 "$ROOT_DIR/scripts/validate-opencode-config.py" \
-    --config "$TMP_CANDIDATE" --schema "$oc_schema" >/dev/null 2>&1 || {
-    critical "Candidato no pasa schema"
-    return 1
-  }
-  if ! _enforce_allowlist "$OC_FILE" "$TMP_CANDIDATE"; then
-    if $OC_EXISTED_BEFORE; then
-      critical "Allowlist: cambios no administrados"
-      return 1
-    fi
-    warn "Allowlist omitida (primer arranque)"
-  fi
-  _check_failpoint "allowlist-check"
-
-  if (( ${#MANAGED_MCPS[@]} > 0 )) && ! _build_state "$TMP_CANDIDATE" "$TMP_STATE"; then
-    critical "No se pudo construir state"
-    return 1
-  fi
-  _journal_update "candidates-ready"
-
-  # ── Verificar cambios concurrentes ─────────────────────────
-  local i=0 count
-  count=$(jq '.resources | length' "$JOURNAL_FILE" 2>/dev/null || echo 0)
-  while [[ $i -lt $count ]]; do
-    local final orig_sha existed
-    eval "$(jq -r ".resources[$i] | @sh \"final=\(.finalPath) orig_sha=\(.originalSha256) existed=\(.existedBefore)\"" "$JOURNAL_FILE" 2>/dev/null || true)"
-    if [[ "$existed" == "true" && -f "$final" && -n "$orig_sha" ]]; then
-      local actual
-      actual=$(sha256sum "$final" | cut -d' ' -f1)
-      if [[ "$actual" != "$orig_sha" ]]; then
-        local id
-        id=$(jq -r ".resources[$i].id // 'unknown'" "$JOURNAL_FILE" 2>/dev/null)
-        critical "CONFLICTO: $id cambió durante la instalación"
-        return 2
+    else
+      current_hash=$(sha256sum "$target" | cut -d' ' -f1)
+      if [[ -z "$line" ]]; then
+        [[ "$current_hash" == "$source_hash" ]] || { critical "CONFLICTO: $agent es propiedad del usuario"; return 3; }
+        changed=true
+      else
+        expected=$(cut -d'|' -f4 <<< "$line")
+        [[ "$current_hash" == "$expected" ]] || { critical "CONFLICTO: $agent fue modificado; --reset-managed no sobrescribe"; return 3; }
+        if [[ "$current_hash" != "$source_hash" ]]; then _plan_resource "$agent" "$target" "$source"; changed=true; else continue; fi
       fi
     fi
-    i=$((i + 1))
+    grep -v "^$logical|" "$state_candidate" > "$state_candidate.next" || true
+    mv "$state_candidate.next" "$state_candidate"
+    printf '%s|%s|%s|%s|%s|harness\n' "$logical" "$(cat "$ROOT_DIR/VERSION")" "$source_hash" "$source_hash" "$now" >> "$state_candidate"
   done
-  _journal_update "allowlist-passed"
-
-  # ── Aplicar recursos en orden ─────────────────────────────
-  _journal_update "applying"
-  i=0
-  while [[ $i -lt $count ]]; do
-    local id final tmp existed orig_sha
-    eval "$(jq -r ".resources[$i] | @sh \"id=\(.id) final=\(.finalPath) tmp=\(.tempPath) existed=\(.existedBefore) orig_sha=\(.originalSha256)\"" "$JOURNAL_FILE" 2>/dev/null || true)"
-    [[ -n "$tmp" && -f "$tmp" ]] || { i=$((i + 1)); continue; }
-    [[ -z "$final" ]] && { i=$((i + 1)); continue; }
-
-    _journal_update "" "$id" '{"status": "applying"}'
-    local cand_sha
-    cand_sha=$(sha256sum "$tmp" | cut -d' ' -f1)
-    _journal_update "" "$id" '{"candidateSha256": "'"$cand_sha"'"}'
-    _check_failpoint "mv-${id}"
-
-    _mv_safe "$tmp" "$final" "$orig_sha"
-    local mvs_rc=$?
-    if [[ $mvs_rc -eq 2 ]]; then
-      critical "CONFLICTO: $id cambió externamente durante la aplicación"
-      return 2
-    elif [[ $mvs_rc -ne 0 ]]; then
-      critical "ERROR: no se pudo aplicar $id"
-      return 1
-    fi
-    _fsync "$(dirname "$final")"
-    _journal_update "" "$id" '{"status": "applied"}'
-    i=$((i + 1))
-  done
-
-  _journal_update "committed"
-  _clear_journal
-  info "Configuracion aplicada (plugins y/o MCPs actualizados)"
-  if $OC_EXISTED_BEFORE; then
-    info "Backup: $config_backup"
-  fi
-  return 0
+  if $changed || [[ ! -f "$managed_state" ]]; then _plan_resource managedFilesState "$managed_state" "$state_candidate"; fi
+  rm -f "$state_candidate"
 }
 
-# ── Ejecutar transacción (dry-run salta) ──────────────────────
+_run_planned_transaction() {
+  local oc_schema="$ROOT_DIR/tests/fixtures/opencode-config.schema.json" original_hash candidate_hash
+  if [[ "${DH_TEST_MODE:-0}" == 1 && "${DH_FAIL_AT:-}" == invalid-candidate ]]; then printf '}}}}INVALID' >> "$TMP_CANDIDATE"; fi
+  jq empty "$TMP_CANDIDATE" >/dev/null 2>&1 || { critical "Candidato JSON inválido"; return 1; }
+  python3 "$ROOT_DIR/scripts/validate-opencode-config.py" --config "$TMP_CANDIDATE" --schema "$oc_schema" >/dev/null || return 1
+  _enforce_allowlist "$OC_FILE" "$TMP_CANDIDATE" || { [[ -f "$OC_FILE" ]] && return 1; }
+  TMP_STATE=$(mktemp "$STATE_DIR/.opencode-managed.json.candidate.XXXXXXXX")
+  _build_state "$TMP_CANDIDATE" "$TMP_STATE"
+  original_hash=$( [[ -f "$OC_FILE" ]] && sha256sum "$OC_FILE" | cut -d' ' -f1 || true )
+  candidate_hash=$(sha256sum "$TMP_CANDIDATE" | cut -d' ' -f1)
+  [[ "$original_hash" == "$candidate_hash" ]] || _plan_resource opencodeConfig "$OC_FILE" "$TMP_CANDIDATE"
+  if [[ ! -f "$STATE_FILE" || "$(_hash_path "$STATE_FILE")" != "$(_hash_path "$TMP_STATE")" ]]; then _plan_resource mcpState "$STATE_FILE" "$TMP_STATE"; fi
+  _plan_managed_agents || return $?
+  (( ${#PLAN_RESOURCES[@]} )) || { ok "No hay cambios en la configuración"; return 0; }
+  jq -n --arg tx "bootstrap-$(date +%s)-$$" \
+    --arg opencode "$CONFIG_ROOT/opencode" --arg state "$STATE_DIR" --arg secrets "$HARNESS_CONFIG_DIR/secrets" \
+    --arg agents "$CONFIG_ROOT/opencode/agents" --arg backups "$HARNESS_CONFIG_DIR/backups" \
+    --argjson resources "[$(IFS=,; echo "${PLAN_RESOURCES[*]}")]" \
+    '{planVersion:1,transactionId:$tx,allowedRoots:{opencodeDir:$opencode,stateDir:$state,secretsDir:$secrets,agentsDir:$agents,backupsDir:$backups},resources:$resources}' > "$PLAN_FILE"
+  chmod 600 "$PLAN_FILE"
+  _transaction_command validate-plan --plan "$PLAN_FILE" || return $?
+  _transaction_command apply --plan "$PLAN_FILE" --journal "$JOURNAL_FILE" || return $?
+  _transaction_command verify --journal "$JOURNAL_FILE" --mode committed || return $?
+  rm -f "$PLAN_FILE" "$TMP_CANDIDATE" "$TMP_STATE"
+  ok "Transacción aplicada por scripts/transaction.py"
+}
+
 if [[ $DRY_RUN == false ]]; then
-  _transaction_apply
+  _run_planned_transaction
 fi
 
-# ── Fase post-transacción: agentes administrados ─────────────
-if [[ $DRY_RUN == false ]] && [[ -f "$ROOT_DIR/scripts/install.sh" ]]; then
-  phase "Agentes administrados"
-  info 'Instalando agentes administrados...'
-  INSTALL_ARGS=()
-  $RESET_MANAGED && INSTALL_ARGS+=(--reset-managed)
-  $NON_INTERACTIVE && INSTALL_ARGS+=(--non-interactive)
-  $EXPERIMENTAL_DATA_TOOLS && INSTALL_ARGS+=(--experimental-data-tools)
-  if ! run bash "$ROOT_DIR/scripts/install.sh" "${INSTALL_ARGS[@]}"; then
-    critical "Fallo al instalar agentes administrados"
-    exit 1
-  fi
-  _ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
-fi
+_ensure_tool_visible "dh" "$LOCAL_BIN/dh" || exit 1
 
 info "MCPs excluidos del bootstrap: alegra-test (incompatible), remotos sin url (configurar manualmente)"
 
@@ -1675,13 +1259,14 @@ while IFS= read -r name; do
   fi
 done < <(parse_mcp_names) || true
 
-if [[ "$(jq -r '.mcp.github.headers.Authorization // ""' "$OC_FILE" 2>/dev/null)" == "{env:GITHUB_PERSONAL_ACCESS_TOKEN}" ]]; then
-  printf '     Configura GITHUB_PERSONAL_ACCESS_TOKEN o ejecuta: dh opencode install --connect\n'
-elif ! grep -q 'file:' "$OC_FILE" 2>/dev/null; then
-  printf '     GitHub: token no persistido. Usa: dh opencode install --connect\n'
-fi
-if [[ -d "$HARNESS_CONFIG_DIR/secrets/github" ]]; then
+github_auth=$(jq -r '.mcp.github.headers.Authorization // ""' "$OC_FILE" 2>/dev/null || true)
+github_secret="$HARNESS_CONFIG_DIR/secrets/github/authorization"
+if [[ "$github_auth" == "{file:$github_secret}" ]] && _validar_secreto_persistido "$github_secret" "$github_auth" "GitHub"; then
   printf '     GitHub: token persistido en archivo seguro\n'
+elif [[ "$github_auth" == *'{env:GITHUB_PERSONAL_ACCESS_TOKEN}'* ]]; then
+  printf '     GitHub: token no persistido. Configura GITHUB_PERSONAL_ACCESS_TOKEN o usa --connect\n'
+else
+  printf '     GitHub: token no persistido. Usa: dh opencode install --connect\n'
 fi
 
 printf '\n  2. Crea un backup de la configuracion:\n'

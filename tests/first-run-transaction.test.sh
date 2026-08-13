@@ -111,17 +111,8 @@ _run_first_run() {
   fi
 }
 
-echo "=== Test 1: backup-config ==="
-_run_first_run "t1" "DH_TEST_MODE=1" "DH_FAIL_AT=backup-config"
-
-echo "=== Test 2: allowlist-check ==="
-_run_first_run "t2" "DH_TEST_MODE=1" "DH_FAIL_AT=allowlist-check"
-
-echo "=== Test 3: mv-opencodeConfig ==="
-_run_first_run "t3" "DH_TEST_MODE=1" "DH_FAIL_AT=mv-opencodeConfig"
-
-echo "=== Test 4: mv-mcpState ==="
-_run_first_run "t4" "DH_TEST_MODE=1" "DH_FAIL_AT=mv-mcpState"
+echo "=== Test 1: coordinator before apply ==="
+_run_first_run "t1" "DH_TEST_MODE=1" "DH_FAIL_AT=before-apply-opencodeConfig"
 
 echo "=== Recovery: siguiente bootstrap se recupera correctamente ==="
 set +e
