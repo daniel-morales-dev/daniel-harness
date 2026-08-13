@@ -298,15 +298,54 @@ install_tool_if_in_profile() {
 
 source "$ROOT_DIR/scripts/lib/tool-path.sh"
 
+_parse_opencode_version() {
+  local raw=$1
+  if [[ "$raw" =~ (^|[^[:alnum:].-])v?([0-9]+)\.([0-9]+)\.([0-9]+)([-+][0-9A-Za-z.-]+)?($|[^[:alnum:].-]) ]]; then
+    printf '%s.%s.%s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}"
+  fi
+}
+
+_opencode_version_at_least() {
+  local current=$1 minimum=$2
+  local current_major current_minor current_patch minimum_major minimum_minor minimum_patch
+  IFS=. read -r current_major current_minor current_patch <<< "$current"
+  IFS=. read -r minimum_major minimum_minor minimum_patch <<< "$minimum"
+  (( 10#$current_major > 10#$minimum_major )) ||
+    (( 10#$current_major == 10#$minimum_major && 10#$current_minor > 10#$minimum_minor )) ||
+    (( 10#$current_major == 10#$minimum_major && 10#$current_minor == 10#$minimum_minor && 10#$current_patch >= 10#$minimum_patch ))
+}
+
+_require_opencode_capability() {
+  local label=$1
+  shift
+  "$@" >/dev/null 2>&1 || {
+    critical "OpenCode no soporta $label"
+    return 1
+  }
+}
+
+_validate_opencode_compatibility() {
+  local raw_version minimum_version current_version
+  raw_version=$(opencode --version 2>/dev/null || true)
+  current_version=$(_parse_opencode_version "$raw_version")
+  minimum_version=$(parse_nested_value "compatibility" "opencode" "minimumTestedVersion")
+  if [[ -z "$current_version" || -z "$minimum_version" ]] || ! _opencode_version_at_least "$current_version" "$minimum_version"; then
+    critical "OpenCode no cumple la versión mínima probada"
+    return 1
+  fi
+  _require_opencode_capability "agent list" opencode agent list --help || return 1
+  _require_opencode_capability "MCP" opencode mcp --help || return 1
+  _require_opencode_capability "MCP debug" opencode mcp debug --help || return 1
+  _require_opencode_capability "MCP auth" opencode mcp auth --help || return 1
+  _require_opencode_capability "debug config" opencode debug config --help || return 1
+  ok "OpenCode v$current_version compatible (mínimo probado: $minimum_version)"
+}
+
 install_tool_if_in_profile "opencode"  "OpenCode"  "command -v opencode"  "curl -fsSL https://opencode.ai/install | bash"
 _ensure_tool_visible "opencode" "$HOME/.opencode/bin/opencode" || exit 1
 
-# Version check: capability-based validation
 if [[ $DRY_RUN == false ]] && command -v opencode >/dev/null 2>&1; then
-  _oc_version=$(opencode --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "0.0.0")
-  ok "OpenCode v$_oc_version"
-  opencode agent list >/dev/null 2>&1 || { critical "opencode agent list falló"; exit 1; }
-  ok "Capacidad: opencode agent list verificada"
+  _validate_opencode_compatibility || exit 1
 else
   info "OpenCode version check omitido (dry-run o no instalado aun)"
 fi
@@ -917,7 +956,8 @@ if command -v gentle-ai >/dev/null 2>&1; then
     if gentle-ai skill-registry refresh --force >/dev/null 2>&1; then
       ok "Gentle AI skill-registry actualizado"
     else
-      warn "gentle-ai skill-registry refresh falló — ejecuta manual: gentle-ai skill-registry refresh --force"
+      critical "gentle-ai skill-registry refresh falló"
+      exit 1
     fi
 
     if gentle-ai sync >/dev/null 2>&1; then
@@ -927,10 +967,11 @@ if command -v gentle-ai >/dev/null 2>&1; then
       exit 1
     fi
 
-    if gentle-ai doctor 2>/dev/null | grep -q "healthy"; then
+    if gentle-ai doctor 2>/dev/null | grep -Fq "Status:  healthy"; then
       ok "Gentle AI saludable"
     else
-      warn "gentle-ai doctor no reporta healthy"
+      critical "gentle-ai doctor no reporta estado healthy"
+      exit 1
     fi
   else
     info "[simulado] gentle-ai, sync, doctor"

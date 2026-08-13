@@ -165,6 +165,8 @@ jobs:
         run: bash tests/installer-first-run.test.sh
       - name: Install exit codes
         run: bash tests/install-exit-codes.test.sh
+      - name: OpenCode compatibility
+        run: bash tests/opencode-compatibility.test.sh
       - name: Doctor MCP status
         run: bash tests/doctor-mcp-status.test.sh
       - name: Plugin reconciliation

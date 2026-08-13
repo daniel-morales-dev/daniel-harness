@@ -37,7 +37,7 @@ cat > "$STUBS/opencode" <<'OPENCODE'
 case "$1" in
   agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
   mcp) if [[ "$2" == "debug" ]]; then echo "connected"; exit 0; fi ;;
-  --version) echo "opencode 0.1.0"; exit 0 ;;
+  --version) echo "opencode 1.18.18"; exit 0 ;;
 esac
 exit 0
 OPENCODE
