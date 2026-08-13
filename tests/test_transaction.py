@@ -333,35 +333,46 @@ def test_apply_conflict_preserves_changed_original(workspace):
     assert not journal.exists()
 
 
-def test_cas_verification_failure_reverses_exchange(workspace, monkeypatch):
+def test_apply_conflict_preserves_third_party_symlink(workspace):
+    base, roots = workspace
+    resource = make_resource(roots, original=b"old", candidate=b"new")
+    plan, _ = write_plan(base, roots, [resource])
+    final = Path(resource["finalPath"])
+    final.unlink()
+    final.symlink_to("../third-party-managed-file")
+    journal = journal_path(base)
+
+    assert transaction.main(["apply", "--plan", str(plan), "--journal", str(journal)]) == 3
+    assert os.readlink(final) == "../third-party-managed-file"
+    assert not journal.exists()
+
+
+def test_cas_concurrent_write_preserves_external_state(workspace, monkeypatch):
     _base, roots = workspace
     raw = make_resource(roots, original=b"old", candidate=b"new")
     typed_roots = transaction._parse_roots(roots_json(roots))
     resource = transaction._parse_resource(raw, typed_roots, "resource", journal=False)
-    real_rename = transaction._renameat2
-    calls = []
-    checks = 0
+    real_fsync_directory = transaction._fsync_directory
+    injected = False
 
-    def record_rename(source, destination, flags):
-        calls.append(flags)
-        real_rename(source, destination, flags)
+    def write_during_exchange(path):
+        nonlocal injected
+        real_fsync_directory(path)
+        if not injected and path == resource.final_path.parent:
+            injected = True
+            write_file(resource.final_path, b"external")
 
-    def candidate_check(state):
-        nonlocal checks
-        checks += 1
-        return checks > 1 and transaction._matches_candidate(resource, state)
-
-    monkeypatch.setattr(transaction, "_renameat2", record_rename)
-    with pytest.raises(transaction.ManagedConflict):
+    monkeypatch.setattr(transaction, "_fsync_directory", write_during_exchange)
+    with pytest.raises(transaction.IncompleteRecovery):
         transaction._exchange_checked(
             resource.temp_path,
             resource.final_path,
-            candidate_check,
+            lambda state: transaction._matches_candidate(resource, state),
             lambda state: transaction._matches_original(resource, state),
         )
-    assert calls == [transaction.RENAME_EXCHANGE, transaction.RENAME_EXCHANGE]
-    assert Path(raw["finalPath"]).read_bytes() == b"old"
-    assert Path(raw["tempPath"]).read_bytes() == b"new"
+
+    assert Path(raw["finalPath"]).read_bytes() == b"external"
+    assert Path(raw["tempPath"]).read_bytes() == b"old"
 
 
 def test_apply_and_rollback_orders(workspace, monkeypatch):
@@ -418,6 +429,22 @@ def test_recovery_preserves_unknown_external_changes(workspace, phase):
     write_file(Path(resource["finalPath"]), b"external")
     assert transaction.main(["recover", "--journal", str(journal)]) == 4
     assert Path(resource["finalPath"]).read_bytes() == b"external"
+    assert journal.exists()
+
+
+def test_recovery_preserves_third_party_symlink(workspace):
+    base, roots = workspace
+    resource = make_resource(roots, original=b"old", candidate=b"new")
+    plan, _ = write_plan(base, roots, [resource])
+    journal = journal_path(base)
+    transaction.apply_plan(plan, journal)
+    rewrite_json(journal, lambda raw: raw.update(phase="applying"))
+    final = Path(resource["finalPath"])
+    final.unlink()
+    final.symlink_to("../third-party-managed-file")
+
+    assert transaction.main(["recover", "--journal", str(journal)]) == 4
+    assert os.readlink(final) == "../third-party-managed-file"
     assert journal.exists()
 
 
@@ -490,6 +517,26 @@ def test_controlled_failpoints_raise_technical_and_rollback(workspace, monkeypat
     raw = json.loads(journal.read_text())
     assert raw["phase"] == "rolled-back"
     assert raw["transactionId"] == f"tx-{point}"
+
+
+def test_rollback_restores_github_and_navi_secrets(workspace, monkeypatch):
+    base, roots = workspace
+    resources = [
+        make_resource(roots, "githubAuthorization", 10, original=b"Bearer old", candidate=b"Bearer new"),
+        make_resource(roots, "naviUrl", 20, original=b"https://old.example", candidate=b"https://new.example"),
+        make_resource(roots, "naviClientId", 30, original=b"old-client", candidate=b"new-client"),
+    ]
+    plan, _ = write_plan(base, roots, resources)
+    journal = journal_path(base)
+    monkeypatch.setenv("DH_TEST_MODE", "1")
+    monkeypatch.setenv("DH_FAIL_AT", "after-apply-naviUrl")
+
+    assert transaction.main(["apply", "--plan", str(plan), "--journal", str(journal)]) == 1
+    assert Path(resources[0]["finalPath"]).read_bytes() == b"Bearer old"
+    assert Path(resources[1]["finalPath"]).read_bytes() == b"https://old.example"
+    assert Path(resources[2]["finalPath"]).read_bytes() == b"old-client"
+    assert all(not Path(resource["tempPath"]).exists() for resource in resources)
+    assert all(not Path(resource["backupPath"]).exists() for resource in resources)
 
 
 def test_failpoints_are_ignored_outside_test_mode(workspace, monkeypatch):

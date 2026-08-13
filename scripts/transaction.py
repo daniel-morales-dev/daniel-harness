@@ -707,15 +707,8 @@ def _exchange_checked(
     _fsync_directory(destination.parent)
     if source_matches(_state(destination)) and destination_matches(_state(source)):
         return
-    # Revertir el intercambio es la única salida no destructiva ante una carrera.
-    try:
-        _renameat2(source, destination, RENAME_EXCHANGE)
-        _fsync_directory(destination.parent)
-    except TransactionError as exc:
-        raise IncompleteRecovery("CAS verification failed and reverse exchange failed") from exc
-    if not source_matches(_state(source)) or not destination_matches(_state(destination)):
-        raise IncompleteRecovery("CAS reverse exchange did not restore both resources")
-    raise ManagedConflict("CAS post-exchange verification failed")
+    # Un intercambio inverso puede desplazar una escritura concurrente al temporal.
+    raise IncompleteRecovery("CAS post-exchange verification found external state")
 
 
 def _apply_resource(resource: Resource) -> None:
