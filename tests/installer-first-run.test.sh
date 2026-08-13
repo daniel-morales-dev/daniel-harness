@@ -55,6 +55,16 @@ chmod +x "$STUBS/node"
 
 export PATH="$STUBS:$PATH"
 
+cat > "$STUBS/gentle-ai" <<'GENTLE'
+#!/bin/bash
+case "$1" in
+  --version) echo "gentle-ai 2.3.0" ;;
+  skill-registry|sync) exit 0 ;;
+  doctor) echo "Status:  healthy" ;;
+esac
+GENTLE
+chmod +x "$STUBS/gentle-ai"
+
 bootstrap() {
   local profile=$1 home=$2
   env PATH="$STUBS:$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" NVM_DIR="$home/.nvm" \
