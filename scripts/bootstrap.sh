@@ -418,7 +418,7 @@ TMP_STATE=""
 PLAN_RESOURCES=()
 
 _transaction_command() {
-  DH_TRANSACTION_ALLOW_TMP=1 python3 "$TRANSACTION_SCRIPT" "$@"
+  python3 "$TRANSACTION_SCRIPT" "$@"
 }
 
 if [[ $DRY_RUN == false ]]; then

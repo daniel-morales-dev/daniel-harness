@@ -198,7 +198,10 @@ def _is_under_tmp(path: Path) -> bool:
 
 
 def _test_allows_tmp() -> bool:
-    return os.environ.get("DH_TEST_MODE") == "1" or os.environ.get("DH_TRANSACTION_ALLOW_TMP") == "1"
+    return (
+        os.environ.get("DH_TEST_MODE") == "1"
+        and os.environ.get("DH_TRANSACTION_ALLOW_TMP") == "1"
+    )
 
 
 def _validate_absolute_path(raw: Any, context: str, *, allow_empty: bool = False) -> Path | None:

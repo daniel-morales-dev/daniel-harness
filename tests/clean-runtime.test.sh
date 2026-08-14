@@ -105,6 +105,8 @@ export PATH="$STUBS:$PATH"
 export HOME="$HOME_DIR"
 export XDG_CONFIG_HOME="$HOME_DIR/.config"
 export NVM_DIR="$HOME_DIR/.nvm"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 echo "=== Fase 2a: bootstrap --profile core ==="
 if bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/bootstrap.out" 2>&1; then

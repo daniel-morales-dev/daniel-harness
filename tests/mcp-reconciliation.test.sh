@@ -86,6 +86,8 @@ models:
 ' > "$HOME_DIR/.config/daniel-harness/config.yaml"
 
 export PATH="$STUBS:$PATH"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 bootstrap() {
   local profile=$1 home=$2

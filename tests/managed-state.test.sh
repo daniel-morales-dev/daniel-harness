@@ -73,6 +73,7 @@ export HOME="$HOME_DIR"
 export XDG_CONFIG_HOME="$HOME_DIR/.config"
 export NVM_DIR="$HOME_DIR/.nvm"
 export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 # ======================================================================
 # Test 1: Journal residual — transacción incompleta se recupera

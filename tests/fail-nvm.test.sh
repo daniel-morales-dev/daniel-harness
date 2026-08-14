@@ -12,6 +12,8 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 PASS=0; FAIL=0
 pass() { printf '  [ok] %s\n' "$*"; PASS=$((PASS + 1)); }
 fail() { printf '  [FAIL] %s\n' "$*"; FAIL=$((FAIL + 1)); }
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 setup_env() {
   local stubs=$1 home=$2

@@ -54,6 +54,8 @@ STUB
 chmod +x "$STUBS/node"
 
 export PATH="$STUBS:$PATH"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 cat > "$STUBS/gentle-ai" <<'GENTLE'
 #!/bin/bash

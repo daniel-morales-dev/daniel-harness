@@ -141,6 +141,46 @@ def test_validation_accepts_strict_plan_and_correct_managed_state_path(workspace
     assert transaction.main(["validate-plan", "--plan", str(plan)]) == 0
 
 
+@pytest.mark.parametrize(
+    ("test_mode", "allow_tmp", "expected"),
+    [
+        (None, None, 1),
+        ("1", None, 1),
+        (None, "1", 1),
+        ("1", "1", 0),
+    ],
+)
+def test_validate_plan_allows_tmp_only_with_both_test_flags(tmp_path, test_mode, allow_tmp, expected):
+    base = tmp_path / "transaction-fixture"
+    roots = {
+        "opencodeDir": base / "opencode",
+        "stateDir": base / "state",
+        "secretsDir": base / "secrets",
+        "agentsDir": base / "agents",
+        "backupsDir": base / "backups",
+    }
+    for path in roots.values():
+        path.mkdir(parents=True, mode=0o700)
+    resource = make_resource(roots)
+    plan, _ = write_plan(base, roots, [resource])
+    environment = os.environ.copy()
+    environment.pop("DH_TEST_MODE", None)
+    environment.pop("DH_TRANSACTION_ALLOW_TMP", None)
+    if test_mode is not None:
+        environment["DH_TEST_MODE"] = test_mode
+    if allow_tmp is not None:
+        environment["DH_TRANSACTION_ALLOW_TMP"] = allow_tmp
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate-plan", "--plan", str(plan)],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == expected
+
+
 def test_validation_schema_matrix(workspace):
     base, roots = workspace
     resource = make_resource(roots)

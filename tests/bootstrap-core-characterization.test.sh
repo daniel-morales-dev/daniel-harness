@@ -78,6 +78,8 @@ models:
 YAML
 
 export PATH="$STUBS:$PATH"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 # ── Ejecutar bootstrap core ──────────────────────────────────
 printf '\n=== Characterization: bootstrap --profile core ===\n'

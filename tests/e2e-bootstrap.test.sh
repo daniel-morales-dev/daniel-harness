@@ -225,6 +225,8 @@ for h in "$HOME_CORE" "$HOME_ALEGRA" "$HOME_MIGRATION" "$HOME_FULL"; do
 done
 
 export PATH="$STUBS:$PATH"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 # Helper: bootstrap a profile with isolated HOME
 bootstrap_profile() {

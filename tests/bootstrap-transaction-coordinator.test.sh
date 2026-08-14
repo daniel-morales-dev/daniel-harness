@@ -56,6 +56,8 @@ Path('$HOME_DIR/.config/daniel-harness/config.yaml').write_text(yaml.dump(cfg))
 "
 export PATH="$STUBS:$PATH" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" NVM_DIR="$HOME_DIR/.nvm"
 export GITHUB_PERSONAL_ACCESS_TOKEN='ghp_fixture_not_real'
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 run_bootstrap() {
   local label=$1

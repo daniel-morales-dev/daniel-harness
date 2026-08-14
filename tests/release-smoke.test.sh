@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # tests/release-smoke.test.sh
-# Smoke test de release v0.1.0 — ejecutar en Ubuntu 24.04 limpio o contenedor equivalente
+# Smoke test de release — Ubuntu 24.04
 # Uso:
 #   bash tests/release-smoke.test.sh              # REAL environment (Ubuntu 24.04)
 #   bash tests/release-smoke.test.sh --stubs       # CI verification with dry-run
 set -u
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-TMP_DIR=$(mktemp -d)
+CALLER_HOME=$HOME
+SMOKE_TMP_PARENT="$CALLER_HOME/.cache/daniel-harness"
+mkdir -p "$SMOKE_TMP_PARENT"
+chmod 700 "$CALLER_HOME/.cache" "$SMOKE_TMP_PARENT" 2>/dev/null || true
+TMP_DIR=$(mktemp -d "$SMOKE_TMP_PARENT/release-smoke.XXXXXXXX")
 trap 'rm -rf "$TMP_DIR"' EXIT
 USE_STUBS=false
+RELEASE_VERSION=$(cat "$ROOT_DIR/VERSION")
 
 for arg in "$@"; do
   [[ "$arg" == "--stubs" ]] && USE_STUBS=true
@@ -54,7 +59,7 @@ bootstrap_ok() {
   return 1
 }
 
-echo "=== Smoke Test: v0.1.0 Release ==="
+printf '=== Smoke Test: v%s Release ===\n' "$RELEASE_VERSION"
 
 # Step 1: Install core profile
 echo "--- Step 1: install core ---"
