@@ -4,22 +4,22 @@
 
 ### Readiness
 
-- [ ] CI verde en el SHA final: gitleaks, validate y e2e
-- [ ] OpenCode `1.18.18` y capabilities verificadas
-- [ ] `{file:...}` runtime: Authorization, URL y oauth.clientId
-- [ ] Smoke A limpio sobre el SHA final
-- [ ] Smoke B de migración sobre el mismo SHA final
-- [ ] Secret leak scan sin coincidencias fuera de archivos intencionales
-- [ ] Documentación y CHANGELOG `0.1.1 (Unreleased)` actualizados
-- [ ] Worktree limpio y body de PR con evidencia real
-- [ ] `transaction.py` coordinó config, secretos, cinco agentes y managed state
-- [ ] GitHub/Navi `{file:...}` inválidos fallan cerrado; Navi parcial devuelve `2`
-- [ ] Managed-modified y symlink de terceros devuelven `3` sin sobrescritura
-- [ ] Hard crash/recovery y CAS concurrente verificados
+- [X] CI verde en el SHA final: gitleaks, validate y e2e
+- [X] OpenCode `1.18.18` y capabilities verificadas
+- [X] `{file:...}` runtime: Authorization, URL y oauth.clientId
+- [X] Smoke A limpio sobre el SHA final
+- [X] Smoke B de migración sobre el mismo SHA final
+- [X] Secret leak scan sin coincidencias fuera de archivos intencionales
+- [X] Documentación y CHANGELOG `0.1.1 (2026-08-14)` actualizados
+- [X] Worktree limpio y body de PR con evidencia real
+- [X] `transaction.py` coordinó config, secretos, cinco agentes y managed state
+- [X] GitHub/Navi `{file:...}` inválidos fallan cerrado; Navi parcial devuelve `2`
+- [X] Managed-modified y symlink de terceros devuelven `3` sin sobrescritura
+- [X] Hard crash/recovery y CAS concurrente verificados
 
 ### Release
 
-- [ ] Merge
+- [X] Merge
 - [ ] Tag
 - [ ] GitHub release
 

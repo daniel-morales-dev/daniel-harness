@@ -1,0 +1,8 @@
+[0;1;39mAll checks were successful[0m
+0 cancelled, 0 failing, 4 successful, 0 skipped, and 0 pending checks
+
+[0;2;4;37m [0m  [0;2;4;37mNAME                       [0m  [0;2;4;37mDESCRIPTION[0m  [0;2;4;37mELAPSED[0m  [0;2;4;37mURL                                                                                          [0m
+[0;32m✓[0m  GitGuardian Security Checks               26s      https://dashboard.gitguardian.com
+[0;32m✓[0m  CI/e2e (pull_request)                     1m14s    https://github.com/daniel-morales-dev/daniel-harness/actions/runs/31813378115/job/94809101348
+[0;32m✓[0m  CI/gitleaks (pull_request)                10s      https://github.com/daniel-morales-dev/daniel-harness/actions/runs/31813378115/job/94809101397
+[0;32m✓[0m  CI/validate (pull_request)                2m20s    https://github.com/daniel-morales-dev/daniel-harness/actions/runs/31813378115/job/94809101436
