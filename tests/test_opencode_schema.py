@@ -68,9 +68,10 @@ def run_bootstrap(home_dir, stubs, profile="core"):
         "PATH": f"{stubs}:{home_dir}/.nvm/versions/node/v24.0.0/bin:/usr/bin:/bin",
         "HOME": str(home_dir),
         "XDG_CONFIG_HOME": str(home_dir / ".config"),
-        "NVM_DIR": str(home_dir / ".nvm"),
-        "DH_TEST_MODE": "1",
-    }
+            "NVM_DIR": str(home_dir / ".nvm"),
+            "DH_TEST_MODE": "1",
+            "DH_TRANSACTION_ALLOW_TMP": "1",
+        }
     # Setup nvm and config
     (home_dir / ".nvm").mkdir(parents=True)
     (home_dir / ".nvm" / "nvm.sh").write_text("nvm() { :; }\n")

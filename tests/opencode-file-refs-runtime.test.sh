@@ -80,6 +80,34 @@ http.server.ThreadingHTTPServer(("127.0.0.1", 18766), Handler).serve_forever()
 PY
 SERVER_PID=$!
 
+for _ in {1..50}; do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    fail 'servidor runtime terminó antes de quedar disponible'
+    exit 1
+  fi
+  if python3 - <<'PY' >/dev/null 2>&1
+import socket
+
+with socket.create_connection(("127.0.0.1", 18766), timeout=0.1):
+    pass
+PY
+  then
+    break
+  fi
+  sleep 0.1
+done
+
+if ! python3 - <<'PY'
+import socket
+
+with socket.create_connection(("127.0.0.1", 18766), timeout=0.1):
+    pass
+PY
+then
+  fail 'servidor runtime no quedó disponible'
+  exit 1
+fi
+
 if opencode debug config --pure | jq -e \
   --rawfile url "$SECRETS/url" \
   --rawfile authorization "$SECRETS/authorization" \
@@ -95,12 +123,15 @@ set +e
 opencode mcp list --pure >/dev/null 2>&1
 first_rc=$?
 set -e
-if [[ "$first_rc" == 0 ]] && grep -Fqx '/first	Bearer runtime-smoke-first' "$REQUESTS"; then
+if [[ "$first_rc" == 0 ]] && grep -Fqx \
+  $'/first\tBearer runtime-smoke-first' \
+  "$REQUESTS"; then
   pass 'Authorization y URL se resolvieron en runtime'
 else
   fail 'Authorization y URL no llegaron al servidor local'
 fi
 
+CONFIG_HASH_BEFORE=$(sha256sum "$CONFIG" | cut -d' ' -f1)
 printf '%s' 'http://127.0.0.1:18766/second' > "$SECRETS/url"
 printf '%s' 'Bearer runtime-smoke-second' > "$SECRETS/authorization"
 
@@ -108,10 +139,13 @@ set +e
 opencode mcp list --pure >/dev/null 2>&1
 second_rc=$?
 set -e
-if [[ "$second_rc" == 0 ]] && grep -Fqx '/second	Bearer runtime-smoke-second' "$REQUESTS"; then
+CONFIG_HASH_AFTER=$(sha256sum "$CONFIG" | cut -d' ' -f1)
+if [[ "$second_rc" == 0 ]] && grep -Fqx \
+  $'/second\tBearer runtime-smoke-second' \
+  "$REQUESTS" && [[ "$CONFIG_HASH_AFTER" == "$CONFIG_HASH_BEFORE" ]]; then
   pass 'Authorization y URL se releen sin reescribir configuración'
 else
-  fail 'no se observó recarga dinámica de Authorization y URL'
+  fail 'no se observó recarga dinámica o el config cambió'
 fi
 
 printf '\n=== Resultados: %d pasaron, %d fallaron ===\n' "$PASS" "$FAIL"

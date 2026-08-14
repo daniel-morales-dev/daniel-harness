@@ -12,10 +12,12 @@ sudo apt-get install jq gh
 
 ## Gentle AI no reporta `healthy`
 
-La instalación falla cerrada si `gentle-ai skill-registry refresh --force`,
-`gentle-ai sync` o `gentle-ai doctor` no completan saludables. `gentle-ai doctor`
-puede devolver cero aun con `Status:  degraded`; corregí primero los warnings que
-enumera y repetí la instalación.
+La instalación falla cerrada si `gentle-ai skill-registry refresh --force` no
+completa. Con `GAIA_KEY` configurada, también falla cerrada si `gentle-ai sync`
+o `gentle-ai doctor` no completan saludables. Sin `GAIA_KEY`, esos pasos
+dependientes de cuenta se omiten y la instalación local puede continuar.
+`gentle-ai doctor` puede devolver cero aun con `Status:  degraded`; corregí
+primero los warnings que enumera y repetí la instalación autenticada.
 
 ## Conflicto o recovery incompleto
 

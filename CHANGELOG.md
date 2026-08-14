@@ -9,7 +9,9 @@
 - El resumen de GitHub reconoce la autorización persistente segura sin depender
   de `GITHUB_PERSONAL_ACCESS_TOKEN`.
 - OpenCode exige la versión mínima probada `1.18.18` y capabilities reales.
-- Gentle AI falla cerrada ante registry, sync o doctor no saludables.
+- Gentle AI falla cerrada ante registry no saludable y, con autenticación
+  configurada, ante sync o doctor no saludables; sin `GAIA_KEY` estos dos pasos
+  dependientes de cuenta se omiten y la instalación local puede continuar.
 - Referencias GitHub/Navi `{file:...}` inválidas fallan cerradas sin reparar permisos,
   imprimir secretos ni publicar cambios parciales.
 - Navi diferencia configuración corrupta (`1`) de onboarding legítimo (`2`).
