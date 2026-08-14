@@ -34,11 +34,28 @@ chmod +x "$STUBS/sudo"
 create_nvm_curl_stub "$STUBS"
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
-if [[ "$1" == "--version" ]]; then echo "opencode 0.1.0"; exit 0; fi
+case "$1:${2:-}:${3:-}" in
+  --version::) echo "opencode 1.18.18"; exit 0 ;;
+  agent:list:--help|mcp:--help:|mcp:debug:--help|mcp:auth:--help|debug:config:--help) exit 0 ;;
+esac
+case "$1" in
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) if [[ "$2" == "debug" ]]; then echo "connected"; exit 0; fi ;;
+  --version) echo "opencode 1.18.18"; exit 0 ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
+
+cat > "$STUBS/gentle-ai" <<'GENTLE'
+#!/bin/bash
+case "$1" in
+  --version) echo "gentle-ai 2.3.0" ;;
+  skill-registry|sync) exit 0 ;;
+  doctor) echo "Status:  healthy" ;;
+esac
+GENTLE
+chmod +x "$STUBS/gentle-ai"
 
 python3 -c "
 import yaml
@@ -52,6 +69,9 @@ export PATH="$STUBS:$PATH"
 export HOME="$HOME_DIR"
 export XDG_CONFIG_HOME="$HOME_DIR/.config"
 export NVM_DIR="$HOME_DIR/.nvm"
+export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 OC_FILE="$HOME_DIR/.config/opencode/opencode.json"
 STATE_FILE="$HOME_DIR/.config/daniel-harness/state/opencode-managed.json"
@@ -102,18 +122,18 @@ jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-t2.json" && mv "$TMP_DIR/oc-t
 _run_and_check "t2" env DH_TEST_MODE=1 DH_FAIL_AT=invalid-candidate \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra
 
-# --- Test 3: State builder falla (failpoint build-state) ---
-echo "=== Test 3: state builder failed ==="
+# --- Test 3: Coordinador falla antes de publicar ---
+echo "=== Test 3: coordinator before apply ==="
 # Full baseline restore so state file is valid
 bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > /dev/null 2>&1
 jq 'del(.mcp.codegraph)' "$OC_FILE" > "$TMP_DIR/oc-t3.json" && mv "$TMP_DIR/oc-t3.json" "$OC_FILE"
-_run_and_check "t3" env DH_TEST_MODE=1 DH_FAIL_AT=build-state \
+_run_and_check "t3" env DH_TEST_MODE=1 DH_FAIL_AT=before-apply-opencodeConfig \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra
-grep -q 'Failpoint alcanzado: build-state' "$TMP_DIR/t3.out" 2>/dev/null && \
-  pass "t3: alcanzó failpoint build-state" || \
-  fail "t3: no alcanzó failpoint build-state"
+grep -q 'controlled failpoint: before-apply-opencodeConfig' "$TMP_DIR/t3.out" 2>/dev/null && \
+  pass "t3: alcanzó failpoint del coordinador" || \
+  fail "t3: no alcanzó failpoint del coordinador"
 JOURNAL="$HOME_DIR/.config/daniel-harness/state/.bootstrap-journal.json"
-[[ ! -f "$JOURNAL" ]] && pass "t3: no journal" || fail "t3: journal presente"
+[[ -f "$JOURNAL" ]] && pass "t3: journal recuperable" || fail "t3: journal ausente"
 
 echo ""
 echo "=== Resultados: $PASS pasaron, $FAIL fallaron ==="

@@ -35,10 +35,27 @@ chmod +x "$STUBS/sudo"
 create_nvm_curl_stub "$STUBS"
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1:${2:-}:${3:-}" in
+  --version::) echo "opencode 1.18.18"; exit 0 ;;
+  agent:list:--help|mcp:--help:|mcp:debug:--help|mcp:auth:--help|debug:config:--help) exit 0 ;;
+esac
+case "$1" in
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) if [[ "$2" == "debug" ]]; then echo "connected"; exit 0; fi ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
+
+cat > "$STUBS/gentle-ai" <<'GENTLE'
+#!/bin/bash
+case "$1" in
+  --version) echo "gentle-ai 2.3.0" ;;
+  skill-registry|sync) exit 0 ;;
+  doctor) echo "Status:  healthy" ;;
+esac
+GENTLE
+chmod +x "$STUBS/gentle-ai"
 
 python3 -c "
 import yaml
@@ -52,6 +69,9 @@ export PATH="$STUBS:$PATH"
 export HOME="$HOME_DIR"
 export XDG_CONFIG_HOME="$HOME_DIR/.config"
 export NVM_DIR="$HOME_DIR/.nvm"
+export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 OC_FILE="$HOME_DIR/.config/opencode/opencode.json"
 STATE_FILE="$HOME_DIR/.config/daniel-harness/state/opencode-managed.json"
@@ -94,17 +114,8 @@ _run_first_run() {
   fi
 }
 
-echo "=== Test 1: crash-after-config ==="
-_run_first_run "t1" "DH_TEST_MODE=1" "DH_FAIL_AT=crash-after-config"
-
-echo "=== Test 2: move-state ==="
-_run_first_run "t2" "DH_TEST_MODE=1" "DH_FAIL_AT=move-state"
-
-echo "=== Test 3: chmod-state ==="
-_run_first_run "t3" "DH_TEST_MODE=1" "DH_FAIL_AT=chmod-state"
-
-echo "=== Test 4: crash-after-state ==="
-_run_first_run "t4" "DH_TEST_MODE=1" "DH_FAIL_AT=crash-after-state"
+echo "=== Test 1: coordinator before apply ==="
+_run_first_run "t1" "DH_TEST_MODE=1" "DH_FAIL_AT=before-apply-opencodeConfig"
 
 echo "=== Recovery: siguiente bootstrap se recupera correctamente ==="
 set +e
@@ -123,50 +134,6 @@ jq empty "$OC_FILE" && pass "recovery: opencode.json JSON válido" || fail "reco
 for mcp in codegraph engram linear context7 wiki-alegra github; do
   jq -e ".mcp | has(\"$mcp\")" "$OC_FILE" >/dev/null && pass "recovery: MCP $mcp presente" || fail "recovery: MCP $mcp missing"
 done
-
-echo "=== Test 5: Rollback rm falla (journal conservado) ==="
-# Segundo HOME limpio para probar rm fallando en primer arranque
-HOME_DIR2="$TMP_DIR/home2"
-STUBS2="$TMP_DIR/stubs"
-mkdir -p "$HOME_DIR2/.config/daniel-harness/secrets/tunnels" "$HOME_DIR2/.nvm"
-python3 -c "
-import yaml; from pathlib import Path
-cfg = yaml.safe_load((Path('$ROOT_DIR/examples/config.example.yaml')).read_text())
-cfg['models'] = [m for m in cfg['models'] if m.get('trust') != 'restricted']
-Path('$HOME_DIR2/.config/daniel-harness/config.yaml').write_text(yaml.dump(cfg))
-"
-# Fake rm que falla para opencode.json
-FAKE_BIN="$TMP_DIR/fake-bin"
-mkdir -p "$FAKE_BIN"
-cat > "$FAKE_BIN/rm" <<'RMEOF'
-#!/bin/bash
-for arg in "$@"; do
-  if [[ "$arg" == *"opencode.json"* ]]; then
-    echo "[fake-rm] Simulated failure for opencode.json" >&2
-    exit 1
-  fi
-done
-exec /bin/rm "$@"
-RMEOF
-chmod +x "$FAKE_BIN/rm"
-T5_OUT="$TMP_DIR/t5.out"
-set +e
-DH_TEST_MODE=1 DH_FAIL_AT=crash-after-config \
-  PATH="$FAKE_BIN:$STUBS2:$PATH" HOME="$HOME_DIR2" XDG_CONFIG_HOME="$HOME_DIR2/.config" NVM_DIR="$HOME_DIR2/.nvm" \
-  bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$T5_OUT" 2>&1
-RC=$?
-set -e
-if [[ $RC -ne 0 ]]; then
-  pass "t5: exit $RC (expected non-zero)"
-else
-  fail "t5: exit 0 (expected failure)"
-fi
-grep -q 'no se pudo eliminar' "$T5_OUT" 2>/dev/null && pass "t5: rm falló reportado" || fail "t5: rm falló no reportado inesperadamente"
-JOURNAL2="$HOME_DIR2/.config/daniel-harness/state/.bootstrap-journal.json"
-[[ -f "$JOURNAL2" ]] && pass "t5: journal conservado" || fail "t5: journal eliminado"
-# opencode.json existe (mv se ejecutó antes del crash), rm falló al limpiar
-OC2="$HOME_DIR2/.config/opencode/opencode.json"
-[[ -f "$OC2" ]] && pass "t5: opencode.json existe (antes del crash)" || fail "t5: opencode.json no fue creado"
 
 echo ""
 echo "=== Resultados: $PASS pasaron, $FAIL fallaron ==="

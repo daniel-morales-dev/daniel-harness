@@ -26,14 +26,13 @@ opencode_backup_create() {
   mkdir -p "$backup_dir"
   chmod 700 "$backup_dir"
 
-  local sum bid ts id dest meta_source meta_dest tmp tmp_meta
+  local sum bid ts dest meta_dest tmp tmp_meta
   sum=$(sha256sum "$source" | cut -d' ' -f1)
   bid=$(_backup_id)
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   # Backup file: temp en mismo directorio → rename
   dest="$backup_dir/opencode-${bid}.json"
-  meta_source="$dest"  # backup es el source de la metadata
   meta_dest="$backup_dir/opencode-${bid}.json.meta"
 
   # Escribir backup a temp
@@ -134,14 +133,14 @@ opencode_backup_find_all() {
   fi
 
   # Backups legacy (opencode.json.bak.*)
-  if ls "$target_dir"/opencode.json.bak.* >/dev/null 2>&1; then
-    local legacy_count
-    legacy_count=$(ls -1 "$target_dir"/opencode.json.bak.* 2>/dev/null | wc -l)
+  local legacy_count
+  legacy_count=$(find "$target_dir" -maxdepth 1 -name 'opencode.json.bak.*' 2>/dev/null | wc -l)
+  if [[ "$legacy_count" -gt 0 ]]; then
     printf '[backups] %d backup(s) legacy en %s\n' "$legacy_count" "$target_dir"
     found=$((found + legacy_count))
   fi
 
-  return "$found"
+  return 0
 }
 
 # Restaurar backup
@@ -169,22 +168,23 @@ opencode_backup_restore() {
   [[ -f "$backup" ]] || { printf 'error: backup not found\n' >&2; return 1; }
   jq empty "$backup" 2>/dev/null || { printf 'error: backup corrupted\n' >&2; return 1; }
 
-  # Validar metadata si existe
+  # Validar metadata si existe — mismatch es error, no warning
   local meta_valid=true
   if [[ -f "$meta" ]]; then
     jq empty "$meta" 2>/dev/null || meta_valid=false
-    if $meta_valid; then
-      local meta_sha
-      meta_sha=$(jq -r '.sha256 // ""' "$meta" 2>/dev/null || echo "")
-      if [[ -n "$meta_sha" ]]; then
-        local actual_sha
-        actual_sha=$(sha256sum "$backup" | cut -d' ' -f1)
-        if [[ "$actual_sha" != "$meta_sha" ]]; then
-          printf 'aviso: metadata SHA-256 no coincide con el backup\n' >&2
-        fi
+    if ! $meta_valid; then
+      printf 'error: metadata corrupta — restore abortado\n' >&2
+      return 1
+    fi
+    local meta_sha
+    meta_sha=$(jq -r '.sha256 // ""' "$meta" 2>/dev/null || echo "")
+    if [[ -n "$meta_sha" ]]; then
+      local actual_sha
+      actual_sha=$(sha256sum "$backup" | cut -d' ' -f1)
+      if [[ "$actual_sha" != "$meta_sha" ]]; then
+        printf 'error: metadata SHA-256 no coincide con el backup — restore abortado\n' >&2
+        return 1
       fi
-    else
-      printf 'aviso: metadata corrupta, verificando solo JSON\n' >&2
     fi
   else
     printf 'aviso: backup legacy sin metadata — integridad historica no demostrable\n' >&2

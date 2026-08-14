@@ -49,10 +49,28 @@ chmod +x "$STUBS/node"
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "connected"; exit 0; fi
+case "$1:${2:-}:${3:-}" in
+  --version::) echo "opencode 1.18.18"; exit 0 ;;
+  agent:list:--help|mcp:--help:|mcp:debug:--help|mcp:auth:--help|debug:config:--help) exit 0 ;;
+esac
+case "$1" in
+  --version) echo "opencode 1.18.18"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "connected"; exit 0 ;; esac ;;
+esac
 exit 0
 OPENCODE
 chmod +x "$STUBS/opencode"
+
+cat > "$STUBS/gentle-ai" <<'GENTLE'
+#!/bin/bash
+case "$1" in
+  --version) echo "gentle-ai 2.3.0" ;;
+  skill-registry|sync) exit 0 ;;
+  doctor) echo "Status:  healthy" ;;
+esac
+GENTLE
+chmod +x "$STUBS/gentle-ai"
 
 cat > "$HOME_DIR/.nvm/nvm.sh" <<'NVM'
 nvm() { case "$1" in --version) echo "0.40.4" ;; install) ;; alias) ;; *) ;; esac; }
@@ -68,10 +86,13 @@ models:
 ' > "$HOME_DIR/.config/daniel-harness/config.yaml"
 
 export PATH="$STUBS:$PATH"
+export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 bootstrap() {
   local profile=$1 home=$2
   env PATH="$STUBS:$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" NVM_DIR="$home/.nvm" \
+    GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
     bash "$ROOT_DIR/scripts/bootstrap.sh" --profile "$profile"
 }
 
@@ -166,6 +187,7 @@ jq -n '{
 
 # Bootstrap alegra (github is in alegra profile, but no state file)
 env PATH="$STUBS:$PATH" HOME="$CUSTOM_HOME" XDG_CONFIG_HOME="$CUSTOM_HOME/.config" NVM_DIR="$CUSTOM_HOME/.nvm" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/custom-bootstrap.out" 2>&1 || true
 # Custom github should NOT be overwritten (different URL than manifest, no state)
 CUSTOM_URL=$(jq -r '.mcp.github.url // "missing"' "$CUSTOM_HOME/.config/opencode/opencode.json" 2>/dev/null || echo "missing")
@@ -187,6 +209,7 @@ printf '%s\n' 'version: "1"' 'models:' '  - id: default' '    trust: trusted' ' 
 
 # Bootstrap core → alegra (establish state with hashes)
 env PATH="$STUBS:$PATH" HOME="$DRIFT_HOME" XDG_CONFIG_HOME="$DRIFT_HOME/.config" NVM_DIR="$DRIFT_HOME/.nvm" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > /dev/null 2>&1
 
 # Now modify github URL manually
@@ -194,6 +217,7 @@ jq '.mcp.github.url = "https://evil.example/mcp"' "$DRIFT_HOME/.config/opencode/
 
 # Second bootstrap should detect drift
 env PATH="$STUBS:$PATH" HOME="$DRIFT_HOME" XDG_CONFIG_HOME="$DRIFT_HOME/.config" NVM_DIR="$DRIFT_HOME/.nvm" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="ghp_fixture_not_real" \
   bash "$ROOT_DIR/scripts/bootstrap.sh" --profile alegra > "$TMP_DIR/drift-bootstrap.out" 2>&1 || true
 # GitHub should still be custom URL (not overwritten)
 DRIFT_URL=$(jq -r '.mcp.github.url // "missing"' "$DRIFT_HOME/.config/opencode/opencode.json" 2>/dev/null || echo "missing")

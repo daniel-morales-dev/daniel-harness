@@ -41,7 +41,7 @@ chmod +x "$STUBS/sudo"
 
 cat > "$STUBS/opencode" <<'OPENCODE'
 #!/bin/bash
-if [[ "$1" == "--version" ]]; then echo "opencode 1.18.13"; exit 0; fi
+if [[ "$1" == "--version" ]]; then echo "opencode 1.18.18"; exit 0; fi
 if [[ "$1" == "agent" && "$2" == "list" ]]; then
   echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"
   exit 0
@@ -73,6 +73,7 @@ export HOME="$HOME_DIR"
 export XDG_CONFIG_HOME="$HOME_DIR/.config"
 export NVM_DIR="$HOME_DIR/.nvm"
 export DH_TEST_MODE=1
+export DH_TRANSACTION_ALLOW_TMP=1
 
 # ======================================================================
 # Test 1: Journal residual — transacción incompleta se recupera
@@ -159,40 +160,61 @@ printf '\n=== Test 6: No-connect instala correctamente ===\n'
 pass "6: (verificación en bootstrap, no en test unitario)"
 
 # ======================================================================
-# Test 7: Gentle AI failure no queda oculto
+# Test 7: Gentle AI clasifica autenticación antes de sincronizar
 # ======================================================================
-printf '\n=== Test 7: Gentle AI failure visible ===\n'
-cat > "$STUBS/gentle-ai" <<'GENTLE_FAIL'
-#!/bin/bash
-case "$1" in
-  --version) echo "gentle-ai 2.2.4" ;;
-  skill-registry) echo "FAIL"; exit 1 ;;
-  sync) echo "FAIL"; exit 1 ;;
-  doctor) exit 1 ;;
-esac
-exit 0
-GENTLE_FAIL
-chmod +x "$STUBS/gentle-ai"
-
-# El dry-run no debería ejecutar gentle-ai
-if cd "$ROOT_DIR" && bash "$ROOT_DIR/scripts/bootstrap.sh" --dry-run --profile core 2>&1; then
-  pass "7: dry-run no ejecuta gentle-ai (no falla)"
-else
-  fail "7: dry-run falló"
-fi
-
-# Restore default stub
+printf '\n=== Test 7: Gentle AI auth classification ===\n'
+GA_CALLS="$TMP_DIR/gentle-ai.calls"
+export GA_CALLS
+mkdir -p "$HOME_DIR/.nvm"
+rm -f "$STUBS/python3"
+printf '%s\n' 'nvm() { [[ "$1" == "--version" ]] && echo "0.40.4"; }' > "$HOME_DIR/.nvm/nvm.sh"
+printf '%s\n' '#!/bin/bash' 'echo "v24.0.0"' > "$STUBS/node"
+chmod +x "$STUBS/node"
 cat > "$STUBS/gentle-ai" <<'GENTLE'
 #!/bin/bash
 case "$1" in
-  --version) echo "gentle-ai 2.2.4" ;;
-  skill-registry) exit 0 ;;
-  sync) exit 0 ;;
-  doctor) echo "Status:  degraded" ;;
+  --version) echo "gentle-ai 2.3.0" ;;
+  skill-registry) printf '%s\n' registry >> "$GA_CALLS"; exit "${GA_REGISTRY_RC:-0}" ;;
+  sync) printf '%s\n' sync >> "$GA_CALLS"; exit "${GA_SYNC_RC:-0}" ;;
+  doctor) printf '%s\n' doctor >> "$GA_CALLS"; printf 'Status:  %s\n' "${GA_DOCTOR_STATUS:-healthy}" ;;
 esac
 exit 0
 GENTLE
 chmod +x "$STUBS/gentle-ai"
+
+run_gentle_case() {
+  local label=$1 expected=$2
+  shift 2
+  : > "$GA_CALLS"
+  set +e
+  env -u GAIA_KEY -u GA_REGISTRY_RC -u GA_SYNC_RC -u GA_DOCTOR_STATUS \
+    "$@" bash "$ROOT_DIR/scripts/bootstrap.sh" --profile core > "$TMP_DIR/gentle-$label.out" 2>&1
+  local rc=$?
+  set -e
+  if [[ $rc -eq $expected ]]; then
+    pass "7: $label exit $expected"
+  else
+    cat "$TMP_DIR/gentle-$label.out"
+    fail "7: $label exit $rc (expected $expected)"
+  fi
+}
+
+run_gentle_case "sin-gaia" 0 -u GAIA_KEY
+grep -Fxq registry "$GA_CALLS" && pass "7a: sin GAIA_KEY refresca registry" || fail "7a: sin GAIA_KEY no refrescó registry"
+! grep -Fxq sync "$GA_CALLS" && ! grep -Fxq doctor "$GA_CALLS" && pass "7a: sin GAIA_KEY omite sync y doctor" || fail "7a: sin GAIA_KEY ejecutó sync o doctor"
+grep -Fq 'sync/doctor omitidos: GAIA_KEY no configurada' "$TMP_DIR/gentle-sin-gaia.out" && pass "7a: sin GAIA_KEY informa omisión" || fail "7a: sin GAIA_KEY no informó omisión"
+
+run_gentle_case "gaia-healthy" 0 GAIA_KEY=fixture-key
+grep -Fxq registry "$GA_CALLS" && grep -Fxq sync "$GA_CALLS" && grep -Fxq doctor "$GA_CALLS" && pass "7b: con GAIA_KEY ejecuta registry sync y doctor" || fail "7b: con GAIA_KEY faltó una llamada"
+
+run_gentle_case "gaia-sync-failure" 1 GAIA_KEY=fixture-key GA_SYNC_RC=1
+grep -Fxq sync "$GA_CALLS" && ! grep -Fxq doctor "$GA_CALLS" && pass "7c: fallo sync detiene doctor" || fail "7c: fallo sync no cerró correctamente"
+
+run_gentle_case "gaia-doctor-unhealthy" 1 GAIA_KEY=fixture-key GA_DOCTOR_STATUS=degraded
+grep -Fxq doctor "$GA_CALLS" && pass "7d: doctor unhealthy fue evaluado" || fail "7d: doctor unhealthy no fue llamado"
+
+run_gentle_case "registry-failure" 1 GAIA_KEY=fixture-key GA_REGISTRY_RC=1
+! grep -Fxq sync "$GA_CALLS" && ! grep -Fxq doctor "$GA_CALLS" && pass "7e: fallo registry detiene sync y doctor" || fail "7e: fallo registry continuó ejecución"
 
 # ======================================================================
 # Test 8: Managed files — listado correcto

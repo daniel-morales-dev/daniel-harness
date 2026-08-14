@@ -76,10 +76,14 @@ esac
 exit 0
 STUB
 chmod +x "$STUBS/gentle-ai"
-# opencode stub returns auth-required for all MCPs
+# opencode stub: agent list para doctor, auth-required para mcp debug
 cat > "$STUBS/opencode" <<'STUB'
 #!/bin/bash
-if [[ "$1" == "mcp" && "$2" == "debug" ]]; then echo "authentication required"; exit 0; fi
+case "$1" in
+  --version) echo "opencode 1.18.18"; exit 0 ;;
+  agent) echo "alegra-microservice-engineer alegra-code-reviewer alegra-microservice-test-engineer php-engineer migration-parity-reviewer"; exit 0 ;;
+  mcp) case "$2" in debug) echo "authentication required"; exit 0 ;; esac ;;
+esac
 exit 0
 STUB
 chmod +x "$STUBS/opencode"

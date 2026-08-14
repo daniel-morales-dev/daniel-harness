@@ -45,3 +45,6 @@ tmp/
 
 # Redacted local exports
 opencode.redacted.json
+
+# Accidental artifact (v0.1.0)
+/.opencode/

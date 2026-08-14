@@ -1,6 +1,10 @@
 version: "1"
 platform: ubuntu-24.04
 
+compatibility:
+  opencode:
+    minimumTestedVersion: "1.18.18"
+
 profiles:
   core:
     description: Herramientas base para cualquier proyecto

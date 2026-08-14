@@ -140,6 +140,9 @@ jobs:
       - name: First-run transactional
         run: bash tests/first-run-transaction.test.sh
 
+      - name: Typed coordinator integration
+        run: bash tests/bootstrap-transaction-coordinator.test.sh
+
       - name: Tool path exposure
         run: bash tests/tool-path-exposure.test.sh --stubs
 
@@ -153,6 +156,8 @@ jobs:
           python-version: '3.12'
       - name: Install deps
         run: pip install -r requirements-dev.txt
+      - name: Bootstrap core characterization
+        run: bash tests/bootstrap-core-characterization.test.sh
       - name: E2E bootstrap
         run: bash tests/e2e-bootstrap.test.sh
       - name: MCP reconciliation
@@ -161,6 +166,10 @@ jobs:
         run: python3 tests/test_opencode_schema.py
       - name: Installer first-run
         run: bash tests/installer-first-run.test.sh
+      - name: Install exit codes
+        run: bash tests/install-exit-codes.test.sh
+      - name: OpenCode compatibility
+        run: bash tests/opencode-compatibility.test.sh
       - name: Doctor MCP status
         run: bash tests/doctor-mcp-status.test.sh
       - name: Plugin reconciliation

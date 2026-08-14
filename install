@@ -46,8 +46,10 @@ Opciones:
 
 Exit codes:
   0  Todo saludable
-  1  Error en instalacion
+  1  Error técnico
   2  Instalado con OAuth pendiente
+  3  Conflicto de recurso administrado
+  4  Rollback o recovery incompleto
 HELP
       exit 0 ;;
     *)
@@ -134,6 +136,35 @@ if ! command -v sudo >/dev/null 2>&1; then
   exit 1
 fi
 
+github_auth_state() {
+  local config_root=${XDG_CONFIG_HOME:-"$HOME/.config"}
+  local harness_dir=${DANIEL_HARNESS_CONFIG_DIR:-"$config_root/daniel-harness"}
+  local secret_file="$harness_dir/secrets/github/authorization"
+  local config_file="$config_root/opencode/opencode.json"
+  local parent auth_ref
+
+  if [[ -e "$secret_file" || -L "$secret_file" ]]; then
+    parent=$(dirname "$secret_file")
+    auth_ref=$(jq -r '.mcp.github.headers.Authorization // ""' "$config_file" 2>/dev/null || true)
+    if [[ -f "$secret_file" && ! -L "$secret_file" &&
+      "$(stat -c '%u' "$secret_file" 2>/dev/null || true)" == "$(id -u)" &&
+      "$(stat -c '%a' "$secret_file" 2>/dev/null || true)" == "600" &&
+      -d "$parent" && ! -L "$parent" &&
+      "$(stat -c '%u' "$parent" 2>/dev/null || true)" == "$(id -u)" &&
+      "$(stat -c '%a' "$parent" 2>/dev/null || true)" == "700" &&
+      -s "$secret_file" && "$auth_ref" == "{file:$secret_file}" ]] &&
+      head -n 1 "$secret_file" | grep -q '^Bearer '; then
+      printf '%s\n' valid-persistent
+    else
+      printf '%s\n' invalid
+    fi
+  elif [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+    printf '%s\n' valid-env
+  else
+    printf '%s\n' missing
+  fi
+}
+
 # ── Bootstrap ───────────────────────────────────────────────────
 printf '\n==> Ejecutando bootstrap --profile %s...\n' "$PROFILE"
 BOOTSTRAP_ARGS=(--profile "$PROFILE")
@@ -141,10 +172,31 @@ $CONNECT && BOOTSTRAP_ARGS+=(--connect)
 $RESET_MANAGED && BOOTSTRAP_ARGS+=(--reset-managed)
 $NON_INTERACTIVE && BOOTSTRAP_ARGS+=(--non-interactive)
 $EXPERIMENTAL_DATA_TOOLS && BOOTSTRAP_ARGS+=(--experimental-data-tools)
-if ! bash "$ROOT_DIR/scripts/bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"; then
-  printf '[error] Bootstrap fallo\n' >&2
-  exit 1
-fi
+set +e
+bash "$ROOT_DIR/scripts/bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"
+bootstrap_rc=$?
+set -e
+
+case "$bootstrap_rc" in
+  0)
+    ;;
+  2)
+    printf '[aviso] Instalación aplicada; onboarding pendiente\n' >&2
+    exit 2
+    ;;
+  3)
+    printf '[error] Conflicto de recurso administrado\n' >&2
+    exit 3
+    ;;
+  4)
+    printf '[error] Recuperación incompleta; no se continuará\n' >&2
+    exit 4
+    ;;
+  *)
+    printf '[error] Bootstrap falló\n' >&2
+    exit 1
+    ;;
+esac
 
 # ── Connect ──────────────────────────────────────────────────────
 AUTH_OK=0 AUTH_PENDING=0 AUTH_SKIP=0
@@ -183,11 +235,12 @@ if [[ $CONNECT == true ]]; then
 
   # Verificar GitHub PAT solo si github esta en los MCPs del perfil
   if profile_includes "$PROFILE" "mcps" "github"; then
-    if [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
-      printf '  [ok] GITHUB_PERSONAL_ACCESS_TOKEN configurado\n'
-    else
-      printf '  [aviso] GITHUB_PERSONAL_ACCESS_TOKEN no configurado (requerido para MCP GitHub)\n'
-    fi
+    case "$(github_auth_state)" in
+      valid-persistent) printf '  [ok] GitHub: autenticación persistente válida\n' ;;
+      valid-env) printf '  [ok] GitHub: autenticación desde entorno disponible\n' ;;
+      missing) printf '  [aviso] GitHub: autenticación no configurada (requerida para MCP GitHub)\n' ;;
+      *) printf '  [aviso] GitHub: autenticación persistente inválida\n' ;;
+    esac
   fi
 fi
 
@@ -195,11 +248,10 @@ fi
 printf '\n==> Verificando instalacion...\n'
 DOCTOR_OK=false
 AUTH_PENDING=${AUTH_PENDING:-0}
-DOCTOR_EXIT=0
 if [[ $CONNECT == true ]]; then
-  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict && DOCTOR_OK=true || DOCTOR_EXIT=$?
+  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict && DOCTOR_OK=true || true
 else
-  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict --install-check --skip-oauth && DOCTOR_OK=true || DOCTOR_EXIT=$?
+  bash "$ROOT_DIR/scripts/doctor.sh" --profile "$PROFILE" --strict --install-check --skip-oauth && DOCTOR_OK=true || true
 fi
 
 # ── Summary ───────────────────────────────────────────────────────

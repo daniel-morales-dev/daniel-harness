@@ -193,7 +193,7 @@ parse_nested_value() {
     $0 ~ "^" sec ":" { in_sec=1; next }
     in_sec && $0 ~ "^  " subsec ":" { in_sub=1; next }
     in_sub && $0 ~ "^    " k ":" {
-      sub(/^    [a-z_]+:[[:space:]]*/, "")
+      sub(/^    [^:]+:[[:space:]]*/, "")
       gsub(/^["\x27]/, ""); gsub(/["\x27]$/, "")
       print; exit
     }

@@ -55,12 +55,20 @@ Selección interactiva al ejecutar `./install` sin argumentos en una terminal, o
 | `--non-interactive` | No mostrar prompts. Requiere `--profile` |
 | `--experimental-data-tools` | Instala closed data tools experimentales (beta) |
 
-Exit codes: `0` saludable, `1` error, `2` instalado con OAuth pendiente.
+Exit codes: `0` saludable, `1` error técnico, `2` onboarding/OAuth pendiente,
+`3` conflicto de recurso administrado y `4` rollback o recovery incompleto.
 
 ### Secretos persistentes
 
 GitHub y Navi usan almacenamiento persistente en archivos (`~/.config/daniel-harness/secrets/`),
 no requieren exportar variables en cada shell.
+
+`scripts/transaction.py` coordina de forma atómica secretos, `opencode.json`, estado MCP,
+los cinco agentes y `opencode-managed.state`. Un secreto `{file:...}` roto falla cerrado;
+Navi solo migra URL y client ID juntos. `--reset-managed` nunca sobrescribe un agente modificado.
+
+OpenCode `1.18.18` es la mínima versión probada. El instalador verifica `agent list`,
+MCP, `mcp debug`, `mcp auth` y `debug config` antes de continuar.
 
 ### Uso diario
 

@@ -1,6 +1,29 @@
 # Changelog
 
-## 0.1.1 (2026-08-05)
+## 0.1.1 (Unreleased)
+
+### Fixed (release readiness)
+
+- `install` preserva los códigos `0/1/2/3/4` de bootstrap y no ejecuta doctor
+  después de onboarding pendiente, conflicto o recovery incompleto.
+- El resumen de GitHub reconoce la autorización persistente segura sin depender
+  de `GITHUB_PERSONAL_ACCESS_TOKEN`.
+- OpenCode exige la versión mínima probada `1.18.18` y capabilities reales.
+- Gentle AI falla cerrada ante registry no saludable y, con autenticación
+  configurada, ante sync o doctor no saludables; sin `GAIA_KEY` estos dos pasos
+  dependientes de cuenta se omiten y la instalación local puede continuar.
+- Referencias GitHub/Navi `{file:...}` inválidas fallan cerradas sin reparar permisos,
+  imprimir secretos ni publicar cambios parciales.
+- Navi diferencia configuración corrupta (`1`) de onboarding legítimo (`2`).
+
+### Added (release readiness)
+
+- Gate runtime con OpenCode real para `{file:...}` en Authorization, URL y
+  oauth.clientId; URL y Authorization verifican recarga dinámica.
+- `scripts/transaction.py` es el único coordinador productivo: recovery, validación,
+  apply, CAS, rollback y verificación de commit.
+- Integración del coordinador para agentes, secretos y estado, con hard crash/recovery,
+  conflicto managed e idempotencia de mtime.
 
 ### Added (tercera ronda)
 
@@ -19,7 +42,8 @@
 
 ### Changed (tercera ronda)
 
-- Transacción: ahora coordina opencode.json, state, secretos GitHub/Navi y managed files
+- Transacción: coordina opencode.json, state, secretos GitHub/Navi, los cinco agentes
+  y managed files mediante el coordinador Python tipado.
 - Secretos: temp en mismo directorio que destino, no en /tmp
 - `full` perfil ahora extiende `migration`, que extiende `alegra`, que extiende `core`
 - Profile selector usa `profile-resolver.sh` para mostrar valores efectivos heredados

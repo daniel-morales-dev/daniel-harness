@@ -322,11 +322,15 @@ check_gentle_ai() {
     warn 'No se pudo consultar el modo RDD de Gentle AI'
   fi
 
-  doctor_output=$(gentle-ai doctor 2>/dev/null || true)
-  if grep -Fq 'Status:  healthy' <<<"$doctor_output"; then
-    ok 'Ecosistema Gentle AI saludable'
+  if [[ -z "${GAIA_KEY:-}" ]]; then
+    warn 'gentle-ai doctor omitido: GAIA_KEY no configurada'
   else
-    warn 'gentle-ai doctor reporta estado degradado'
+    doctor_output=$(gentle-ai doctor 2>/dev/null || echo "")
+    if grep -Fq 'Status:  healthy' <<<"$doctor_output"; then
+      ok 'Ecosistema Gentle AI saludable'
+    else
+      warn 'gentle-ai doctor reporta estado degradado'
+    fi
   fi
 
   if [[ -f "$REPOSITORY_DIR/.atl/skill-registry.md" ]]; then
@@ -338,7 +342,7 @@ check_gentle_ai() {
 
 validate_profile_agents() {
   local agent_dir="$OPENCODE_CONFIG_DIR/agents"
-  local required=("alegra-microservice-engineer" "code-reviewer" "alegra-microservice-test-engineer" "php-engineer" "migration-parity-reviewer")
+  local required=("alegra-microservice-engineer" "alegra-code-reviewer" "alegra-microservice-test-engineer" "php-engineer" "migration-parity-reviewer")
   local missing=0
 
   if command -v opencode >/dev/null 2>&1; then
